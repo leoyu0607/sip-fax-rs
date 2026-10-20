@@ -86,3 +86,29 @@ Rocky 9 的 EPEL 只提供 spandsp 0.0.6，沒有 T.38 terminal 與現行 T.30 A
 **代價**
 
 簽名需人工對照標頭（已在容器內 grep 驗證 v3.1.1）；升級 SpanDSP 版本時要重新核對。S01–S10 的實際呼叫會在簽名不符時失敗。
+
+## ADR-008：sip-core 的依賴（2026-10-20）
+**背景**
+
+`docs/design/sip-core.md` 第 0 節限定 sip-core 只能依賴 `tokio`、`bytes`、`thiserror`、`tracing`、`rand`。從 sipress 抽取的 Digest 認證（`auth.rs`）需要 MD5，sipress 使用 `md-5` crate。
+
+**決策**
+- 新增 `md-5`（RustCrypto，純 Rust，MIT/Apache-2.0，不引入 OpenSSL）。
+- 所有依賴版本放在根 `Cargo.toml` 的 `[workspace.dependencies]`：`tokio`、`bytes`、`thiserror`、`tracing`、`rand`（0.9）、`md-5`，開發用 `proptest`。
+- M1a（純函式部分）實際只使用 `bytes`、`thiserror`、`rand`、`md-5`；`tokio`、`tracing` 先宣告於 workspace，M1b（transport）才在 sip-core 啟用。
+- fuzz 目標位於 `crates/sip-core/fuzz/`，自成一個 workspace（`libfuzzer-sys` 只在那裡），主 workspace 以 `exclude` 排除，不影響 stable 建置和 CI。
+
+## ADR-009：非 sip/sips/tel 的 URI 以不透明方式保留（2026-10-20）
+**背景**
+
+設計規格第 1 節寫「`SipUri`（sip/sips/tel 以外拒絕）」，但 RFC 4475 3.3.2（`unkscm`）、3.3.3（`novelsc`）、3.3.4（`unksm2`）要求 parser 必須接受 request-line 和 To/From/Contact 中的其他 URI scheme（`nobodyKnowsThisScheme:`、`soap.beep://`、`isbn:`、`http:`、`name:`），由上層回 416 等。
+
+**決策**
+- `SipUri::parse` 仍然只接受 sip/sips/tel，其他 scheme 回錯誤（符合規格原文）。
+- 新增 `Uri` enum：`Uri::Sip(SipUri)` 與 `Uri::Other { scheme, rest }`（語法合法、不解析內容）。`Request::uri` 與 `NameAddr::uri` 使用 `Uri`。是否拒絕該 scheme 由 UAS／上層決定。
+- 規格第 2 節「必要 header 缺少回 ParseError」與 RFC 4475 3.4.1（`inv2543`，無 Max-Forwards）衝突：依規格拒絕，並在測試中明確記錄。
+
+**代價**
+
+呼叫端要多一次 `as_sip()`；但避免 parser 層丟掉合法訊息。
+

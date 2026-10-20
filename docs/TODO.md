@@ -14,7 +14,7 @@
 - [x] [Any] CI：lint（fmt/clippy/cargo-deny）、test、build-musl（x86_64/aarch64，驗證靜態連結）、smoke-rhel（Rocky 9/Alma 10）、tag 時自動 release
 - [x] [Any] `scripts/ci-local.sh`、`scripts/package.sh`
 - [x] [Any] 建立 GitHub repo，push 後確認 CI 全綠
-- [ ] [Any] 設定 `main` 的 branch protection，把 CI job 設為必要檢查（`scripts/set-branch-protection.sh`；需由有管理員權限的人執行）
+- [x] [Any] 設定 `main` 的 branch protection，把 CI job 設為必要檢查（`scripts/set-branch-protection.sh`；需由有管理員權限的人執行）
 - [x] [Any] `docker/test-rocky9.Dockerfile`：Rust toolchain、SpanDSP v3.1.1（從原始碼建置，見 ADR-007）、libtiff-devel
 - [x] [Sonnet] `tools/fax-sim` 雛形：`spandsp-sys`（手寫 FFI，見 ADR-007）綁定、T.38/音訊 loopback、TIFF 產生器；測試 S01–S10 全數通過（見 docs/test-reports/M0.md）
 - [x] [Any] CI 新增 `e2e-spandsp` job，在 Rocky 9 容器中執行（GitHub CI 已綠燈）
@@ -22,12 +22,13 @@
 
 ## M1 — sip-core
 - [ ] [Opus] 撰寫 docs/test-plans/M1.md：涵蓋 RFC 3261/3264/4475 合規條目、重送和計時器、re-INVITE 和 glare、Record-Route
-- [ ] [Sonnet] 抽取 sipress 模組（net.rs、take_frame、DigestChallenge、G.711、RtpPacket 並修正 decode），記錄到 sipress-extraction.md
-- [ ] [Sonnet] 訊息模型與 parser（compact、多值、folding、Route/Record-Route、嚴格 Content-Length），加上 proptest 和 fuzz 目標
+- [x] [Sonnet] 抽取 sipress 模組：net.rs、take_frame、DigestChallenge（M1a 完成，已記錄到 sipress-extraction.md；測試報告見 docs/test-reports/M1.md）
+- [ ] [Sonnet] 抽取 sipress 的 G.711 與 RtpPacket（並修正 decode）（M1/M5）
+- [x] [Sonnet] 訊息模型與 parser（compact、多值、folding、Route/Record-Route、嚴格 Content-Length），加上 proptest 和 fuzz 目標（M1a；P01–P11 通過，P12 fuzz 目標已建立並本機各跑 60 秒；待 Opus 審核）
 - [ ] [Sonnet] Transport：UDP 監聽（rport）、TCP listener
 - [ ] [Sonnet] Transaction layer：INVITE/non-INVITE server、client（Timer A/B/E/F/G/H/I/J/K），用 tokio 的暫停時間做確定性測試
 - [ ] [Sonnet] Dialog：UAS、in-dialog UAC（re-INVITE、BYE）、491、session timer、OPTIONS
-- [ ] [Sonnet] SDP 模型：audio 加 `m=image udptl t38`，含全部 T38Fax* 屬性
+- [x] [Sonnet] SDP 模型：audio 加 `m=image udptl t38`，含全部 T38Fax* 屬性（M1a；D01–D07 通過；待 Opus 審核）
 - [ ] [Sonnet] fax-sim 的 SIP UAC 模式：INVITE、選擇由誰發起 re-INVITE、BYE
 - [ ] [Any] CI 新增涵蓋率門檻（`cargo llvm-cov --fail-under-lines`：協定 crate 85%）
 - [ ] [Opus] 審核 docs/test-reports/M1.md

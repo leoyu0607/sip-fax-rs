@@ -1,0 +1,30 @@
+[package]
+name = "sip-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace so that stable `cargo build/test --workspace`
+# never needs nightly or libfuzzer.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sip-core = { path = ".." }
+
+[[bin]]
+name = "parse_message"
+path = "fuzz_targets/parse_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_sdp"
+path = "fuzz_targets/parse_sdp.rs"
+test = false
+doc = false
+bench = false

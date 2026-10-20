@@ -7,3 +7,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+bytes = { workspace = true }
+md-5 = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
