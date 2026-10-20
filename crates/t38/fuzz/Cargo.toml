@@ -1,0 +1,30 @@
+[package]
+name = "t38-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace so that stable `cargo build/test --workspace`
+# never needs nightly or libfuzzer.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+t38 = { path = ".." }
+
+[[bin]]
+name = "ifp_decode"
+path = "fuzz_targets/ifp_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "udptl_decode"
+path = "fuzz_targets/udptl_decode.rs"
+test = false
+doc = false
+bench = false

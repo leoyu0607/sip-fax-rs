@@ -40,7 +40,7 @@
 
   <recv response="200" rrs="true">
     <action>
-      <ereg regexp="m=image 30000 udptl t38" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="m=image 30[0-9][0-9][02468] udptl t38" search_in="msg" check_it="true" assign_to="1"/>
       <ereg regexp="SIP/2.0 |[A-Z]+ sip:" search_in="msg" check_it="true" assign_to="1"/>
     </action>
   </recv>

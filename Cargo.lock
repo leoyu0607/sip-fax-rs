@@ -673,10 +673,17 @@ version = "0.1.0"
 [[package]]
 name = "t38"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "thiserror",
+]
 
 [[package]]
 name = "t4"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "tempfile"

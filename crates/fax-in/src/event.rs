@@ -72,6 +72,8 @@ pub enum FailureReason {
     },
     /// The source belongs to no trunk and `unknown_source` is not `log`.
     UnknownSource,
+    /// Every UDPTL port of `[media] port_range` was in use (answered 503).
+    NoMediaPort,
     /// No ACK for our 200.
     AckTimeout,
     /// T.38 could not be established and G.711 passthrough does not exist yet.

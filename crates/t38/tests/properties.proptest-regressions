@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9aee9817a3e0dc00cbe9e0ad063dd345c1dcb50cadb41eff20be1bd0bbfc23b9 # shrinks to mode = Redundancy { depth: 1 }, first_seq = 0, fates = [Fate { lost: false, dup: false, jitter: 0 }, Fate { lost: true, dup: false, jitter: 0 }, Fate { lost: false, dup: false, jitter: 3 }, Fate { lost: false, dup: false, jitter: 0 }]

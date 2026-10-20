@@ -176,21 +176,11 @@ async fn flow_we_initiate_the_t38_reinvite() {
         }
         other => panic!("{other:?}"),
     }
-    // wait until the controller has seen the 200 (a BYE sent in the same millisecond could
-    // overtake the 200 inside the controller's tasks; a gateway never hangs up that fast)
-    loop {
-        match tokio::time::timeout(Duration::from_secs(10), ev.recv()).await {
-            Ok(Some(CallEvent::T38Established { params, .. })) => {
-                assert_eq!(params.path, T38Path::OurReinvite);
-                break;
-            }
-            Ok(Some(_)) => {}
-            other => panic!("{other:?}"),
-        }
-    }
+    // K01: the BYE follows the 200 immediately (no waiting for the controller to react); the
+    // call must still be recorded as a completed T.38 call, not as `peer_hangup_before_t38`.
     assert_eq!(dlg.bye().await.unwrap().code(), 200);
     let r = next_result(&mut ev).await;
-    assert_eq!(r.outcome, CallOutcome::Completed);
+    assert_eq!(r.outcome, CallOutcome::Completed, "{r:?}");
     assert_eq!(r.t38.unwrap().path, T38Path::OurReinvite);
     gw.shutdown().await;
     fx.shutdown().await;

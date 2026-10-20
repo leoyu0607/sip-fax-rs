@@ -51,6 +51,7 @@ dependencies = [
  "serde_json",
  "sip-core",
  "spandsp-sys",
+ "t38",
  "tokio",
 ]
 
@@ -294,6 +295,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "t38"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

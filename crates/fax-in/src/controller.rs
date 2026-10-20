@@ -29,6 +29,7 @@ use crate::config::{
 };
 use crate::event::{CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path};
 use crate::media::{self, Accepted, MediaCtx, Unacceptable};
+use crate::ports::PortPool;
 use crate::session::{FaxSessionFactory, SessionContext, SessionOutcome, StubFactory};
 use crate::trunk::{Trunk, TrunkTable};
 
@@ -55,7 +56,9 @@ pub struct StartOptions {
 struct Shared {
     cfg: FaxInConfig,
     table: TrunkTable,
+    /// Shared media settings; `t38_port` is 0 here and set per call.
     media: MediaCtx,
+    ports: PortPool,
     events: mpsc::UnboundedSender<CallEvent>,
     capture: Option<Arc<Capture>>,
     factory: Arc<dyn FaxSessionFactory>,
@@ -158,12 +161,18 @@ impl FaxIn {
         let media = MediaCtx {
             local_address: cfg.media_address(),
             audio_port: cfg.media.audio_port,
-            t38_port: cfg.media.t38_port,
+            t38_port: 0,
         };
+        // validated by FaxInConfig::parse; a hand-built config with a bad range gets one port
+        let ports = PortPool::new(cfg.media.port_range().unwrap_or(crate::config::PortRange {
+            low: 30000,
+            high: 30000,
+        }));
         let shared = Arc::new(Shared {
             cfg,
             table,
             media,
+            ports,
             events: ev_tx,
             capture: capture.clone(),
             factory,
@@ -462,11 +471,29 @@ async fn drive(
         let _ = call.reject(StatusCode::NOT_ACCEPTABLE_HERE).await;
         return failed(FailureReason::NoSdpOffer);
     };
-    let mut origin = OriginTracker::random(&sh.media.local_address);
+    // One UDPTL port per call, for the whole call. Without a free port the call is refused
+    // (nothing has been promised to the peer yet).
+    let Some(lease) = sh.ports.acquire() else {
+        tracing::error!(
+            call_id,
+            capacity = sh.ports.capacity(),
+            "no free UDPTL port in [media] port_range: 503"
+        );
+        let _ = call.reject(StatusCode::SERVICE_UNAVAILABLE).await;
+        return failed(FailureReason::NoMediaPort);
+    };
+    let media_ctx = sh.media.with_t38_port(lease.port());
+    tracing::debug!(
+        call_id,
+        port = lease.port(),
+        free = sh.ports.available(),
+        "UDPTL port leased"
+    );
+    let mut origin = OriginTracker::random(&media_ctx.local_address);
     let (answer, accepted) = match media::answer(
         &offer,
         trunk,
-        &sh.media,
+        &media_ctx,
         &mut origin,
         source.ip(),
         T38Path::InitialInvite,
@@ -505,6 +532,7 @@ async fn drive(
         trunk,
         call_id,
         source: source.ip(),
+        media: media_ctx,
         rec,
         origin,
         control: dlg.control(),
@@ -542,6 +570,8 @@ struct Live<'a> {
     trunk: &'a Arc<Trunk>,
     call_id: &'a str,
     source: std::net::IpAddr,
+    /// Media settings of this call (its UDPTL port).
+    media: MediaCtx,
     rec: &'a mut Rec,
     origin: OriginTracker,
     control: sip_core::endpoint::DialogControl,
@@ -655,7 +685,7 @@ impl Live<'_> {
         match media::answer(
             &offer,
             self.trunk,
-            &self.sh.media,
+            &self.media,
             &mut self.origin,
             self.source,
             T38Path::PeerReinvite,
@@ -679,7 +709,7 @@ impl Live<'_> {
     /// by a helper task) so that its result is seen before a BYE the peer sends right behind
     /// its 200.
     fn start_own_reinvite(&mut self) -> ReinviteFuture {
-        let offer = media::t38_offer(self.trunk, &self.sh.media, &mut self.origin);
+        let offer = media::t38_offer(self.trunk, &self.media, &mut self.origin);
         self.reinvite_pending = true;
         let ctl = self.control.clone();
         tracing::info!(call_id = self.call_id, "sending the T.38 re-INVITE");
@@ -694,7 +724,7 @@ impl Live<'_> {
         self.reinvite_pending = false;
         match r {
             Ok(ReinviteOutcome::Accepted(sdp)) => {
-                match media::read_t38_answer(&sdp, self.trunk, &self.sh.media, self.source) {
+                match media::read_t38_answer(&sdp, self.trunk, &self.media, self.source) {
                     Some(p) => {
                         self.establish(p);
                         None

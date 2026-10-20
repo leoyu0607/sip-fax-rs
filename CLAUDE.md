@@ -23,7 +23,7 @@ scripts/ci-local.sh              # push 前必跑，與 CI 必要檢查一致（
 scripts/e2e-docker.sh            # 在 Rocky 9 容器內跑 tools/ workspace：SpanDSP 模擬、fax-sim SIP UAC，以及真實 sip-faxd 對 SIPp 的互通測試（tools/sipp/*.xml、tools/interop）
 sip-faxd serve --config conf/sip-faxd.toml     # 執行（預設路徑：執行檔旁的 conf/sip-faxd.toml）
 sip-faxd config check --config conf/sip-faxd.toml.example   # 驗證設定檔
-cargo llvm-cov -p sip-core --fail-under-lines 85 && cargo llvm-cov -p fax-in --fail-under-lines 70   # 涵蓋率門檻
+cargo llvm-cov -p sip-core --fail-under-lines 85 && cargo llvm-cov -p fax-in --fail-under-lines 70   # 涵蓋率門檻（協定 crate t38、t4 同為 85）
 cargo zigbuild --release --target x86_64-unknown-linux-musl -p sip-faxd
 scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
 ```

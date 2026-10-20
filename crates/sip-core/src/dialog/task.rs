@@ -200,6 +200,10 @@ struct DialogTask {
     dialog: Dialog,
     ep: Arc<EpInner>,
     input_tx: mpsc::UnboundedSender<DialogInput>,
+    input_rx: mpsc::UnboundedReceiver<DialogInput>,
+    /// Inputs read ahead of time (see `absorb_inflight_reinvite_events`); served before
+    /// `input_rx`.
+    backlog: VecDeque<DialogInput>,
     events: mpsc::UnboundedSender<DialogEvent>,
     timers: Timers,
     confirmed: bool,
@@ -222,7 +226,7 @@ pub(crate) async fn run(init: TaskInit, mut stop: watch::Receiver<bool>) {
         dialog,
         ep,
         input_tx,
-        mut input_rx,
+        input_rx,
         events,
         initial_2xx,
         initial_ack,
@@ -235,6 +239,8 @@ pub(crate) async fn run(init: TaskInit, mut stop: watch::Receiver<bool>) {
         dialog,
         ep: ep.clone(),
         input_tx,
+        input_rx,
+        backlog: VecDeque::new(),
         events,
         timers: Timers::default(),
         local_sdp,
@@ -262,7 +268,12 @@ pub(crate) async fn run(init: TaskInit, mut stop: watch::Receiver<bool>) {
     while !t.terminated {
         let next = t.timers.next();
         tokio::select! {
-            input = input_rx.recv() => match input {
+            input = async {
+                match t.backlog.pop_front() {
+                    Some(i) => Some(i),
+                    None => t.input_rx.recv().await,
+                }
+            } => match input {
                 Some(i) => t.on_input(i).await,
                 None => break,
             },
@@ -454,6 +465,33 @@ impl DialogTask {
         }
     }
 
+    /// K01: our re-INVITE's final response and a peer BYE sent right behind it travel through
+    /// different tasks (client transaction -> forwarder -> here, versus server transaction ->
+    /// here), so the BYE can arrive first although the response was received first on the
+    /// wire. Before the dialog is terminated, give an in-flight response the chance to reach
+    /// us: yield to the scheduler a bounded number of times (no timer, so the BYE is never
+    /// delayed in virtual time), handling INVITE client-transaction events as they appear.
+    /// Every other input is kept (in order) for the main loop. Costs nothing unless a
+    /// re-INVITE is outstanding without a final response.
+    async fn absorb_inflight_reinvite_events(&mut self) {
+        const YIELDS: usize = 64;
+        for _ in 0..YIELDS {
+            if !self.active.as_ref().is_some_and(|a| !a.cancelled) {
+                return;
+            }
+            tokio::task::yield_now().await;
+            while let Ok(input) = self.input_rx.try_recv() {
+                match input {
+                    DialogInput::Client {
+                        purpose: Purpose::Invite(cseq),
+                        event,
+                    } => self.on_invite_event(cseq, event).await,
+                    other => self.backlog.push_back(other),
+                }
+            }
+        }
+    }
+
     fn spawn_forward(&self, events: mpsc::UnboundedReceiver<TuEvent>, purpose: Purpose) {
         self.ep
             .tasks
@@ -551,6 +589,7 @@ impl DialogTask {
                     let r = self.response(&p.request, StatusCode::REQUEST_TERMINATED, None, false);
                     self.reply(&p.tx, r).await;
                 }
+                self.absorb_inflight_reinvite_events().await;
                 self.emit(DialogEvent::Bye);
                 self.terminate(TerminateReason::RemoteBye);
             }

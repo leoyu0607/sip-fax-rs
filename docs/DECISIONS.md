@@ -182,3 +182,32 @@ M1d 在 sip-core 之上建立 fax-in 呼叫控制骨架與可執行的 `sip-faxd
 - `auto` 與 `initiate` 暫時沒有行為差異。
 - 設定檔的 `peer` 若是主機名稱，於啟動時解析一次（沒有動態 DNS）。
 - BYE 結果最多等 5 s（對方不回應時）才回報通話結果。
+
+## ADR-014：t38 crate 的 PER／UDPTL 設計與 SpanDSP 差異（2026-10-21）
+**背景**：規格 §1 要求 T.38 v0–v3 的 IFP PER 與 UDPTL；SpanDSP 的編碼在少數地方偏離 X.691。
+**決策**
+- IFP 採純 ASN.1 `T38(2002)` / ALIGNED PER：`field-type` 在 V0 為 3 bit 無 extension bit，V1+ 為 ext bit + 3 bit；addition 一律用 normally-small number（`0` + 6 bit）。V0/V1 拒絕所有 addition，V2+ 接受。
+- 與 SpanDSP 不同之處（已記錄）：jm/ci/v34rate 的 index 版面、V1+ 中無 data 的非末尾 field 緊密排列；SpanDSP 實際發出的 7026 個封包全數逐 byte 相同。
+- UDPTL 的 FEC 沿用 SpanDSP／Asterisk 的事實標準（entry m 為 `n+m-span*entries+k*entries`、k=0..span 的 XOR，暖機規則相同），並以參考實作逐 byte 驗證（285 個資料包）。
+- 接收端為純狀態機：`on_datagram()` + `flush()`；以 64-bit 展開序號處理 wrap；FEC 恢復的封包帶零填補（`Source::Fec`、`Ifp::decode_padded`）。
+**代價**：與外部以純 PER 為準的對端相容，與 SpanDSP 在上述三種罕見 field 不相容（fax-in 不用 V.34）。
+
+## ADR-015：port_range 與每通電話的 UDPTL 埠（2026-10-21）
+- `[media] port_range = "low-high"` 取代 `t38_port`；舊鍵給明確錯誤訊息（不靜默相容）。只發範圍內的偶數埠，FIFO 重用，`Drop` 歸還。
+- 每通電話在回應前取得一個埠，整通共用；耗盡 → 503 + `error` 日誌 + `FailureReason::NoMediaPort`。
+- `audio_port` 暫維持單一固定值（G.711 passthrough 在 M5）。
+
+## ADR-016：K01 的處理方式（2026-10-21）
+- dialog task 處理對方 BYE 前，若有進行中的 re-INVITE，先讓出排程最多 64 次並吸收已到達的 client transaction 事件，使「200 先到」的結果回報為 `Accepted`。不使用計時器，BYE 的處理在虛擬時間上不延遲。
+- 這是有限度的保證；根本解（單一有序佇列）留待 M6 評估。
+
+## ADR-017：測試映像保留 SpanDSP 的參考 UDPTL（2026-10-21）
+- `docker/test-rocky9.Dockerfile` 在映像內保留 `tests/udptl.c`/`udptl.h`（GPL-2，僅在測試映像、不進 repo、不進正式執行檔），由 `spandsp-sys/build.rs` 編成靜態庫供 U01 使用。理由：libspandsp 本身不匯出 UDPTL，而它是 FEC 線上格式唯一的獨立對照。
+
+## ADR-018：t4 crate 的語意與限制（2026-10-21）
+- 影像 row 一律是 packed 1-bit、MSB 優先、**1 = 黑**；解碼器逐列以 callback 交出，永遠不自行累積整頁。
+- 非 ECM 錯誤處理：MH／MR 壞列以上一列替代、計入 `bad_lines`／`longest_bad_run`，在下一個 EOL 重新同步（`rows` 不變，列數與發送端一致）；MMR 無法重新同步，第一個錯誤即放棄該頁剩餘部分（`EndReason::Aborted` 加 `Summary::error`），已輸出的列保留。T.30 層以 `Summary` 判斷 MCF／RTN。
+- RTC＝連續 6 個 EOL；EOFB＝一個 EOL 起即視為結束。結束後的資料一律忽略。
+- 硬限制：寬度 ≤ 8192、`max_rows` 預設 16 384，達到時以 `EndReason::RowLimit` 結束。fax-in 應依頁面長度需求設定 `max_rows`，不可關閉。
+- TIFF Class F：little endian、每頁一個 G4 strip、`FillOrder=1`、MinIsWhite、`T6Options=0`；`DateTime`／`ImageDescription` 由呼叫端提供；有 bad lines 時寫 Class F 的 `BadFaxLines` 系列 tag。PDF：每頁一個 `CCITTFaxDecode` 影像（`K -1`、`BlackIs1 false`），頁面大小以 `pixels × 72 / dpi` 計算（1/10000 pt 捨去）。
+- 測試規範：以 libtiff 比對像素必須用 `tiffcmp -t` 並附負向對照（預設的 `tiffcmp` 在 tag 不同時不比像素）。

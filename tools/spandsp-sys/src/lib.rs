@@ -100,3 +100,44 @@ unsafe extern "C" {
     pub fn fax_set_transmit_on_idle(s: *mut fax_state_t, transmit_on_idle: c_int);
     pub fn fax_get_t30_state(s: *mut fax_state_t) -> *mut t30_state_t;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Reference UDPTL (SpanDSP tests/udptl.c, compiled by build.rs). libspandsp does not export it.
+
+opaque!(udptl_state_t);
+
+/// `int (*)(void *user_data, const uint8_t msg[], int len, int seq_no)`
+pub type udptl_rx_packet_handler_t = unsafe extern "C" fn(
+    user_data: *mut c_void,
+    msg: *const u8,
+    len: c_int,
+    seq_no: c_int,
+) -> c_int;
+
+/// udptl.h: `UDPTL_ERROR_CORRECTION_NONE`
+pub const UDPTL_ERROR_CORRECTION_NONE: c_int = 0;
+/// udptl.h: `UDPTL_ERROR_CORRECTION_FEC`
+pub const UDPTL_ERROR_CORRECTION_FEC: c_int = 1;
+/// udptl.h: `UDPTL_ERROR_CORRECTION_REDUNDANCY`
+pub const UDPTL_ERROR_CORRECTION_REDUNDANCY: c_int = 2;
+/// udptl.h: `LOCAL_FAX_MAX_DATAGRAM`
+pub const UDPTL_LOCAL_FAX_MAX_DATAGRAM: usize = 400;
+
+unsafe extern "C" {
+    pub fn udptl_init(
+        s: *mut udptl_state_t,
+        ec_scheme: c_int,
+        span: c_int,
+        entries: c_int,
+        rx_packet_handler: udptl_rx_packet_handler_t,
+        user_data: *mut c_void,
+    ) -> *mut udptl_state_t;
+    pub fn udptl_free(s: *mut udptl_state_t) -> c_int;
+    pub fn udptl_build_packet(
+        s: *mut udptl_state_t,
+        buf: *mut u8,
+        msg: *const u8,
+        msg_len: c_int,
+    ) -> c_int;
+    pub fn udptl_rx_packet(s: *mut udptl_state_t, buf: *const u8, len: c_int) -> c_int;
+}

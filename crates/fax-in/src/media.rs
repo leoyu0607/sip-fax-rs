@@ -19,8 +19,19 @@ pub struct MediaCtx {
     pub local_address: String,
     /// Audio port in answers.
     pub audio_port: u16,
-    /// UDPTL port in answers and offers.
+    /// UDPTL port in answers and offers. Per call: the controller leases it from the port
+    /// pool and sets it with [`MediaCtx::with_t38_port`].
     pub t38_port: u16,
+}
+
+impl MediaCtx {
+    /// The same settings with the UDPTL port of one call.
+    pub fn with_t38_port(&self, t38_port: u16) -> MediaCtx {
+        MediaCtx {
+            t38_port,
+            ..self.clone()
+        }
+    }
 }
 
 /// What the answer accepted.

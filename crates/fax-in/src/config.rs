@@ -181,6 +181,55 @@ impl Default for SipConfig {
     }
 }
 
+/// An inclusive UDP port range, `"low-high"` in the configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortRange {
+    /// First port of the range.
+    pub low: u16,
+    /// Last port of the range (inclusive).
+    pub high: u16,
+}
+
+impl PortRange {
+    /// Parses `"30000-30999"`.
+    pub fn parse(text: &str) -> Result<PortRange, ConfigError> {
+        let bad = || {
+            ConfigError::Invalid(format!(
+                "[media] port_range \"{text}\" is not of the form \"low-high\" (e.g. \"30000-30999\")"
+            ))
+        };
+        let (a, b) = text.split_once('-').ok_or_else(bad)?;
+        let low: u16 = a.trim().parse().map_err(|_| bad())?;
+        let high: u16 = b.trim().parse().map_err(|_| bad())?;
+        if low == 0 {
+            return invalid("[media] port_range must not include port 0");
+        }
+        if low > high {
+            return invalid(format!(
+                "[media] port_range \"{text}\": the low port is above the high port"
+            ));
+        }
+        let r = PortRange { low, high };
+        if r.ports().next().is_none() {
+            return invalid(format!(
+                "[media] port_range \"{text}\" contains no even port (UDPTL ports are allocated from the even ports of the range)"
+            ));
+        }
+        Ok(r)
+    }
+
+    /// The usable ports: the even ports of the range, ascending. A call gets one of them, so
+    /// `"30000-30999"` allows 500 simultaneous T.38 calls.
+    pub fn ports(&self) -> impl Iterator<Item = u16> {
+        (self.low..=self.high).filter(|p| p % 2 == 0)
+    }
+
+    /// Number of usable (even) ports.
+    pub fn capacity(&self) -> usize {
+        self.ports().count()
+    }
+}
+
 /// `[media]`
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -189,8 +238,19 @@ pub struct MediaConfig {
     pub address: Option<String>,
     /// RTP port in the audio answer (placeholder until G.711 passthrough, M5).
     pub audio_port: u16,
-    /// UDPTL port in the T.38 answer / offer (placeholder until the T.38 media path, M2).
-    pub t38_port: u16,
+    /// UDPTL ports for T.38 calls, `"low-high"`. Every call is given one even port of the
+    /// range for its whole duration; when none is free a new call is answered with 503.
+    pub port_range: String,
+    /// Removed option, kept only to give a helpful error: `t38_port` was replaced by
+    /// `port_range` in M2.
+    pub t38_port: Option<u16>,
+}
+
+impl MediaConfig {
+    /// The parsed [`MediaConfig::port_range`].
+    pub fn port_range(&self) -> Result<PortRange, ConfigError> {
+        PortRange::parse(&self.port_range)
+    }
 }
 
 impl Default for MediaConfig {
@@ -198,7 +258,8 @@ impl Default for MediaConfig {
         MediaConfig {
             address: None,
             audio_port: 20000,
-            t38_port: 30000,
+            port_range: "30000-30999".to_string(),
+            t38_port: None,
         }
     }
 }
@@ -554,6 +615,14 @@ impl FaxInConfig {
     /// unresolvable peers).
     pub fn validate(&self) -> Result<(), ConfigError> {
         let _ = crate::trunk::TrunkTable::build(self)?;
+        if let Some(p) = self.media.t38_port {
+            return invalid(format!(
+                "[media] t38_port = {p} is no longer supported: every call now gets its own UDPTL port. \
+                 Replace it with port_range = \"{p}-{}\" (a range of even ports, one per simultaneous call)",
+                p.saturating_add(999)
+            ));
+        }
+        self.media.port_range()?;
         let t = &self.sip.bind;
         if t.port() == 0 && self.trunks.iter().any(|t| t.register.enabled) {
             return invalid("[sip] bind port 0 cannot be combined with registration");

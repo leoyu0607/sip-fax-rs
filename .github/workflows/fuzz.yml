@@ -1,6 +1,7 @@
 name: Fuzz
 
-# Nightly fuzzing of the sip-core parsers (docs/test-plans/M1.md P12). Deliberately NOT
+# Nightly fuzzing of the sip-core parsers (docs/test-plans/M1.md P12) and the t38 IFP / UDPTL
+# decoders (docs/test-plans/M2.md section 0). Deliberately NOT
 # triggered by push or pull_request: fuzzing must never block or slow down normal CI.
 on:
   schedule:
@@ -17,22 +18,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [parse_message, parse_sdp]
+        include:
+          - { crate: sip-core, target: parse_message }
+          - { crate: sip-core, target: parse_sdp }
+          - { crate: t38, target: ifp_decode }
+          - { crate: t38, target: udptl_decode }
+          - { crate: t4, target: t4_decode }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/sip-core/fuzz
-          key: ${{ matrix.target }}
+          workspaces: crates/${{ matrix.crate }}/fuzz
+          key: ${{ matrix.crate }}-${{ matrix.target }}
       - run: cargo install cargo-fuzz --locked
       - name: Fuzz ${{ matrix.target }} for 5 minutes
-        working-directory: crates/sip-core
+        working-directory: crates/${{ matrix.crate }}
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
       - name: Upload crashing inputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-artifacts-${{ matrix.target }}
-          path: crates/sip-core/fuzz/artifacts/${{ matrix.target }}
+          name: fuzz-artifacts-${{ matrix.crate }}-${{ matrix.target }}
+          path: crates/${{ matrix.crate }}/fuzz/artifacts/${{ matrix.target }}
           if-no-files-found: ignore

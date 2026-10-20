@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*"]
-exclude = ["tools", "crates/sip-core/fuzz"]
+exclude = ["tools", "crates/sip-core/fuzz", "crates/t38/fuzz", "crates/t4/fuzz"]
 
 [workspace.package]
 version = "0.1.0"

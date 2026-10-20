@@ -24,7 +24,8 @@ fn defaults_apply_to_an_empty_file() {
     assert_eq!(c.sip.bind.to_string(), "0.0.0.0:5060");
     assert_eq!(c.sip.unknown_source, UnknownSource::Drop);
     assert_eq!(c.media.audio_port, 20000);
-    assert_eq!(c.media.t38_port, 30000);
+    assert_eq!(c.media.port_range, "30000-30999");
+    assert_eq!(c.media.port_range().unwrap().capacity(), 500);
     assert!(c.capture.enabled);
     assert_eq!(c.capture.keep, KeepMode::All);
     assert_eq!(c.capture.dir.to_str(), Some("logs/calls"));
@@ -249,4 +250,56 @@ fn t38_policy_helpers_and_capability_mapping() {
     let offer = t.t38_offer_params();
     assert_eq!(format!("{:?}", offer.udp_ec), "Fec");
     assert_eq!(format!("{:?}", offer.rate_management), "LocalTcf");
+}
+
+// ================================================================ port_range (M2a, spec section 4)
+
+#[test]
+fn port_range_parses_and_counts_even_ports() {
+    use fax_in::config::PortRange;
+    let r = PortRange::parse("30000-30999").unwrap();
+    assert_eq!((r.low, r.high, r.capacity()), (30000, 30999, 500));
+    assert_eq!(
+        PortRange::parse(" 30001 - 30004 ")
+            .unwrap()
+            .ports()
+            .collect::<Vec<_>>(),
+        vec![30002, 30004]
+    );
+    assert_eq!(PortRange::parse("30000-30003").unwrap().capacity(), 2);
+    let c = parse("[media]\nport_range = \"40000-40009\"\n");
+    assert_eq!(c.media.port_range().unwrap().capacity(), 5);
+}
+
+#[test]
+fn port_range_rejects_bad_values() {
+    for (v, needle) in [
+        ("30000", "low-high"),
+        ("abc-def", "low-high"),
+        ("30000-", "low-high"),
+        ("-30000", "low-high"),
+        ("30000-70000", "low-high"),
+        ("31000-30000", "above the high port"),
+        ("0-100", "port 0"),
+        ("30001-30001", "no even port"),
+    ] {
+        let e = err(&format!("[media]\nport_range = \"{v}\"\n"));
+        assert!(e.contains(needle), "port_range {v}: {e}");
+    }
+    assert!(err("[media]\nport_range = 30000\n").contains("port_range"));
+}
+
+#[test]
+fn legacy_t38_port_is_refused_with_a_pointer_to_port_range() {
+    let e = err("[media]\nt38_port = 30000\n");
+    assert!(e.contains("t38_port") && e.contains("port_range"), "{e}");
+    assert!(
+        e.contains("30000-30999"),
+        "the message suggests an equivalent range: {e}"
+    );
+    // even together with a valid port_range
+    let e = err("[media]\nt38_port = 30000\nport_range = \"30000-30999\"\n");
+    assert!(e.contains("no longer supported"), "{e}");
+    // other unknown keys are still rejected by deny_unknown_fields
+    assert!(err("[media]\nt38port = 1\n").contains("t38port"));
 }

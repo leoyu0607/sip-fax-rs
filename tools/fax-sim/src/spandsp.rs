@@ -28,6 +28,8 @@ pub struct T30Config<'a> {
     pub rx_file: Option<&'a Path>,
     pub ecm: bool,
     pub ident: &'a str,
+    /// `T30_SUPPORT_*` bit mask; `None` enables V.27ter, V.29 and V.17.
+    pub modems: Option<i32>,
 }
 
 fn cpath(p: &Path) -> CString {
@@ -52,7 +54,8 @@ unsafe fn configure_t30(
         sys::t30_set_ecm_capability(t30, cfg.ecm);
         sys::t30_set_supported_modems(
             t30,
-            sys::T30_SUPPORT_V27TER | sys::T30_SUPPORT_V29 | sys::T30_SUPPORT_V17,
+            cfg.modems
+                .unwrap_or(sys::T30_SUPPORT_V27TER | sys::T30_SUPPORT_V29 | sys::T30_SUPPORT_V17),
         );
         sys::t30_set_supported_compressions(
             t30,
@@ -147,6 +150,15 @@ impl T38Terminal {
         unsafe {
             let core = sys::t38_terminal_get_t38_core_state(self.ptr);
             sys::t38_core_rx_ifp_packet(core, data.as_ptr(), data.len() as c_int, seq);
+        }
+    }
+
+    /// Sets the T.38 version SpanDSP uses to encode and decode IFP packets (default 0).
+    pub fn set_t38_version(&mut self, version: i32) {
+        // SAFETY: ptr valid.
+        unsafe {
+            let core = sys::t38_terminal_get_t38_core_state(self.ptr);
+            sys::t38_set_t38_version(core, version);
         }
     }
 

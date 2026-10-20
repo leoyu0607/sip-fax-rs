@@ -10,6 +10,7 @@ description = "SpanDSP-based fax simulation: T.38 / G.711 loopback runners and T
 [dependencies]
 spandsp-sys = { path = "../spandsp-sys" }
 sip-core = { path = "../../crates/sip-core" }
+t38 = { path = "../../crates/t38" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
 
 [dev-dependencies]

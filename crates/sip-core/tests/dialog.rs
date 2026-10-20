@@ -1658,3 +1658,87 @@ impl W {
         call.reject_with(StatusCode::OK, &[]).await.unwrap_err()
     }
 }
+
+// ================================================================ K01 (M2a)
+
+/// K01: the 200 to our re-INVITE and the peer's BYE reach the stack in the same instant (two
+/// datagrams back to back, no scheduling point between them). `reinvite()` must report
+/// `Accepted`: the 200 was received first. Before the fix the BYE could overtake the 200 on its
+/// way through the transaction layer (different tasks), terminate the dialog and make
+/// `reinvite()` fail with `Terminated`.
+#[tokio::test(start_paused = true)]
+async fn k01_reinvite_200_and_bye_in_the_same_instant_still_report_accepted() {
+    for round in 0..20 {
+        let mut w = W::new();
+        let mut dlg = establish(&mut w, &Inv::default(), Some(10)).await;
+        assert!(matches!(
+            next_event(&mut dlg).await,
+            Some(DialogEvent::Established)
+        ));
+        let ctl = dlg.control();
+        let ours = tokio::spawn(async move { ctl.reinvite(sdp(T38_OFFER)).await });
+        settle().await;
+        let (_, inv) = w.requests("INVITE").remove(0);
+        let tag = w.our_tag();
+        let ok = resp_with(
+            &inv,
+            200,
+            FROM_TAG,
+            &[("Contact", GW_CONTACT.to_string())],
+            Some(T38_OFFER),
+        );
+        let bye = peer_in_dialog("BYE", "z9hG4bKk01bye", 2, &tag, None, &[]);
+        // both land in the transport queue before anything runs
+        w.inject
+            .send(incoming(SipMessage::Response(ok), TransportKind::Udp))
+            .await
+            .unwrap();
+        w.inject
+            .send(incoming(SipMessage::Request(bye), TransportKind::Udp))
+            .await
+            .unwrap();
+        settle().await;
+        let out = ours.await.unwrap();
+        assert!(
+            matches!(out, Ok(ReinviteOutcome::Accepted(_))),
+            "round {round}: expected Accepted, got {out:?}"
+        );
+        // the BYE is still honoured: answered, event + termination follow, ACK for the 200 was sent
+        assert_eq!(w.responses(200, "BYE").len(), 1, "round {round}");
+        assert_eq!(
+            w.requests("ACK").len(),
+            1,
+            "round {round}: ACK for the re-INVITE 200"
+        );
+        assert!(matches!(next_event(&mut dlg).await, Some(DialogEvent::Bye)));
+        assert!(matches!(
+            next_event(&mut dlg).await,
+            Some(DialogEvent::Terminated(TerminateReason::RemoteBye))
+        ));
+        assert_eq!(w.ep.dialog_count(), 0);
+    }
+}
+
+/// A BYE alone (no 200 ever arrives) still fails the pending re-INVITE with `Terminated`, and
+/// quickly: the grace given to an in-flight 200 must not delay the BYE handling.
+#[tokio::test(start_paused = true)]
+async fn k01_bye_without_a_200_still_terminates_the_pending_reinvite() {
+    let mut w = W::new();
+    let mut dlg = establish(&mut w, &Inv::default(), Some(10)).await;
+    let _ = next_event(&mut dlg).await;
+    let ctl = dlg.control();
+    let ours = tokio::spawn(async move { ctl.reinvite(sdp(T38_OFFER)).await });
+    settle().await;
+    let tag = w.our_tag();
+    w.at(500).await;
+    w.feed_req(peer_in_dialog("BYE", "z9hG4bKk01bye2", 2, &tag, None, &[]))
+        .await;
+    let out = ours.await.unwrap();
+    assert!(matches!(out, Err(DialogError::Terminated)), "{out:?}");
+    let ok = w.responses(200, "BYE");
+    assert_eq!(ok.len(), 1);
+    assert_eq!(
+        ok[0].0, 500,
+        "the BYE is answered in the same virtual millisecond"
+    );
+}

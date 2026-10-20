@@ -21,7 +21,12 @@ RUN git clone --depth 1 --branch ${SPANDSP_REF} https://github.com/freeswitch/sp
  && make -j"$(nproc)" \
  && make install \
  && printf "/usr/local/lib\n/usr/local/lib64\n" > /etc/ld.so.conf.d/usr-local.conf && ldconfig \
+ && mkdir -p /usr/local/share/spandsp-udptl && cp tests/udptl.c tests/udptl.h /usr/local/share/spandsp-udptl/ \
  && rm -rf /src/spandsp
+
+# SpanDSP's library does not export UDPTL; its source tree ships a reference implementation
+# (tests/udptl.c, GPL-2, written by the SpanDSP author) next to the test programs. It is kept in the
+# image only so tools/spandsp-sys can compile it for the U01 interop test (never shipped).
 
 # SIPp: independent third-party SIP implementation used as the interop peer (M1+).
 RUN curl -sSLo /usr/local/bin/sipp https://github.com/SIPp/sipp/releases/download/v${SIPP_VERSION}/sipp \

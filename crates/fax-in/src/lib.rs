@@ -6,6 +6,7 @@
 //! * [`trunk`]: source IP -> trunk mapping and the transport-level source filter;
 //! * [`controller`]: [`FaxIn`], answering G.711 / T.38 and establishing T.38 by
 //!   `t38_policy`, then handing the call to a [`session::FaxSession`];
+//! * [`ports`]: per-call UDPTL port allocation from `[media] port_range`;
 //! * [`event`]: structured call events and results (persisted from M3);
 //! * [`capture`]: per-call SIP capture under `logs/calls/<call-id>/`.
 
@@ -16,6 +17,7 @@ pub mod config;
 pub mod controller;
 pub mod event;
 pub mod media;
+pub mod ports;
 pub mod session;
 mod timefmt;
 pub mod trunk;

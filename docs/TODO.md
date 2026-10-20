@@ -38,17 +38,20 @@
 - [x] [Opus] 審核 docs/test-reports/M1.md（M1a–M1d 全數通過）
 
 ## M2 — T.38 / T.30 / T.4（non-ECM）
-- [ ] [Sonnet] 媒體埠改為 port_range 依通話配置（M1d 審核 #1）
-- [ ] [Sonnet] sip-core：re-INVITE 的 200 與 BYE 同時到達的競態，200 已收到就回報 Accepted（M1d 審核 #2）
-- [ ] [Opus] 撰寫 docs/test-plans/M2.md
-- [ ] [Sonnet] t38：IFP PER codec（v0–v3）、UDPTL redundancy 和 parity FEC，加上 proptest 和 fuzz
+- [x] [Sonnet] 媒體埠改為 port_range 依通話配置（M1d 審核 #1，M2a）
+- [x] [Sonnet] sip-core：re-INVITE 的 200 與 BYE 同時到達的競態，200 已收到就回報 Accepted（M1d 審核 #2，M2a，ADR-016）
+- [x] [Opus] 撰寫 docs/test-plans/M2.md
+- [x] [Sonnet] t38：IFP PER codec（v0–v3）、UDPTL redundancy 和 parity FEC，加上 proptest 和 fuzz（M2a）
 - [ ] [Sonnet] t30：接收端狀態機（DIS/DCS/TCF/CFR/FTT/MCF/RTN/MPS/EOP/DCN），以表格驅動測試
-- [ ] [Sonnet] t4：MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF 輸出
+- [x] [Sonnet] t4：MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF 輸出（M2b）
 - [ ] [Sonnet] 第 2 層互通測試：與 SpanDSP `t38_terminal` 以 IFP 互打
-- [ ] [Sonnet] fax-sim 加入 UDPTL redundancy/FEC 模型，補上 ECM + 封包遺失案例（多個 seed）（M0 審核追蹤 #1）
+- [x] [Sonnet] fax-sim 加入 UDPTL redundancy/FEC 模型，補上 ECM + 封包遺失案例（多個 seed）（M0 審核追蹤 #1，M2a X06）
 - [ ] [Sonnet] 端到端測試以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2）
 - [ ] [Sonnet] fax-in：串起 SIP 到 T.38、T.30 再到文件，並完成端到端多頁接收
 - [ ] [Opus] 審核 docs/test-reports/M2.md
+
+- [ ] [Sonnet] 調查 sip-core 涵蓋率一次掉到 83.5% 的不穩定測試（M2a 審核）
+- [ ] [Sonnet] t4 在小量餵入時的效能，以實際 T.38 封包大小量測（M2b 審核）
 
 ## M3 — Store / Delivery / ECM
 - [ ] [Opus] 撰寫 docs/test-plans/M3.md
@@ -73,6 +76,7 @@
 - [ ] [Opus] 審核 docs/test-reports/M5.md
 
 ## M6 — 互通強化與發佈
+- [ ] [Sonnet] K01 的根本解：dialog 改用單一有序事件佇列（ADR-016）
 - [ ] [Opus] 撰寫 docs/test-plans/M6.md
 - [ ] [Sonnet] 建立 Sonus/AudioCodes SIP trace 回歸測試集
 - [ ] [Sonnet] 打包時加入 systemd unit 範例和 conf 範例
