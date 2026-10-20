@@ -30,8 +30,9 @@ tests/e2e/      端到端整合測試                           ← M1 起
 | 層 | 內容 |
 |---|---|
 | Message | typed header map；compact form、多值與逗號分割；Via/Route/Record-Route；folding；嚴格 Content-Length |
-| Transport | UDP 綁定監聽（依 Via/rport 回應，RFC 3581）；TCP listener 多連線（沿用 sipress `take_frame`）；TLS 預留介面 |
-| Transaction | INVITE server（100 Trying、2xx 以 T1/T2 重送直到 ACK、Timer H）；non-INVITE server（Timer J）；client transaction（我方發的 re-INVITE、BYE 使用，Timer A/B/E/F）|
+| Transport | UDP 綁定監聽；TCP listener 加連線池（以 peer addr 為 key，閒置逾時）、`StreamDecoder`（沿用 sipress `take_frame`，含 RFC 5626 CRLF keep-alive）；收到 request 補 `received`/`rport`（RFC 3581）；回應依 Via 路由（RFC 3261 18.2.2）；送出 request 自動填頂端 Via 的 transport/sent-by；來源 IP 白名單（`transport/policy.rs`，drop / 403 / log-only）；以 channel（`Incoming`/`Outgoing`，`TransportHandle::detached`）與上層串接，可不開 socket 測試；TLS 預留介面 |
+| Transaction | 四個純狀態機（`transaction/{server_invite,server_non_invite,client_invite,client_non_invite}.rs`，輸入事件、輸出 `Action` 與計時器；含 RFC 6026 Accepted 狀態）加 tokio driver；`TransactionLayer` 負責比對（17.1.3/17.2.3）、CANCEL（200/487/481）與 TU 介面（`TuInput`）。2xx 的重送與 ACK 由 TU（Dialog 層）負責，不在 transaction 內 |
+| Registration | `registration.rs`：REGISTER client 任務（digest、到期前 `max(10%, 30s)` 刷新、指數退避、`watch` 狀態）|
 | Dialog | UAS dialog：route set、remote target、雙向 CSeq、local tag；491 glare；session timer（RFC 4028）；OPTIONS 回應 |
 | SDP | 完整模型：多個 m-line、`m=image <port> udptl t38` 和全部 `T38Fax*` 屬性、port 0 拒絕規則、o= 版本號遞增 |
 | API | 以 tokio channel 分層（transport → transaction → TU），對外提供 `IncomingCall` 事件和 `Dialog` handle |

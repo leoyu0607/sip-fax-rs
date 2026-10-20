@@ -97,6 +97,13 @@ impl Via {
         find_param(&self.params, "rport").map(|p| p.value.as_deref().and_then(|v| v.parse().ok()))
     }
 
+    /// Removes a parameter (case-insensitive); returns `true` when it was present.
+    pub fn remove_param(&mut self, name: &str) -> bool {
+        let before = self.params.len();
+        self.params.retain(|p| !p.name.eq_ignore_ascii_case(name));
+        before != self.params.len()
+    }
+
     /// Sets (replacing) a parameter.
     pub fn set_param(&mut self, name: &str, value: Option<String>) {
         match self

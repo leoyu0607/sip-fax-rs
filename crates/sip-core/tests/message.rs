@@ -494,7 +494,7 @@ fn p08_each_missing_mandatory_header_reports_its_name() {
         ("Max-Forwards", "70"),
         ("Via", "SIP/2.0/UDP pc.example.com;branch=z9hG4bK1"),
     ];
-    for skip in ["To", "From", "CSeq", "Call-ID", "Max-Forwards", "Via"] {
+    for skip in ["To", "From", "CSeq", "Call-ID", "Via"] {
         let mut text = String::from("OPTIONS sip:bob@example.com SIP/2.0\r\n");
         for (n, v) in &full {
             if *n != skip {
@@ -507,7 +507,6 @@ fn p08_each_missing_mandatory_header_reports_its_name() {
             "From" => "From",
             "CSeq" => "CSeq",
             "Call-ID" => "Call-ID",
-            "Max-Forwards" => "Max-Forwards",
             _ => "Via",
         });
         assert_eq!(
@@ -519,6 +518,25 @@ fn p08_each_missing_mandatory_header_reports_its_name() {
             parse_message(text.as_bytes()),
             Err(want),
             "request without {skip} (stream)"
+        );
+    }
+    // M1a review fix: a request without Max-Forwards is tolerated (spec section 9); the
+    // typed accessor reports None, and a malformed value is still rejected (below).
+    {
+        let mut text = String::from("OPTIONS sip:bob@example.com SIP/2.0\r\n");
+        for (n, v) in &full {
+            if *n != "Max-Forwards" {
+                text.push_str(&format!("{n}: {v}\r\n"));
+            }
+        }
+        text.push_str("Content-Length: 0\r\n\r\n");
+        let SipMessage::Request(r) = dg(text.as_bytes()).expect("tolerated") else {
+            panic!("request expected");
+        };
+        assert_eq!(r.headers.max_forwards(), Ok(None));
+        assert_eq!(
+            parse_message(text.as_bytes()).map(|(_, n)| n),
+            Ok(text.len())
         );
     }
     // responses: Max-Forwards is NOT required, the other five are

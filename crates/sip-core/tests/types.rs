@@ -392,7 +392,8 @@ fn u09_headers_collection_operations() {
     assert_eq!(h.cseq(), Err(ParseError::MissingHeader("CSeq")));
     assert_eq!(
         h.max_forwards(),
-        Err(ParseError::MissingHeader("Max-Forwards"))
+        Ok(None),
+        "absent Max-Forwards is tolerated"
     );
     assert_eq!(h.call_id(), None);
 

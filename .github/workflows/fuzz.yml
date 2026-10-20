@@ -1,0 +1,38 @@
+name: Fuzz
+
+# Nightly fuzzing of the sip-core parsers (docs/test-plans/M1.md P12). Deliberately NOT
+# triggered by push or pull_request: fuzzing must never block or slow down normal CI.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse_message, parse_sdp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/sip-core/fuzz
+          key: ${{ matrix.target }}
+      - run: cargo install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }} for 5 minutes
+        working-directory: crates/sip-core
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/sip-core/fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore

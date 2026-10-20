@@ -142,6 +142,7 @@ status_codes! {
     OK = 200, "OK";
     BAD_REQUEST = 400, "Bad Request";
     UNAUTHORIZED = 401, "Unauthorized";
+    FORBIDDEN = 403, "Forbidden";
     NOT_FOUND = 404, "Not Found";
     METHOD_NOT_ALLOWED = 405, "Method Not Allowed";
     REQUEST_TIMEOUT = 408, "Request Timeout";
@@ -252,6 +253,34 @@ impl Response {
             headers: Headers::new(),
             body: Bytes::new(),
         }
+    }
+}
+
+impl Response {
+    /// Builds a response to `req` following RFC 3261 section 8.2.6.2: Via (all, in order),
+    /// From, To, Call-ID and CSeq are copied. `to_tag` is added to To when the request had no
+    /// tag and the status is not 100.
+    pub fn for_request(req: &Request, status: StatusCode, to_tag: Option<&str>) -> Response {
+        let mut resp = Response::new(status);
+        for v in req.headers.get_all("Via") {
+            resp.headers.push("Via", v);
+        }
+        for name in ["From", "To", "Call-ID", "CSeq"] {
+            let Some(v) = req.headers.get(name) else {
+                continue;
+            };
+            let mut value = v.to_string();
+            if name == "To" && status != StatusCode::TRYING {
+                if let (Some(tag), Ok(mut na)) = (to_tag, NameAddr::parse(v)) {
+                    if na.tag().is_none() {
+                        na.set_tag(tag);
+                        value = na.to_string();
+                    }
+                }
+            }
+            resp.headers.push(name, value);
+        }
+        resp
     }
 }
 

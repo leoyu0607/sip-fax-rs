@@ -106,9 +106,20 @@ Rocky 9 的 EPEL 只提供 spandsp 0.0.6，沒有 T.38 terminal 與現行 T.30 A
 **決策**
 - `SipUri::parse` 仍然只接受 sip/sips/tel，其他 scheme 回錯誤（符合規格原文）。
 - 新增 `Uri` enum：`Uri::Sip(SipUri)` 與 `Uri::Other { scheme, rest }`（語法合法、不解析內容）。`Request::uri` 與 `NameAddr::uri` 使用 `Uri`。是否拒絕該 scheme 由 UAS／上層決定。
-- 規格第 2 節「必要 header 缺少回 ParseError」與 RFC 4475 3.4.1（`inv2543`，無 Max-Forwards）衝突：依規格拒絕，並在測試中明確記錄。
+- 規格第 2 節「必要 header 缺少回 ParseError」與 RFC 4475 3.4.1（`inv2543`，無 Max-Forwards）衝突：M1a 先依規格拒絕；**已被 ADR-010 取代**（改為容忍）。
 
 **代價**
 
 呼叫端要多一次 `as_sip()`；但避免 parser 層丟掉合法訊息。
+
+## ADR-010：Max-Forwards 在 parser 層為選用；RFC 6026 下 2xx 的責任分工（2026-10-20）
+**背景**
+
+M1a 審核指出：規格第 9 節要求寬容對待沒有 `Max-Forwards` 的 request（中華電信 CS210 沒有規格文件，無法排除），parser 層不應拒絕。
+
+**決策**
+- parser 不再因缺少 `Max-Forwards` 回 `ParseError`；`Headers::max_forwards()` 回傳 `Result<Option<u8>, _>`，值格式錯誤或重複仍然拒絕。缺少時如何處理（例如回 483 或補預設值）由 UAS／上層依旗標決定。`inv2543` 因此改列為「可容忍」。
+- INVITE client transaction 在 Accepted 狀態（RFC 6026 Timer M = 64·T1）吸收重送的 2xx，不重複上報 TU（測試計畫 T09）。因此 **Dialog 層（M1c）必須自行處理重送 2xx 的 re-ACK**（例如以 `TuInput::StrayResponse` 在 transaction 結束後收到的 2xx，並在 M1c 評估是否需要新增「重複 2xx」事件）。
+- INVITE server transaction 在 Accepted 狀態不重送 2xx，2xx 的重送（13.3.1.4）由 Dialog 層負責。
+- sip-core 的 dev-dependency 啟用 `tokio` 的 `test-util` feature（只用於測試的 paused time），不新增 crate。
 

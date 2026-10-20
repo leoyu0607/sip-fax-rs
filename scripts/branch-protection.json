@@ -4,6 +4,7 @@
     "contexts": [
       "lint",
       "test",
+      "coverage",
       "build-musl (x86_64-unknown-linux-musl)",
       "build-musl (aarch64-unknown-linux-musl)",
       "smoke-rhel (rockylinux/rockylinux:9)",

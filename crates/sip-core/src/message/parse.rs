@@ -2,8 +2,8 @@
 //!
 //! The parser is a pure function with no I/O and no panics on any input. Header lines are
 //! unfolded, compact names normalised and comma-separated lists of list-type headers split
-//! (see `Headers`). The mandatory headers (To, From, CSeq, Call-ID, Max-Forwards for requests,
-//! Via) and the syntax of From/To/Via/CSeq/Contact/Route/Record-Route are validated; a
+//! (see `Headers`). The mandatory headers (To, From, CSeq, Call-ID, Via; Max-Forwards is optional but
+//! validated when present) and the syntax of From/To/Via/CSeq/Contact/Route/Record-Route are validated; a
 //! malformed one makes the whole message a [`ParseError`].
 //!
 //! Non-UTF-8 octets in the start line or header values are replaced by U+FFFD (the body is
@@ -362,12 +362,10 @@ fn parse_start_line(line: &str) -> Result<StartLine, ParseError> {
 
 fn validate_headers(h: &Headers, is_request: bool) -> Result<(), ParseError> {
     // Presence, in the order mandated by the spec (so the first missing one is reported).
-    let mut required: Vec<&'static str> = vec!["To", "From", "CSeq", "Call-ID"];
-    if is_request {
-        required.push("Max-Forwards");
-    }
-    required.push("Via");
-    for name in required {
+    // Max-Forwards is deliberately NOT mandatory (docs/design/sip-core.md section 9,
+    // M1a review): peers without a spec (e.g. CHT CS210) may omit it. It is validated below
+    // when present; the UAS decides what a missing one means.
+    for name in ["To", "From", "CSeq", "Call-ID", "Via"] {
         let count = h.get_all(name).count();
         if count == 0 {
             return Err(ParseError::MissingHeader(name));
@@ -384,7 +382,12 @@ fn validate_headers(h: &Headers, is_request: bool) -> Result<(), ParseError> {
         return Err(ParseError::invalid_header("Call-ID", "empty"));
     }
     if is_request {
-        parse_max_forwards(h.get("Max-Forwards").unwrap_or(""))?;
+        if h.get_all("Max-Forwards").count() > 1 {
+            return Err(ParseError::MultipleHeader("Max-Forwards"));
+        }
+        if let Some(v) = h.get("Max-Forwards") {
+            parse_max_forwards(v)?;
+        }
     }
     for v in h.get_all("Via") {
         Via::parse(v)?;

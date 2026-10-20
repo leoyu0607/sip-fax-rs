@@ -118,7 +118,11 @@ fn p01_wsinv_whitespace_folding_and_compact_forms() {
     assert_eq!(u.params, vec![Param::new("unknownparam", None::<String>)]);
 
     assert_eq!(r.headers.call_id(), Some("wsinv.ndaksdj@192.0.2.1"));
-    assert_eq!(r.headers.max_forwards().unwrap(), 68, "leading zeros: 0068");
+    assert_eq!(
+        r.headers.max_forwards().unwrap(),
+        Some(68),
+        "leading zeros: 0068"
+    );
     let cseq = r.headers.cseq().unwrap();
     assert_eq!(
         (cseq.seq, cseq.method),
@@ -251,7 +255,7 @@ fn p01_intmeth_unusual_but_legal_characters() {
         r.headers.get("extensionHeader-!.%*+_`'~"),
         Some("\u{feff}大停電")
     );
-    assert_eq!(r.headers.max_forwards().unwrap(), 255);
+    assert_eq!(r.headers.max_forwards().unwrap(), Some(255));
 }
 
 #[test]
@@ -604,7 +608,7 @@ fn p01_application_layer_vectors_parse_as_well_formed() {
         "parser keeps it; proxies must drop such responses"
     );
     let z = req(valid("zeromf"));
-    assert_eq!(z.headers.max_forwards().unwrap(), 0);
+    assert_eq!(z.headers.max_forwards().unwrap(), Some(0));
     let c1 = req(valid("cparam01"));
     let c = &c1.headers.contacts().unwrap()[0];
     assert!(
@@ -791,8 +795,10 @@ fn cases() -> Vec<Case> {
         },
         Case {
             name: "inv2543",
-            outcome: rej!(ParseError::MissingHeader("Max-Forwards")),
-            why: "3.4.1 RFC 2543 style INVITE has no Max-Forwards; docs/design/sip-core.md section 2 makes Max-Forwards mandatory for requests, so the SPEC-MANDATED behaviour is reject (the RFC says 'should be accepted by elements that want backward compatibility'; we deliberately do not)",
+            outcome: Outcome::Tolerate(
+                "UAS layer decides (M1a review fix: Max-Forwards is optional at parse level, spec section 9 leniency)",
+            ),
+            why: "3.4.1 RFC 2543 style INVITE has no Max-Forwards; RFC 4475 says it should be accepted for backward compatibility, and CHT CS210 has no spec so we must tolerate it. max_forwards() returns None",
         },
     ]
 }
@@ -926,7 +932,7 @@ fn p02_matching_requests_have_matching_cseq() {
 
 #[test]
 fn p02_error_for_mandatory_header_names_the_header() {
-    // insuf lacks To, From and Call-ID (and Max-Forwards): the first one in spec order is named
+    // insuf lacks To, From and Call-ID: the first one in spec order is named
     let e = parse_datagram(&load("invalid", "insuf")).unwrap_err();
     assert_eq!(e, ParseError::MissingHeader("To"));
     assert_eq!(e.to_string(), "missing mandatory header To");

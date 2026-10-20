@@ -25,12 +25,13 @@
 - [x] [Sonnet] 抽取 sipress 模組：net.rs、take_frame、DigestChallenge（M1a 完成，已記錄到 sipress-extraction.md；測試報告見 docs/test-reports/M1.md）
 - [ ] [Sonnet] 抽取 sipress 的 G.711 與 RtpPacket（並修正 decode）（M1/M5）
 - [x] [Sonnet] 訊息模型與 parser（compact、多值、folding、Route/Record-Route、嚴格 Content-Length），加上 proptest 和 fuzz 目標（M1a；P01–P11 通過，P12 fuzz 目標已建立並本機各跑 60 秒；待 Opus 審核）
-- [ ] [Sonnet] Transport：UDP 監聽（rport）、TCP listener
-- [ ] [Sonnet] Transaction layer：INVITE/non-INVITE server、client（Timer A/B/E/F/G/H/I/J/K），用 tokio 的暫停時間做確定性測試
-- [ ] [Sonnet] Dialog：UAS、in-dialog UAC（re-INVITE、BYE）、491、session timer、OPTIONS
+- [x] [Sonnet] Transport：UDP 監聽（rport）、TCP listener 與連線池、keep-alive、來源 IP 白名單（M1b；N01–N07、C01 通過；待 Opus 審核）
+- [x] [Sonnet] Transaction layer：INVITE/non-INVITE server、client（Timer A/B/E/F/G/H/I/J/K、RFC 6026 L/M），用 tokio 的暫停時間做確定性測試（M1b；T01–T13 通過；待 Opus 審核）
+- [x] [Sonnet] Registration client：REGISTER、digest、到期前刷新、指數退避、狀態 watch（M1b；C03、C04 通過；SIPp registrar 測試留待 M1c；待 Opus 審核）
+- [ ] [Sonnet] （M1c）Dialog：UAS、in-dialog UAC（re-INVITE、BYE）、491、session timer、OPTIONS
 - [x] [Sonnet] SDP 模型：audio 加 `m=image udptl t38`，含全部 T38Fax* 屬性（M1a；D01–D07 通過；待 Opus 審核）
 - [ ] [Sonnet] fax-sim 的 SIP UAC 模式：INVITE、選擇由誰發起 re-INVITE、BYE
-- [ ] [Any] CI 新增涵蓋率門檻（`cargo llvm-cov --fail-under-lines`：協定 crate 85%）
+- [x] [Any] CI 新增涵蓋率門檻（`coverage` job，`cargo llvm-cov -p sip-core --fail-under-lines 85`）與 nightly fuzz workflow（`.github/workflows/fuzz.yml`，不在 push 觸發）；`scripts/branch-protection.json` 已加入 `coverage`，需由管理員重新套用（`scripts/set-branch-protection.sh`）
 - [ ] [Opus] 審核 docs/test-reports/M1.md
 
 ## M2 — T.38 / T.30 / T.4（non-ECM）

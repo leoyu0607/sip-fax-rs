@@ -265,6 +265,19 @@ impl Headers {
         }
     }
 
+    /// Replaces the value of the first header with this name in place (other headers of the
+    /// same name are kept). Returns `false` when there is none.
+    pub fn set_first(&mut self, name: &str, value: impl Into<String>) -> bool {
+        let (canon, _) = canonical_name(name);
+        match self.items.iter_mut().find(|h| Self::matches(h, &canon)) {
+            Some(h) => {
+                h.value = value.into();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Sets the `Content-Length` header (see [`Self::set`]).
     pub fn set_content_length(&mut self, len: usize) {
         self.set("Content-Length", len.to_string());
@@ -302,12 +315,9 @@ impl Headers {
         self.get("Call-ID")
     }
 
-    /// Parses `Max-Forwards`.
-    pub fn max_forwards(&self) -> Result<u8, ParseError> {
-        parse_max_forwards(
-            self.get("Max-Forwards")
-                .ok_or(ParseError::MissingHeader("Max-Forwards"))?,
-        )
+    /// Parses `Max-Forwards`: `Ok(None)` when absent (tolerated), an error when malformed.
+    pub fn max_forwards(&self) -> Result<Option<u8>, ParseError> {
+        self.get("Max-Forwards").map(parse_max_forwards).transpose()
     }
 
     /// Parses all `Contact` values (a lone `*` yields an empty list; see
