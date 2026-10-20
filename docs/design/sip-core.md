@@ -162,3 +162,52 @@ let mut dlg = endpoint.invite(InviteOptions { target, from, to, sdp, .. }).await
 
 ## 8. 從 sipress 抽取
 細節見 `docs/sipress-extraction.md`。M1 抽取 `net.rs`、`take_frame`（含它的測試）、`DigestChallenge` 和 `authorization_header`。RTP 相關的部分延到 M2/M5。
+
+## 9. 業者相容性與彈性（因應中華電信 CS210 沒有規格文件）
+因為目前沒有規格可以參考，原則是**所有可能的對接方式都要支援，並且都能用設定切換**。預設值採最寬容的組合。
+
+- **Trunk profile**：設定檔 `[[trunks]]` 可以有多組，每一組包含：
+  - 名稱
+  - 對方位址（IP 或 host、port）
+  - 允許的來源 IP 或 CIDR 清單
+  - 傳輸方式（預設 udp，可改 tcp）
+  - 對外位址（填入 Via 和 Contact 的 host:port）
+  - 註冊設定
+  - T.38 策略
+  - SDP 和 header 的相容旗標
+
+  預設附上 `generic` 和 `cht-cs210` 兩組 profile。目前 `cht-cs210` 的內容等於 generic 加上 UDP，拿到實測資料後再調整。
+- **來源過濾**：來源 IP 不在任何 trunk 的白名單時，依設定處理：
+  - 安靜丟棄（預設）
+  - 回 403
+  - 只記錄
+
+  各 trunk 的 IP 是固定的，所以白名單是主要的信任機制。
+- **REGISTER（可以開關）**：sip-core 提供 `Registration` 任務：
+  - 依 Expires 在到期前 10% 或至少 30 秒時刷新。
+  - 收到 401/407 時用 digest 回應（沿用 sipress 的 `auth.rs`）。
+  - 失敗時以指數退避重試。
+  - 狀態對外公開，供 Web/TUI 顯示。
+- **我方發出的 request 遭到驗證挑戰**：re-INVITE、BYE 收到 401/407 時，若 trunk 有帳密，就自動帶上 Authorization 重送一次。
+- **T.38 建立路徑（三種都要支援）**：
+  1. 初始 INVITE 就帶 `m=image`：直接回 T.38 answer。如果同時帶 audio 和 image，依策略選一個，另一個設 port 0。
+  2. 對方在 dialog 中發 re-INVITE 切到 T.38：接受。
+  3. 我方發 re-INVITE：在 ACK 之後等 N 秒（可設定，預設 3 秒）沒收到對方的 re-INVITE，或偵測到 CNG（M2 加入）時發出。如果對方回 488/415/606，依策略改走 G.711 passthrough 或結束通話。
+
+  策略的選項有 `t38_policy = auto | wait-peer | initiate | audio-only`，預設 `auto` 等於 1 加 2 加 3。
+- **SDP 寬容度**：
+  - T.38 屬性的大小寫、布林寫法要容忍。
+  - 未知屬性原樣保留。
+  - 缺少 `T38FaxRateManagement` 時視為 `transferredTCF`。
+  - `T38FaxMaxDatagram` 太小時，有下限保護並記錄 warn。
+  - `c=` 只出現在 session 層，或只出現在 media 層，兩種都要接受。
+- **SIP 寬容度**：
+  - 接受沒有 `Max-Forwards` 的 in-dialog ACK。
+  - Contact 缺少時，退回使用來源位址。
+  - 不認識的 `Require` 回 420，可以用旗標關閉；`Supported` 要容忍未知值。
+  - `Allow` 和 `Supported` 的內容可以設定。
+- **診斷擷取**：每一通電話都可以輸出：
+  - SIP 原文（雙向，含時間戳和來源/目的位址）。
+  - UDPTL 封包的 hex 和時間戳（M2 起）。
+
+  輸出到 `logs/calls/<call-id>/`，可以設定只在失敗時保留。拿到第一通 CS210 的實際來電後，用它建立回歸測試集。

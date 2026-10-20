@@ -4,6 +4,8 @@
 FROM rockylinux/rockylinux:9
 
 ARG SPANDSP_REF=v3.1.1
+ARG SIPP_VERSION=3.8.0
+ARG SIPP_SHA256=e4093db1f461b36404e0355a2d72618fd7423419d1fe7e8d5299f0a728629a1d
 
 RUN dnf -y install epel-release dnf-plugins-core \
  && dnf config-manager --set-enabled crb \
@@ -19,6 +21,11 @@ RUN git clone --depth 1 --branch ${SPANDSP_REF} https://github.com/freeswitch/sp
  && make install \
  && printf "/usr/local/lib\n/usr/local/lib64\n" > /etc/ld.so.conf.d/usr-local.conf && ldconfig \
  && rm -rf /src/spandsp
+
+# SIPp: independent third-party SIP implementation used as the interop peer (M1+).
+RUN curl -sSLo /usr/local/bin/sipp https://github.com/SIPp/sipp/releases/download/v${SIPP_VERSION}/sipp \
+ && echo "${SIPP_SHA256}  /usr/local/bin/sipp" | sha256sum -c - \
+ && chmod +x /usr/local/bin/sipp
 
 ENV PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig \
     RUSTUP_HOME=/usr/local/rustup \

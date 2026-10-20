@@ -27,6 +27,26 @@
 | 授權 | MIT |
 | Repo 可見性 | public |
 
+## 來源端資訊更新（2026-10-20）
+- 經使用者向資深同事確認：前端對接的是**中華電信 CS210**，傳真以 **T.38**（T.30 跑在 T.38 之上）送達。
+- 影響：
+  - 首要互通對象從「企業 gateway（Sonus、AudioCodes）」改為**中華電信 CS210**，gateway 相容性仍然保留。
+  - 以下細節待確認：
+    - 是否需要 REGISTER 和 digest 驗證
+    - T.38 是在初始 INVITE 就帶上，還是透過 re-INVITE 切換
+    - 由哪一方發起 re-INVITE
+    - 使用的傳輸協定
+    - 中間是否有 SBC
+    - T.38 參數（version、UdpEC、RateManagement、MaxDatagram）
+  - 使用者已確認：對方 **IP 固定**；傳輸**應該是 UDP**；**沒有規格文件**。
+  - 決策：**保留彈性，兼容各種情形**（見 docs/design/sip-core.md 第 9 節）。
+    - REGISTER 可以開關。
+    - 來源 IP 白名單。
+    - T.38 三種建立路徑都支援。
+    - 可設定各家業者的 trunk profile。
+    - 內建 SIP 和 T.38 擷取，用來在第一通實際來電時收集資料。
+  - 取得實際的 SIP/T.38 pcap 之後，納入 M6 的回歸測試集，並據此修正預設參數。
+
 ## 非目標（目前）
 - fax-out（送出傳真）
 - SIP TLS/SRTP（介面先預留）
