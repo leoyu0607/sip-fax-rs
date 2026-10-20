@@ -1,0 +1,194 @@
+//! Structured call events and results. M3 persists [`CallResult`]; today it is logged and
+//! (with capture enabled) written next to the SIP capture as `result.json`.
+
+use std::time::SystemTime;
+
+use serde::Serialize;
+
+use crate::timefmt::{serialize_opt_time, serialize_time};
+
+/// How the T.38 session came about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum T38Path {
+    /// The initial INVITE already offered `m=image`.
+    InitialInvite,
+    /// The peer sent a re-INVITE to T.38.
+    PeerReinvite,
+    /// We sent the re-INVITE.
+    OurReinvite,
+}
+
+/// The T.38 parameters in force for a call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct T38Negotiated {
+    /// How T.38 was established.
+    pub path: T38Path,
+    /// `T38FaxVersion`.
+    pub version: u8,
+    /// `T38MaxBitRate`.
+    pub max_bit_rate: u32,
+    /// `localTCF` / `transferredTCF`.
+    pub rate_management: String,
+    /// `T38FaxMaxBuffer` we advertised.
+    pub max_buffer: u32,
+    /// `T38FaxMaxDatagram` we advertised.
+    pub local_max_datagram: u32,
+    /// `T38FaxMaxDatagram` the peer offered (after the floor protection).
+    pub peer_max_datagram: u32,
+    /// `t38UDPFEC` / `t38UDPRedundancy` / `t38UDPNoEC`.
+    pub udp_ec: String,
+    /// Fill bit removal in force.
+    pub fill_bit_removal: bool,
+    /// MMR transcoding in force.
+    pub transcoding_mmr: bool,
+    /// JBIG transcoding in force.
+    pub transcoding_jbig: bool,
+    /// Where the peer wants UDPTL (`ip:port`), from `c=` and `m=`.
+    pub peer_media: Option<String>,
+    /// Our UDPTL port.
+    pub local_port: u16,
+    /// Tolerance decisions taken (missing attributes, raised limits, ...).
+    pub warnings: Vec<String>,
+}
+
+/// Why a call is counted as failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FailureReason {
+    /// The caller cancelled before we answered.
+    Cancelled,
+    /// The INVITE had no (parsable) SDP offer.
+    NoSdpOffer,
+    /// Nothing in the offer could be answered (488).
+    NoAcceptableMedia {
+        /// Why.
+        detail: String,
+    },
+    /// `Require` named option tags we do not support (420).
+    UnsupportedRequire {
+        /// The tags.
+        tags: Vec<String>,
+    },
+    /// The source belongs to no trunk and `unknown_source` is not `log`.
+    UnknownSource,
+    /// No ACK for our 200.
+    AckTimeout,
+    /// T.38 could not be established and G.711 passthrough does not exist yet.
+    G711PassthroughUnsupported {
+        /// What led here ("peer answered 488 to the T.38 re-INVITE", ...).
+        cause: String,
+    },
+    /// Our T.38 re-INVITE failed for another reason (timeout, 5xx, ...).
+    T38ReinviteFailed {
+        /// Final status, if there was one.
+        status: Option<u16>,
+        /// Details.
+        detail: String,
+    },
+    /// The peer hung up before T.38 was established.
+    PeerHangupBeforeT38,
+    /// The stub session / audio hold reached `max_duration_secs`.
+    MaxDuration,
+    /// The session timer ran out.
+    SessionExpired,
+    /// The fax session reported a failure.
+    Session {
+        /// Details.
+        detail: String,
+    },
+    /// The server shut down during the call.
+    Shutdown,
+    /// Anything else.
+    Internal {
+        /// Details.
+        detail: String,
+    },
+}
+
+/// The end state of a call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CallOutcome {
+    /// T.38 was established and the session ended normally.
+    Completed,
+    /// The call failed.
+    Failed {
+        /// Why.
+        reason: FailureReason,
+    },
+}
+
+impl CallOutcome {
+    /// `true` for [`CallOutcome::Failed`].
+    pub fn is_failure(&self) -> bool {
+        matches!(self, CallOutcome::Failed { .. })
+    }
+}
+
+/// Everything known about a finished call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CallResult {
+    /// SIP Call-ID.
+    pub call_id: String,
+    /// Trunk the call was mapped to (`unknown` for unmatched sources in log mode).
+    pub trunk: String,
+    /// Source of the INVITE.
+    pub peer: String,
+    /// `From` URI.
+    pub from: String,
+    /// `To` URI.
+    pub to: String,
+    /// INVITE received.
+    #[serde(serialize_with = "serialize_time")]
+    pub started_at: SystemTime,
+    /// 200 sent.
+    #[serde(serialize_with = "serialize_opt_time")]
+    pub answered_at: Option<SystemTime>,
+    /// T.38 in force.
+    #[serde(serialize_with = "serialize_opt_time")]
+    pub t38_established_at: Option<SystemTime>,
+    /// Call finished.
+    #[serde(serialize_with = "serialize_time")]
+    pub ended_at: SystemTime,
+    /// Negotiated T.38 parameters, if T.38 was established.
+    pub t38: Option<T38Negotiated>,
+    /// The result.
+    pub outcome: CallOutcome,
+}
+
+/// Something that happened to a call, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallEvent {
+    /// An INVITE was mapped to a trunk and is being handled.
+    Started {
+        /// Call-ID.
+        call_id: String,
+        /// Trunk name.
+        trunk: String,
+        /// Source.
+        peer: String,
+        /// When.
+        at: SystemTime,
+    },
+    /// We answered with 200 (`t38` tells whether the answer was already T.38).
+    Answered {
+        /// Call-ID.
+        call_id: String,
+        /// Whether the answer carried T.38.
+        t38: bool,
+        /// When.
+        at: SystemTime,
+    },
+    /// T.38 is in force (the fax session starts).
+    T38Established {
+        /// Call-ID.
+        call_id: String,
+        /// Parameters.
+        params: T38Negotiated,
+        /// When.
+        at: SystemTime,
+    },
+    /// The call is over.
+    Finished(Box<CallResult>),
+}

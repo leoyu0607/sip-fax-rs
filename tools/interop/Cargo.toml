@@ -1,0 +1,13 @@
+[package]
+name = "interop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Test harness: starts the real sip-faxd and drives it with SIPp (and other UACs)"
+
+[dependencies]
+serde_json = "1"
+md-5 = "0.10"
+

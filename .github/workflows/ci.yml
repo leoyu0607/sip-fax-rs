@@ -49,6 +49,8 @@ jobs:
           tool: cargo-llvm-cov
       # Protocol crate gate (docs/test-plans/M1.md section 0): sip-core line coverage >= 85 %.
       - run: cargo llvm-cov -p sip-core --fail-under-lines 85
+      # fax-in (M1d): non-protocol crate gate, line coverage >= 70 %.
+      - run: cargo llvm-cov -p fax-in --fail-under-lines 70
 
   build-musl:
     runs-on: ubuntu-latest
@@ -113,6 +115,7 @@ jobs:
           tags: sip-fax-rs-test:rocky9
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Also builds the main workspace (sip-faxd) inside the container for the SIPp interop tests.
       - name: tools workspace (fmt, clippy, test) in Rocky 9 container
         run: |
           docker run --rm --platform linux/amd64 \

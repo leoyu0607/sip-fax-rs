@@ -45,6 +45,15 @@ cd sip-fax-rs-<version>-linux-x86_64
 ./sip-faxd serve
 ```
 
+## Configuration
+
+`sip-faxd` reads a TOML file (default: `conf/sip-faxd.toml` next to the executable; override with `--config`). [`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) documents every option: the SIP listener, per-peer `[[trunks]]` profiles (presets `generic` and `cht-cs210`, source-IP allow-lists, T.38 policy, optional registration), and per-call SIP capture.
+
+```sh
+./sip-faxd config check --config conf/sip-faxd.toml   # validate
+./sip-faxd serve --config conf/sip-faxd.toml          # run
+```
+
 ## Development
 
 ```sh

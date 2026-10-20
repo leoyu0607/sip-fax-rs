@@ -830,3 +830,57 @@ async fn e01_no_tap_by_default() {
     let cfg = EndpointConfig::new();
     assert!(cfg.transport.tap.is_none());
 }
+
+// ================================================================ M1d leftovers
+
+/// M1c review leftover: a request whose Via has no RFC 3261 magic cookie gets a stateless 400
+/// (no transaction, nothing handed to the application).
+#[tokio::test]
+async fn e07_request_without_magic_cookie_gets_stateless_400() {
+    let (ep, mut calls) = Endpoint::bind(base_cfg()).await.unwrap();
+    let addr = ep.udp_addr().unwrap();
+    let cli = UdpSocket::bind(loopback()).await.unwrap();
+    let invite = "INVITE sip:fax@127.0.0.1 SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1:9;branch=oldstyle-branch-1;rport\r\n\
+         Max-Forwards: 70\r\nFrom: <sip:gw@127.0.0.1>;tag=g1\r\nTo: <sip:fax@127.0.0.1>\r\n\
+         Call-ID: nocookie@127.0.0.1\r\nCSeq: 1 INVITE\r\nContact: <sip:gw@127.0.0.1:9>\r\n\
+         Content-Length: 0\r\n\r\n";
+    cli.send_to(invite.as_bytes(), addr).await.unwrap();
+    let mut buf = vec![0u8; 4096];
+    let (n, from) = tokio::time::timeout(Duration::from_secs(5), cli.recv_from(&mut buf))
+        .await
+        .expect("a reply")
+        .unwrap();
+    assert_eq!(from, addr);
+    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+    assert!(text.starts_with("SIP/2.0 400 "), "{text}");
+    assert!(
+        text.contains("branch=oldstyle-branch-1"),
+        "Via echoed: {text}"
+    );
+    assert!(text.contains("rport="), "rport filled in: {text}");
+    assert!(text.contains("Call-ID: nocookie@127.0.0.1"), "{text}");
+    assert!(text.contains("CSeq: 1 INVITE"), "{text}");
+    assert!(
+        text.contains("To: <sip:fax@127.0.0.1>;tag="),
+        "To tag added: {text}"
+    );
+    // not retransmitted (no transaction, nothing to retransmit) and never shown to the app
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), cli.recv_from(&mut buf))
+            .await
+            .is_err(),
+        "a stateless answer is sent exactly once"
+    );
+    assert!(calls.try_recv().is_err(), "the application never saw it");
+    // a stateless ACK is not answered at all
+    let ack = invite.replace("INVITE", "ACK");
+    cli.send_to(ack.as_bytes(), addr).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), cli.recv_from(&mut buf))
+            .await
+            .is_err(),
+        "no answer to a stateless ACK"
+    );
+    println!("E07: {}", text.lines().next().unwrap());
+    ep.shutdown().await;
+}

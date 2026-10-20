@@ -611,6 +611,16 @@ impl IncomingCall {
 
     /// Answers with a final non-2xx status.
     pub async fn reject(self, status: StatusCode) -> Result<(), CallError> {
+        self.reject_with(status, &[]).await
+    }
+
+    /// Like [`IncomingCall::reject`] with extra response headers (e.g. `Unsupported` on a 420,
+    /// `Retry-After` on a 503).
+    pub async fn reject_with(
+        self,
+        status: StatusCode,
+        headers: &[(&str, &str)],
+    ) -> Result<(), CallError> {
         if !status.is_final() || status.is_success() {
             return Err(CallError::BadStatus(status));
         }
@@ -619,6 +629,9 @@ impl IncomingCall {
         }
         let mut r = Response::for_request(&self.request, status, Some(&self.to_tag));
         self.ep.decorate(&mut r.headers);
+        for (n, v) in headers {
+            r.headers.push(n, (*v).to_string());
+        }
         self.tx.respond(r).await.map_err(|_| CallError::Closed)
     }
 

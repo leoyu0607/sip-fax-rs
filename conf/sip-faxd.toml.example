@@ -1,0 +1,170 @@
+# sip-faxd configuration example.
+#
+# Copy this file to conf/sip-faxd.toml (next to the executable) and edit it.
+# Check it with:   ./sip-faxd config check
+# Run it with:     ./sip-faxd serve            (or --config /path/to/file.toml)
+#
+# Every section rejects unknown keys, so a misspelled option is reported as an error.
+# Relative paths are relative to the directory of the sip-faxd executable.
+
+# ---------------------------------------------------------------------------------------
+# [log]  application logging (written to stderr)
+# ---------------------------------------------------------------------------------------
+[log]
+# Log filter: "error", "warn", "info", "debug", "trace" or a tracing filter such as
+# "info,sip_core=debug". The RUST_LOG environment variable overrides this.
+level = "info"
+
+# ---------------------------------------------------------------------------------------
+# [sip]  the SIP listener
+# ---------------------------------------------------------------------------------------
+[sip]
+# Address and port to bind. The same port number is used for UDP and TCP.
+bind = "0.0.0.0:5060"
+
+# Transports to open: "udp" and/or "tcp". If omitted, the union of the trunks' transports
+# is opened (UDP when there are no trunks).
+# transports = ["udp"]
+
+# Host (and optionally port) written into Via and Contact, and used for the SDP address when
+# [media] address is not set. Needed when bind is a wildcard address or the host is behind NAT.
+advertised = "192.0.2.10:5060"
+
+# User-Agent / Server header value.
+# user_agent = "sip-faxd"
+
+# Allow / Supported headers we send (defaults: "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE"
+# and "timer").
+# allow = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE"
+# supported = "timer"
+
+# What to do with a request whose source IP is in no trunk's allowed_sources:
+#   "drop"   - discard silently (default; reveals nothing to scanners)
+#   "reject" - answer 403 Forbidden
+#   "log"    - handle the call with the "generic" profile and log a warning. Useful for the
+#              very first call from a new peer, when its address is not known yet.
+unknown_source = "drop"
+
+# ---------------------------------------------------------------------------------------
+# [media]  what our SDP says (placeholders until the media paths exist: T.38 in M2, G.711
+#          passthrough in M5)
+# ---------------------------------------------------------------------------------------
+[media]
+# Address in c= and o=. Default: the host of [sip] advertised, else the bind IP.
+# address = "192.0.2.10"
+# RTP port in the audio answer.
+audio_port = 20000
+# UDPTL port in the T.38 answer / offer.
+t38_port = 30000
+
+# ---------------------------------------------------------------------------------------
+# [call]  call handling
+# ---------------------------------------------------------------------------------------
+[call]
+# Send 180 Ringing before answering.
+send_ringing = true
+# Wait this long after the 180 before sending 200 OK (milliseconds).
+answer_delay_ms = 0
+# Until the fax engine exists, a T.38 call is held until the peer hangs up or this many
+# seconds pass, then we send BYE (recorded as a failure: "max_duration"). An audio call that
+# never reaches T.38 is ended the same way.
+max_duration_secs = 3600
+# Our T.38 re-INVITE must get a final answer within this many seconds.
+reinvite_timeout_secs = 32
+# How often a re-INVITE answered with 491 (glare) is retried.
+max_491_retries = 3
+
+# ---------------------------------------------------------------------------------------
+# [capture]  per-call SIP capture: <dir>/<call-id>/sip.log and result.json
+# ---------------------------------------------------------------------------------------
+[capture]
+# Write captures. sip.log holds every SIP message of the call with a UTC timestamp, the
+# direction (RECV from / SEND to), the peer address, the transport and the raw message.
+enabled = true
+dir = "logs/calls"
+# "all"    - keep every call
+# "failed" - keep only calls that ended with a failure (the capture is held in memory until
+#            the call ends)
+keep = "all"
+# Upper bound of the stored text per call; further messages are counted, not stored.
+max_bytes_per_call = 1048576
+
+# ---------------------------------------------------------------------------------------
+# [[trunks]]  one entry per upstream peer (gateway, carrier switch, SBC)
+# ---------------------------------------------------------------------------------------
+# A trunk starts from a preset and overrides single options. Presets:
+#   "generic"   - tolerant defaults: T.38 policy "auto", UDP, our own re-INVITE after 3 s
+#   "cht-cs210" - Chunghwa Telecom CS210. There is no specification: today this is "generic"
+#                 plus UDP; it will be tuned from real call captures (milestone M6).
+#
+# The first trunk whose allowed_sources contain the source IP of an INVITE handles the call.
+
+[[trunks]]
+# Unique name (appears in logs and in the call result).
+name = "cht"
+preset = "cht-cs210"
+# The peer's address "host:port" (a fixed IP is expected; host names are resolved at start-up).
+peer = "203.0.113.10:5060"
+# Source IPs / CIDRs calls may come from. Default: the IP of `peer`.
+# allowed_sources = ["203.0.113.10", "203.0.113.64/28"]
+# "udp" or "tcp".
+# transport = "udp"
+
+# How T.38 gets established:
+#   "auto"      - T.38 in the initial INVITE, a T.38 re-INVITE from the peer, or our own
+#                 re-INVITE initiate_after_secs after the ACK (default)
+#   "wait-peer" - like auto but we never send the re-INVITE ourselves
+#   "initiate"  - like auto; the emphasis is on our own re-INVITE (identical on the wire for
+#                 now; CNG detection arrives with M2)
+#   "audio-only"- stay on G.711: T.38 offers get 488 (G.711 passthrough itself is not
+#                 implemented yet, so such a call is recorded as a failure when it ends)
+# t38_policy = "auto"
+# Seconds to wait after the ACK before our own T.38 re-INVITE (auto / initiate).
+# initiate_after_secs = 3
+# Audio codecs we answer with, in preference order (PCMU, PCMA).
+# audio_codecs = ["PCMU", "PCMA"]
+
+# T.38 parameters we advertise (answers copy RateManagement and UdpEC from the peer's offer).
+[trunks.t38]
+# max_version = 0            # highest T38FaxVersion (0-3)
+# max_bit_rate = 14400       # T38MaxBitRate
+# rate_management = "transferredTCF"   # our own offers: "transferredTCF" or "localTCF"
+# max_buffer = 1800          # T38FaxMaxBuffer
+# max_datagram = 260         # T38FaxMaxDatagram
+# udp_ec = "redundancy"      # our own offers: "redundancy", "fec" or "none"
+# fec = false                # we can do UDPTL FEC (else an offered FEC is answered with redundancy)
+# fill_bit_removal = false
+# transcoding_mmr = false
+# transcoding_jbig = false
+
+# Tolerance switches for peers without a specification.
+[trunks.compat]
+# Accept INVITEs whose Require lists option tags we do not know (default: answer 420 with
+# an Unsupported header).
+# accept_unknown_require = false
+# Floor for the peer's T38FaxMaxDatagram: smaller offered values are raised to this value
+# and a warning is logged.
+# min_max_datagram = 72
+
+# REGISTER at the peer (only if the peer requires it).
+[trunks.register]
+# enabled = false
+# registrar = "203.0.113.10:5060"     # default: peer
+# domain = "example.com"              # request-URI / AoR domain; default: the registrar host
+# aor = "sip:fax@example.com"         # default: sip:<username>@<domain>
+# username = "fax"
+# password = "secret"
+# expires = 3600                      # seconds; refreshed 10 % (at least 30 s) before it ends
+# backoff_initial_secs = 5            # first retry delay after a failed REGISTER ...
+# backoff_max_secs = 300              # ... doubling up to this value
+
+# A second trunk, e.g. an enterprise gateway that offers audio first and sends the T.38
+# re-INVITE itself:
+#
+# [[trunks]]
+# name = "gw-hq"
+# preset = "generic"
+# peer = "198.51.100.20:5060"
+# t38_policy = "wait-peer"
+# [trunks.compat]
+# accept_unknown_require = true

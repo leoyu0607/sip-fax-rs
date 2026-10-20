@@ -9,8 +9,10 @@ use std::time::{Duration, Instant};
 
 const T30_ERR_OK: i32 = 0;
 
+/// Scratch files live in a directory that is unique per test process, so two suites running
+/// at the same time (e.g. concurrent `scripts/ci-local.sh` runs) never overwrite each other.
 fn tmp(name: &str) -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("m0");
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("m0-{}", std::process::id()));
     std::fs::create_dir_all(&d).unwrap();
     d.join(name)
 }

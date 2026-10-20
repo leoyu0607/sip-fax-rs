@@ -30,14 +30,16 @@
 - [x] [Sonnet] Registration client：REGISTER、digest、到期前刷新、指數退避、狀態 watch（M1b；C03、C04 通過；SIPp registrar 測試留待 M1c；待 Opus 審核）
 - [x] [Sonnet] （M1c）Dialog：UAS、in-dialog UAC（re-INVITE、BYE）、491、session timer、OPTIONS、401/407 重送、Endpoint API、訊息 tap（G01–G17、E01–E06、C04b、C05、C10 通過；待 Opus 審核，見 docs/test-reports/M1.md「M1c」）
 - [x] [Sonnet] SDP 模型：audio 加 `m=image udptl t38`，含全部 T38Fax* 屬性（M1a；D01–D07 通過；待 Opus 審核）
-- [ ] [Sonnet] （M1d）fax-sim 的 SIP UAC／UAS 模式：INVITE、選擇由誰發起 re-INVITE、BYE（以 sip-core 的 `Endpoint::invite`／`bind` 實作；同時作為 SIPp 測試用的最小 UAS `uas-test`）
-- [ ] [Sonnet] （M1d）fax-in 來電策略骨架：trunk profile（`generic`／`cht-cs210`，來源 IP 對應）、`t38_policy`（auto／wait-peer／initiate／audio-only）、audio+image 選擇、SDP 寬容度旗標（C02、C06–C09）
-- [ ] [Sonnet] （M1d）每通來電的診斷擷取：以 `MessageTap` 寫入 `logs/calls/<call-id>/sip.log`，可設定只在失敗時保留（C11）
-- [ ] [Sonnet] （M1d）SIPp 互通 S01–S11（S11：我方 re-INVITE 的 200 在收到 ACK 前重送兩次；另含 C03/C04 的 SIPp registrar 版本）
-- [x] [Any] CI 新增涵蓋率門檻（`coverage` job，`cargo llvm-cov -p sip-core --fail-under-lines 85`）與 nightly fuzz workflow（`.github/workflows/fuzz.yml`，不在 push 觸發）；`scripts/branch-protection.json` 已加入 `coverage`，需由管理員重新套用（`scripts/set-branch-protection.sh`）
-- [ ] [Opus] 審核 docs/test-reports/M1.md
+- [x] [Sonnet] （M1d）fax-sim 的 SIP UAC 模式（`fax_sim::sip_uac`＋`sip-uac` bin）：INVITE、選擇由誰發起 re-INVITE、BYE，對 `sip-faxd serve` 每個方向一個測試。SIPp 測試改直接對真實 `sip-faxd` 進行，因此未做 `uas-test`（見 M1 報告 M1d 偏離）
+- [x] [Sonnet] （M1d）fax-in 來電策略骨架：trunk profile（`generic`／`cht-cs210`，來源 IP 對應）、`t38_policy`（auto／wait-peer／initiate／audio-only）、audio+image 選擇、SDP 寬容度旗標（C02、C06–C09，另有 `sip-faxd serve`／`config check`、設定檔與 conf/sip-faxd.toml.example；待 Opus 審核）
+- [x] [Sonnet] （M1d）每通來電的診斷擷取：以 `MessageTap` 寫入 `logs/calls/<call-id>/sip.log`，可設定只在失敗時保留（C11；待 Opus 審核）
+- [x] [Sonnet] （M1d）SIPp 互通 S01–S11（S11：我方 re-INVITE 的 200 在收到 ACK 前重送兩次；另含 C03/C04 的 SIPp registrar 版本；待 Opus 審核，見 docs/test-reports/M1.md「M1d」）
+- [x] [Any] CI 新增涵蓋率門檻（`coverage` job，`cargo llvm-cov -p sip-core --fail-under-lines 85`；M1d 加上 `-p fax-in --fail-under-lines 70`）與 nightly fuzz workflow（`.github/workflows/fuzz.yml`，不在 push 觸發）；`scripts/branch-protection.json` 已加入 `coverage`，需由管理員重新套用（`scripts/set-branch-protection.sh`）
+- [x] [Opus] 審核 docs/test-reports/M1.md（M1a–M1d 全數通過）
 
 ## M2 — T.38 / T.30 / T.4（non-ECM）
+- [ ] [Sonnet] 媒體埠改為 port_range 依通話配置（M1d 審核 #1）
+- [ ] [Sonnet] sip-core：re-INVITE 的 200 與 BYE 同時到達的競態，200 已收到就回報 Accepted（M1d 審核 #2）
 - [ ] [Opus] 撰寫 docs/test-plans/M2.md
 - [ ] [Sonnet] t38：IFP PER codec（v0–v3）、UDPTL redundancy 和 parity FEC，加上 proptest 和 fuzz
 - [ ] [Sonnet] t30：接收端狀態機（DIS/DCS/TCF/CFR/FTT/MCF/RTN/MPS/EOP/DCN），以表格驅動測試

@@ -52,6 +52,15 @@ cd sip-fax-rs-<version>-linux-x86_64
 ./sip-faxd serve
 ```
 
+## 設定
+
+`sip-faxd` 讀取 TOML 設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）。[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) 說明所有選項：SIP 監聽、每個上游的 `[[trunks]]` 設定（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、選用的 REGISTER），以及每通來電的 SIP 擷取。
+
+```sh
+./sip-faxd config check --config conf/sip-faxd.toml   # 驗證設定
+./sip-faxd serve --config conf/sip-faxd.toml          # 執行
+```
+
 ## 開發
 
 ```sh

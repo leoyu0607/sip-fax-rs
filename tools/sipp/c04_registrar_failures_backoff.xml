@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  C04 (SIPp as registrar): the first two REGISTERs are refused with 403, the third is
+  challenged with 401, the fourth (with Authorization) succeeds. sip-faxd must retry with
+  exponential backoff (the test configures backoff_initial_secs = 1: delays 1 s, 2 s) and
+  recover. The Rust test checks the delays from SIPp's message log.
+-->
+<scenario name="C04 REGISTER failures and backoff">
+  <recv request="REGISTER" timeout="15000">
+    <action>
+      <ereg regexp="REGISTER sip:127.0.0.1 SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="To: &lt;sip:fax1@127.0.0.1&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Contact: &lt;sip:fax1@127.0.0.1:@FAXD_PORT@&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 403 Forbidden
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpReg[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="REGISTER" timeout="5000">
+    <action>
+      <ereg regexp="REGISTER sip:127.0.0.1 SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="To: &lt;sip:fax1@127.0.0.1&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Contact: &lt;sip:fax1@127.0.0.1:@FAXD_PORT@&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 403 Forbidden
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpReg[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="REGISTER" timeout="6000">
+    <action>
+      <ereg regexp="REGISTER sip:127.0.0.1 SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="To: &lt;sip:fax1@127.0.0.1&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Contact: &lt;sip:fax1@127.0.0.1:@FAXD_PORT@&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 401 Unauthorized
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpReg[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      WWW-Authenticate: Digest realm="sipp.test", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", algorithm=MD5
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="REGISTER" timeout="5000">
+    <action>
+      <ereg regexp="REGISTER sip:127.0.0.1 SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="To: &lt;sip:fax1@127.0.0.1&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Contact: &lt;sip:fax1@127.0.0.1:@FAXD_PORT@&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Authorization: Digest [^\r]*username=&quot;fax1&quot;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Authorization: Digest [^\r]*realm=&quot;sipp.test&quot;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Authorization: Digest [^\r]*nonce=&quot;dcd98b7102dd2f0e8b11d0f600bfb0c093&quot;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Authorization: Digest [^\r]*uri=&quot;sip:127.0.0.1&quot;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Authorization: Digest [^\r]*response=&quot;@EXPECTED_RESPONSE@&quot;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpReg[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:fax1@127.0.0.1:@FAXD_PORT@>;expires=3600
+      Expires: 3600
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <ResponseTimeRepartition value="10, 20, 30, 40, 50, 100, 150, 200"/>
+  <CallLengthRepartition value="10, 50, 100, 500, 1000, 2000"/>
+</scenario>

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  S07: SIPp refuses sip-faxd's T.38 re-INVITE with 488. sip-faxd ACKs the 488 and, because
+  G.711 passthrough does not exist yet, ends the call with BYE (failure reason
+  g711_passthrough_unsupported). SIPp answers the BYE with 200.
+-->
+<scenario name="S07 488 on sip-faxd's re-INVITE">
+  <send retrans="500">
+    <![CDATA[
+      INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=Sonus_UAC 1523094871 1523094871 IN IP4 [local_ip]
+      s=SIP Media Capabilities
+      c=IN IP4 [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-15
+      a=ptime:20
+      a=sendrecv
+
+    ]]>
+  </send>
+
+  <recv response="100" optional="true"/>
+
+  <recv response="180" optional="true"/>
+
+  <recv response="200" rrs="true">
+    <action>
+      <ereg regexp="m=audio 20000 RTP/AVP 0 8 101" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+      Call-ID: [call_id]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="INVITE" rrs="true" timeout="10000">
+    <action>
+      <ereg regexp="m=image [0-9]+ udptl t38" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 488 Not Acceptable Here
+      [last_Via:]
+      [last_From:]
+      [last_To:];tag=[pid]SIPpRej[call_number]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="ACK"/>
+
+  <recv request="BYE" timeout="5000"/>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <ResponseTimeRepartition value="10, 20, 30, 40, 50, 100, 150, 200"/>
+  <CallLengthRepartition value="10, 50, 100, 500, 1000, 2000"/>
+</scenario>

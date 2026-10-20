@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  C06: the initial INVITE already offers m=image. sip-faxd must answer 200 with a T.38 answer
+  (checked here) and must NOT send a re-INVITE afterwards (the test config would send one after
+  0.3 s; SIPp waits 3 s, a re-INVITE during that time fails the call and the Rust test also
+  checks SIPp's message log).
+-->
+<scenario name="C06 T.38 in the initial INVITE">
+  <send retrans="500">
+    <![CDATA[
+      INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=Sonus_UAC 1523094871 1523094871 IN IP4 [local_ip]
+      s=SIP Media Capabilities
+      c=IN IP4 [media_ip]
+      t=0 0
+      m=image [media_port] udptl t38
+      a=T38FaxVersion:0
+      a=T38MaxBitRate:14400
+      a=T38FaxRateManagement:transferredTCF
+      a=T38FaxMaxBuffer:1800
+      a=T38FaxMaxDatagram:260
+      a=T38FaxUdpEC:t38UDPRedundancy
+
+    ]]>
+  </send>
+
+  <recv response="100" optional="true"/>
+
+  <recv response="180" optional="true"/>
+
+  <recv response="200" rrs="true">
+    <action>
+      <ereg regexp="m=image 30000 udptl t38" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38FaxVersion:0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38MaxBitRate:14400" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38FaxRateManagement:transferredTCF" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38FaxMaxBuffer:1800" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38FaxMaxDatagram:260" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="a=T38FaxUdpEC:t38UDPRedundancy" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+      Call-ID: [call_id]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <pause milliseconds="3000"/>
+
+  <send retrans="500">
+    <![CDATA[
+      BYE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+      Call-ID: [call_id]
+      CSeq: 2 BYE
+      Max-Forwards: 70
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv response="200"/>
+
+  <ResponseTimeRepartition value="10, 20, 30, 40, 50, 100, 150, 200"/>
+  <CallLengthRepartition value="10, 50, 100, 500, 1000, 2000"/>
+</scenario>

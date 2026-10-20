@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  S03: SIPp never sends the ACK. sip-faxd must retransmit its 200 at T1-doubling intervals
+  (0, 500, 1500, 3500, 7500, 11500 ... ms, capped at T2 = 4 s) and, after 64*T1 = 32 s without ACK, hang
+  up with BYE. The retransmitted 200s are counted from SIPp's message log by the Rust test; the
+  scenario itself only needs the first 200 and the final BYE.
+-->
+<scenario name="S03 no ACK: 200 is retransmitted">
+  <send retrans="500">
+    <![CDATA[
+      INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=Sonus_UAC 1523094871 1523094871 IN IP4 [local_ip]
+      s=SIP Media Capabilities
+      c=IN IP4 [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-15
+      a=ptime:20
+      a=sendrecv
+
+    ]]>
+  </send>
+
+  <recv response="100" optional="true"/>
+
+  <recv response="180" optional="true"/>
+
+  <recv response="200" rrs="true"/>
+
+  <!-- no ACK on purpose -->
+
+  <recv request="BYE" timeout="45000"/>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <ResponseTimeRepartition value="10, 20, 30, 40, 50, 100, 150, 200"/>
+  <CallLengthRepartition value="10, 50, 100, 500, 1000, 2000"/>
+</scenario>

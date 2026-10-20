@@ -10,6 +10,7 @@ STAGE="$ROOT/dist/$NAME"
 
 rm -rf "$STAGE" && mkdir -p "$STAGE"/{conf,data,logs}
 cp "$ROOT/target/$TARGET/release/sip-faxd" "$STAGE/"
+cp "$ROOT/conf/sip-faxd.toml.example" "$STAGE/conf/"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/README.zh-TW.md" "$STAGE/"
 tar -C "$ROOT/dist" -czf "$ROOT/dist/$NAME.tar.gz" "$NAME"
 echo "$ROOT/dist/$NAME.tar.gz"

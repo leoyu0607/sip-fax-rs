@@ -20,6 +20,13 @@ tracing = "0.1"
 rand = "0.9"
 md-5 = "0.10"
 proptest = "1"
+# fax-in / sip-faxd (ADR-013)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+sip-core = { path = "crates/sip-core" }
+fax-in = { path = "crates/fax-in" }
 
 [profile.release]
 lto = true

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<!--
+  S05: two SBCs add Record-Route (the first hop is SIPp itself, so the in-dialog requests come
+  back to us; the second hop is a made-up address). sip-faxd's own re-INVITE and BYE must carry
+  Request-URI = the INVITE's Contact and Route = the Record-Route set in the received order
+  (loose routing). The expected port is substituted by the test harness (@LOCAL_PORT@).
+-->
+<scenario name="S05 Record-Route handling">
+  <send retrans="500">
+    <![CDATA[
+      INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Max-Forwards: 70
+      Record-Route: <sip:127.0.0.1:@LOCAL_PORT@;lr>
+      Record-Route: <sip:192.0.2.88:5099;lr>
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=Sonus_UAC 1523094871 1523094871 IN IP4 [local_ip]
+      s=SIP Media Capabilities
+      c=IN IP4 [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-15
+      a=ptime:20
+      a=sendrecv
+
+    ]]>
+  </send>
+
+  <recv response="100" optional="true"/>
+
+  <recv response="180" optional="true"/>
+
+  <recv response="200" rrs="true">
+    <action>
+      <ereg regexp="Record-Route: &lt;sip:127.0.0.1:@LOCAL_PORT@;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Record-Route: &lt;sip:192.0.2.88:5099;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: "Sonus GW" <sip:gw@[local_ip]:[local_port]>;tag=[pid]SIPpTag00[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+      Call-ID: [call_id]
+      CSeq: 1 ACK
+      Max-Forwards: 70
+      [routes]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv request="INVITE" rrs="true" timeout="10000">
+    <action>
+      <ereg regexp="INVITE sip:gw@127.0.0.1:@LOCAL_PORT@;transport=UDP SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:127.0.0.1:@LOCAL_PORT@;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:192.0.2.88:5099;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="m=image [0-9]+ udptl t38" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=Sonus_UAC 1523094871 1523094872 IN IP4 [local_ip]
+      s=SIP Media Capabilities
+      c=IN IP4 [media_ip]
+      t=0 0
+      m=image [media_port] udptl t38
+      a=T38FaxVersion:0
+      a=T38MaxBitRate:14400
+      a=T38FaxRateManagement:transferredTCF
+      a=T38FaxMaxBuffer:1800
+      a=T38FaxMaxDatagram:260
+      a=T38FaxUdpEC:t38UDPRedundancy
+
+    ]]>
+  </send>
+
+  <recv request="ACK">
+    <action>
+      <ereg regexp="ACK sip:gw@127.0.0.1:@LOCAL_PORT@;transport=UDP SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:127.0.0.1:@LOCAL_PORT@;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:192.0.2.88:5099;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <!-- the stub fax session ends after call.max_duration_secs and sip-faxd hangs up -->
+
+  <recv request="BYE" timeout="15000">
+    <action>
+      <ereg regexp="BYE sip:gw@127.0.0.1:@LOCAL_PORT@;transport=UDP SIP/2.0" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:127.0.0.1:@LOCAL_PORT@;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+      <ereg regexp="Route: &lt;sip:192.0.2.88:5099;lr&gt;" search_in="msg" check_it="true" assign_to="1"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+      SIP/2.0 200 OK
+      [last_Via:]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      [last_CSeq:]
+      Contact: <sip:gw@[local_ip]:[local_port];transport=[transport]>
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <ResponseTimeRepartition value="10, 20, 30, 40, 50, 100, 150, 200"/>
+  <CallLengthRepartition value="10, 50, 100, 500, 1000, 2000"/>
+</scenario>

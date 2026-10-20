@@ -16,7 +16,8 @@ apps/sip-faxd/  單一執行檔：serve / tui / CLI 子命令
 web-ui/         SPA 原始碼（Svelte + Vite）           ← M4 建立
 tools/          獨立的 cargo workspace（不在根 workspace 內，因為需要 SpanDSP C 函式庫；根 Cargo.toml 以 exclude 排除）
   spandsp-sys/  手寫的最小 FFI（opaque pointer，pkg-config 連結 SpanDSP >= 3.1）            ← M0
-  fax-sim/      T.38/音訊 loopback 執行器、測試頁 TIFF 產生器與獨立讀取器；M1 起加 SIP UAC   ← M0/M1
+  fax-sim/      T.38/音訊 loopback 執行器、測試頁 TIFF 產生器與獨立讀取器；`sip_uac` 模式（模擬 gateway 撥入 sip-faxd）← M0/M1d
+  interop/      啟動真實 `sip-faxd` 並以 SIPp 3.8.0 驅動的測試 harness；場景在 `tools/sipp/*.xml`   ← M1d
                 只在開發和 CI 使用，需在 Rocky 9 容器內以 scripts/e2e-docker.sh 執行
 tests/e2e/      端到端整合測試                           ← M1 起
 ```
@@ -36,6 +37,19 @@ tests/e2e/      端到端整合測試                           ← M1 起
 | Dialog | `dialog/`：每個 dialog 一個 tokio task（`task.rs`）。UAS 建立 dialog 與 2xx 重送／AckTimeout（`uas.rs`）；in-dialog request 建構（loose／strict routing）；BYE、re-INVITE（glare 491、CSeq 檢查 500、未知 dialog 481）、OPTIONS／INFO／UPDATE；我方 re-INVITE（491 重試、應用層逾時 CANCEL、401/407 帶憑證重送一次）；session timer（`session_timer.rs`，RFC 4028）|
 | SDP | 完整模型：多個 m-line、`m=image <port> udptl t38` 和全部 `T38Fax*` 屬性、port 0 拒絕規則、o= 版本號遞增 |
 | API | `endpoint.rs`：`Endpoint::bind`／`detached`、`IncomingCall`（ringing／accept／reject）、`DialogHandle`／`DialogControl`（reinvite／bye／next_event）、`Endpoint::invite`（UAC，自動 ACK）、`shutdown()` 結束所有 task。Transport 層另提供選用的訊息 tap（`MessageTap`，預設關閉，不阻塞協定堆疊），是 M1d per-call 擷取的基礎。層與層之間以 tokio channel 串接（transport → transaction → dialog task → 應用層）|
+
+## fax-in（M1d 骨架）
+| 模組 | 內容 |
+|---|---|
+| `config` | TOML 設定（`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`）；trunk 先套 preset（`generic`、`cht-cs210`）；未知鍵一律報錯。範例見 `conf/sip-faxd.toml.example` |
+| `trunk` | 來源 IP → trunk 對應（第一個符合者）、傳給 transport 的來源過濾（所有 trunk 聯集，`unknown_source` = drop / reject / log）|
+| `controller` | `FaxIn`：每通來電一個 task。依 `t38_policy`（auto / wait-peer / initiate / audio-only）回 G.711 或 T.38、接受對方 re-INVITE 或在 ACK 後 `initiate_after_secs` 發我方 re-INVITE；488/415/606 → BYE 並記錄 `g711_passthrough_unsupported`。per-trunk 相容旗標（未知 `Require`、`min_max_datagram`）|
+| `media` | 以 trunk 政策產生 SDP answer／T.38 offer；SDP 寬容度（缺 RateManagement、c= 層級、MaxDatagram 下限）與警告 |
+| `session` | `FaxSession`／`FaxSessionFactory` trait；M1d 為只維持通話的 stub，M2 換成 T.38/T.30 |
+| `event` | `CallEvent`、`CallResult`（trunk、T.38 協商參數、時間戳、結果／失敗原因），M3 寫入 DB |
+| `capture` | 以訊息 tap 寫 `logs/calls/<call-id>/sip.log` 與 `result.json`；`keep = "failed"` 只留失敗通話 |
+
+`sip-faxd serve --config <path>` 啟動 `FaxIn`，`sip-faxd config check` 驗證設定檔。
 
 ## fax-in 呼叫流程
 1. 收到 INVITE（通常是 audio），回 100，再回 200 並帶 G.711 SDP（PCMU/PCMA）。

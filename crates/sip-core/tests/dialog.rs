@@ -1528,3 +1528,133 @@ async fn dialog_errors_after_termination() {
     );
     let _ = Arc::new(dlg);
 }
+
+// ================================================================ M1d leftovers: Endpoint::invite timeout
+
+fn invite_opts_for(w: &W) -> InviteOptions {
+    let _ = w;
+    InviteOptions::new(
+        PEER.parse().unwrap(),
+        SipUri::parse("sip:fax@10.0.0.1").unwrap(),
+        SipUri::parse("sip:us@192.0.2.10").unwrap(),
+        SipUri::parse("sip:fax@10.0.0.1").unwrap(),
+        sdp(AUDIO_OFFER),
+    )
+}
+
+/// `Endpoint::invite` with a provisional answer but no final one: Timer B no longer runs, so
+/// the 180 s application timeout (`InviteOptions::timeout`, default 180 s) ends the attempt
+/// with a CANCEL exactly then.
+#[tokio::test(start_paused = true)]
+async fn e08_invite_gives_up_after_180s_with_a_cancel() {
+    let w = W::new();
+    let opts = invite_opts_for(&w);
+    assert_eq!(opts.timeout, Duration::from_secs(180), "default");
+    let ep = w.ep.clone();
+    let job = tokio::spawn(async move { ep.invite(opts).await });
+    settle().await;
+    let (t0, inv) = w.requests("INVITE").remove(0);
+    assert_eq!(t0, 0);
+    w.at(1_000).await;
+    w.feed_resp(resp_to(&inv, 180, "theirs")).await;
+    w.at(179_999).await;
+    assert!(w.requests("CANCEL").is_empty(), "no CANCEL before 180 s");
+    assert!(!job.is_finished());
+    w.at(180_000).await;
+    let cancels = w.requests("CANCEL");
+    assert_eq!(cancels.len(), 1);
+    let (t, c) = &cancels[0];
+    assert_eq!(*t, 180_000);
+    assert_eq!(
+        c.headers.top_via().unwrap().branch(),
+        inv.headers.top_via().unwrap().branch(),
+        "CANCEL uses the INVITE's branch"
+    );
+    assert_eq!(c.headers.cseq().unwrap().method, Method::Cancel);
+    assert_eq!(
+        c.headers.cseq().unwrap().seq,
+        inv.headers.cseq().unwrap().seq
+    );
+    let err = job.await.unwrap().expect_err("invite fails");
+    assert!(
+        matches!(err, sip_core::endpoint::InviteError::Timeout),
+        "{err:?}"
+    );
+}
+
+/// The timeout is configurable, and with no answer at all Timer B (32 s) ends the attempt
+/// first, without a CANCEL.
+#[tokio::test(start_paused = true)]
+async fn e08_invite_timeout_is_configurable_and_timer_b_wins_without_any_answer() {
+    let w = W::new();
+    let mut opts = invite_opts_for(&w);
+    opts.timeout = Duration::from_secs(10);
+    let ep = w.ep.clone();
+    let job = tokio::spawn(async move { ep.invite(opts).await });
+    settle().await;
+    let (_, inv) = w.requests("INVITE").remove(0);
+    w.feed_resp(resp_to(&inv, 180, "theirs")).await;
+    w.at(10_000).await;
+    assert_eq!(w.requests("CANCEL")[0].0, 10_000);
+    assert!(job.await.unwrap().is_err());
+
+    // no response at all: Timer B (64*T1 = 32 s) fires, nothing is cancelled
+    let w2 = W::new();
+    let ep = w2.ep.clone();
+    let opts = invite_opts_for(&w2);
+    let job = tokio::spawn(async move { ep.invite(opts).await });
+    settle().await;
+    w2.at(31_999).await;
+    assert!(!job.is_finished());
+    w2.at(32_000).await;
+    let err = job.await.unwrap().expect_err("invite fails");
+    assert!(matches!(err, sip_core::endpoint::InviteError::Timeout));
+    assert!(w2.requests("CANCEL").is_empty());
+    let sent = w2.requests("INVITE");
+    assert_eq!(
+        sent.len(),
+        7,
+        "Timer A retransmissions up to 32 s: {sent:?}"
+    );
+}
+
+/// M1d: `IncomingCall::reject_with` adds the given headers to the final response (fax-in uses
+/// it for `Unsupported` on a 420).
+#[tokio::test(start_paused = true)]
+async fn g02_reject_with_adds_headers_and_validates_the_status() {
+    let mut w = W::new();
+    w.feed_req(peer_invite(&Inv::default())).await;
+    let call = w.next_call().await;
+    // a 2xx is not a rejection
+    let err = w.next_call_err_for_2xx(call).await;
+    assert!(
+        matches!(err, sip_core::endpoint::CallError::BadStatus(_)),
+        "{err:?}"
+    );
+    let inv2 = Inv {
+        branch: "z9hG4bKinv9",
+        call_id: "call-9@10.0.0.1",
+        ..Inv::default()
+    };
+    w.feed_req(peer_invite(&inv2)).await;
+    let call2 = w.next_call().await;
+    call2
+        .reject_with(
+            StatusCode::BAD_EXTENSION,
+            &[("Unsupported", "foo, bar"), ("Retry-After", "5")],
+        )
+        .await
+        .unwrap();
+    settle().await;
+    let r = w.responses(420, "INVITE");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].1.headers.get("Unsupported"), Some("foo, bar"));
+    assert_eq!(r[0].1.headers.get("Retry-After"), Some("5"));
+    assert!(r[0].1.headers.to().unwrap().tag().is_some());
+}
+
+impl W {
+    async fn next_call_err_for_2xx(&self, call: IncomingCall) -> sip_core::endpoint::CallError {
+        call.reject_with(StatusCode::OK, &[]).await.unwrap_err()
+    }
+}

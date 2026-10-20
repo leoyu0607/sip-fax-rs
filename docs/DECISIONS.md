@@ -160,3 +160,25 @@ M1b 審核（見 docs/test-reports/M1.md「M1b — Opus 審核結論」）要求
 **影響**
 - 升級時要同時修改 `rust-toolchain.toml` 和 Dockerfile，並在同一個 commit 修正新的 lint。
 - fuzz 仍然使用 nightly。
+
+## ADR-013：M1d 的 fax-in、設定檔與依賴（2026-10-21）
+**背景**
+
+M1d 在 sip-core 之上建立 fax-in 呼叫控制骨架與可執行的 `sip-faxd serve`，需要設定檔格式、結構化輸出，以及 sip-core 以外的新依賴。
+
+**決策**
+- **新依賴（只在 sip-core 以外）**：`serde`（derive）、`toml` 0.8（設定檔）、`serde_json`（通話結果 `result.json` 與日誌）、`tracing-subscriber`（`sip-faxd` 的日誌輸出，只啟用 fmt/env-filter）。`sip-core` 的依賴沒有變動（仍遵守 ADR-008）。測試工具 workspace 另加 `md-5`（測試端獨立重算 Digest）。全部放在根 `[workspace.dependencies]`；皆為 MIT/Apache-2.0、純 Rust，沒有 OpenSSL。
+- **設定檔**：TOML，每個區段都 `deny_unknown_fields`，拼錯的選項直接報錯。`[[trunks]]` 先套內建 preset（`generic`、`cht-cs210`，以 TOML 表深度合併，使用者的鍵覆蓋 preset）。`cht-cs210` 目前等於 `generic` 加明確的 UDP，待 M6 的實際擷取再調整。
+- **`t38_policy`**：`auto`／`initiate` 在 M1d 的線上行為相同（ACK 後 `initiate_after_secs` 秒送出我方 re-INVITE，同時接受對方先發的 re-INVITE）；差別留給 M2（CNG 偵測只會提前觸發 `auto`）。`wait-peer` 從不主動發；`audio-only` 對 T.38 回 488，offer 同時有 audio 與 image 時選 audio。
+- **T.38 失敗的處理**：對方對我方 re-INVITE 回 488／415／606（或 2xx 但 `m=image` port 為 0）→ 記錄「G.711 passthrough not yet supported」、送 BYE，失敗原因 `g711_passthrough_unsupported`。其他失敗（5xx、32 s 逾時）為 `t38_reinvite_failed`。`audio-only` 的通話無法真正收傳真，結束時同樣記為 `g711_passthrough_unsupported`。這與測試計畫 S07 原文「488 後 dialog 仍然存在」不同：因為 fallback 政策，我方在 ACK 之後立即 BYE；「dialog 在 488 之後仍存活」改由 S07b（audio-only 對 SIPp 的 T.38 re-INVITE 回 488）驗證。
+- **per-trunk 旗標的限制**：`Require` 檢查在 endpoint 分派時尚不知道 trunk，因此 endpoint 一律放行，由 fax-in 在對應 trunk 後依 `compat.accept_unknown_require` 回 420（為此在 sip-core 新增 `IncomingCall::reject_with` 以附加 `Unsupported` header）。`Allow`／`Supported`、對外位址（Via/Contact）是全域設定（`[sip]`），不是 per-trunk。
+- **來源過濾**：transport 層的 `SourcePolicy` 取所有 trunk `allowed_sources` 的聯集與 `unknown_source` 模式；trunk 對應在 fax-in 內以第一個符合的 trunk（設定順序）決定。
+- **FaxSession 介面**：`FaxSession`／`FaxSessionFactory` trait（以 boxed future 保持 object-safe，不引入 async-trait）。M1d 的 `StubFaxSession` 只維持通話到對方 BYE 或 `max_duration_secs`。
+- **診斷擷取**：tap 回呼只把事件丟進 channel（超過 20 000 筆排隊就丟棄並計數）；寫入由獨立 task 以 Call-ID 分流。INVITE 先於控制器知道該通話，因此未登記的 Call-ID 只暫存在小型有界緩衝（256 個 Call-ID × 16 則），避免掃描流量塞滿磁碟。`keep = "failed"` 時成功的通話完全不寫檔。
+- **re-INVITE 的結果由通話迴圈直接輪詢**（非另開 helper task），確保對方緊跟在 200 後的 BYE 不會搶先於 re-INVITE 結果被處理。
+- **測試工具**：`tools/interop` crate 建置並啟動真實的 `sip-faxd`，以 SIPp 3.8.0 驅動；scratch 目錄以行程 id 區分。SIPp 的 `-nr`（關閉自動重送處理）只用於 S04／S11，否則 SIPp 對重複的 180／ACK 會自動重送上一則訊息而形成乒乓。
+
+**代價**
+- `auto` 與 `initiate` 暫時沒有行為差異。
+- 設定檔的 `peer` 若是主機名稱，於啟動時解析一次（沒有動態 DNS）。
+- BYE 結果最多等 5 s（對方不回應時）才回報通話結果。
