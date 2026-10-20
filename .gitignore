@@ -1,0 +1,9 @@
+/target
+/dist
+/data
+/logs
+web-ui/node_modules
+web-ui/dist
+.DS_Store
+.codegraph/
+*.swp
