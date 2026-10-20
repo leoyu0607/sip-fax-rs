@@ -17,7 +17,7 @@
 - [ ] [Any] 設定 `main` 的 branch protection，把 CI job 設為必要檢查（`scripts/set-branch-protection.sh`；需由有管理員權限的人執行）
 - [x] [Any] `docker/test-rocky9.Dockerfile`：Rust toolchain、SpanDSP v3.1.1（從原始碼建置，見 ADR-007）、libtiff-devel
 - [x] [Sonnet] `tools/fax-sim` 雛形：`spandsp-sys`（手寫 FFI，見 ADR-007）綁定、T.38/音訊 loopback、TIFF 產生器；測試 S01–S10 全數通過（見 docs/test-reports/M0.md）
-- [x] [Any] CI 新增 `e2e-spandsp` job，在 Rocky 9 容器中執行（尚待 push 後確認 CI 實際綠燈）
+- [x] [Any] CI 新增 `e2e-spandsp` job，在 Rocky 9 容器中執行（GitHub CI 已綠燈）
 - [x] [Opus] 撰寫 docs/test-plans/M0.md，並審核 docs/test-reports/M0.md（通過，見報告第 6 節）
 
 ## M1 — sip-core
