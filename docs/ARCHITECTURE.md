@@ -14,7 +14,10 @@ crates/
   web/          axum REST + WebSocket 即時狀態 + rust-embed 內嵌 SPA
 apps/sip-faxd/  單一執行檔：serve / tui / CLI 子命令
 web-ui/         SPA 原始碼（Svelte + Vite）           ← M4 建立
-tools/fax-sim/  SpanDSP FFI + sip-core UAC，模擬 gateway 送傳真（只在開發和 CI 使用）← M0/M1 建立
+tools/          獨立的 cargo workspace（不在根 workspace 內，因為需要 SpanDSP C 函式庫；根 Cargo.toml 以 exclude 排除）
+  spandsp-sys/  手寫的最小 FFI（opaque pointer，pkg-config 連結 SpanDSP >= 3.1）            ← M0
+  fax-sim/      T.38/音訊 loopback 執行器、測試頁 TIFF 產生器與獨立讀取器；M1 起加 SIP UAC   ← M0/M1
+                只在開發和 CI 使用，需在 Rocky 9 容器內以 scripts/e2e-docker.sh 執行
 tests/e2e/      端到端整合測試                           ← M1 起
 ```
 

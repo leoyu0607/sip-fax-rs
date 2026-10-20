@@ -19,7 +19,8 @@ cargo build
 cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
-scripts/ci-local.sh              # push 前必跑，與 CI 必要檢查一致
+scripts/ci-local.sh              # push 前必跑，與 CI 必要檢查一致（有 Docker 時會一併跑 e2e-docker.sh）
+scripts/e2e-docker.sh            # 在 Rocky 9 容器內跑 tools/ workspace（SpanDSP 模擬）的 fmt/clippy/test
 cargo zigbuild --release --target x86_64-unknown-linux-musl -p sip-faxd
 scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
 ```

@@ -1,0 +1,11 @@
+[package]
+name = "spandsp-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Minimal hand-written FFI bindings to SpanDSP (T.38 terminal, fax, T.30)"
+
+[build-dependencies]
+pkg-config = "0.3"

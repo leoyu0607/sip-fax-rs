@@ -14,11 +14,11 @@
 - [x] [Any] CI：lint（fmt/clippy/cargo-deny）、test、build-musl（x86_64/aarch64，驗證靜態連結）、smoke-rhel（Rocky 9/Alma 10）、tag 時自動 release
 - [x] [Any] `scripts/ci-local.sh`、`scripts/package.sh`
 - [x] [Any] 建立 GitHub repo，push 後確認 CI 全綠
-- [ ] [Any] 設定 `main` 的 branch protection，把 CI job 設為必要檢查
-- [ ] [Any] `docker/test-rocky9.Dockerfile`：Rust toolchain、spandsp-devel（EPEL）、libtiff-devel、clang（bindgen 使用）
-- [ ] [Sonnet] `tools/fax-sim` 雛形：`spandsp-sys`（bindgen）綁定，並用一個 smoke test 呼叫 `t38_terminal_init` 和 `fax_init`
-- [ ] [Any] CI 新增 `e2e-spandsp` job，在 Rocky 9 容器中執行
-- [ ] [Opus] 撰寫 docs/test-plans/M0.md，並審核 docs/test-reports/M0.md
+- [ ] [Any] 設定 `main` 的 branch protection，把 CI job 設為必要檢查（`scripts/set-branch-protection.sh`；需由有管理員權限的人執行）
+- [x] [Any] `docker/test-rocky9.Dockerfile`：Rust toolchain、SpanDSP v3.1.1（從原始碼建置，見 ADR-007）、libtiff-devel
+- [x] [Sonnet] `tools/fax-sim` 雛形：`spandsp-sys`（手寫 FFI，見 ADR-007）綁定、T.38/音訊 loopback、TIFF 產生器；測試 S01–S10 全數通過（見 docs/test-reports/M0.md）
+- [x] [Any] CI 新增 `e2e-spandsp` job，在 Rocky 9 容器中執行（尚待 push 後確認 CI 實際綠燈）
+- [x] [Opus] 撰寫 docs/test-plans/M0.md，並審核 docs/test-reports/M0.md（通過，見報告第 6 節）
 
 ## M1 — sip-core
 - [ ] [Opus] 撰寫 docs/test-plans/M1.md：涵蓋 RFC 3261/3264/4475 合規條目、重送和計時器、re-INVITE 和 glare、Record-Route
@@ -38,6 +38,8 @@
 - [ ] [Sonnet] t30：接收端狀態機（DIS/DCS/TCF/CFR/FTT/MCF/RTN/MPS/EOP/DCN），以表格驅動測試
 - [ ] [Sonnet] t4：MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF 輸出
 - [ ] [Sonnet] 第 2 層互通測試：與 SpanDSP `t38_terminal` 以 IFP 互打
+- [ ] [Sonnet] fax-sim 加入 UDPTL redundancy/FEC 模型，補上 ECM + 封包遺失案例（多個 seed）（M0 審核追蹤 #1）
+- [ ] [Sonnet] 端到端測試以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2）
 - [ ] [Sonnet] fax-in：串起 SIP 到 T.38、T.30 再到文件，並完成端到端多頁接收
 - [ ] [Opus] 審核 docs/test-reports/M2.md
 

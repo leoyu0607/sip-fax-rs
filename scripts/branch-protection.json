@@ -1,0 +1,18 @@
+{
+  "required_status_checks": {
+    "strict": false,
+    "contexts": [
+      "lint",
+      "test",
+      "build-musl (x86_64-unknown-linux-musl)",
+      "build-musl (aarch64-unknown-linux-musl)",
+      "smoke-rhel (rockylinux/rockylinux:9)",
+      "smoke-rhel (almalinux:10)"
+    ]
+  },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}

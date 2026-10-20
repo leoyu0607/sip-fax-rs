@@ -1,0 +1,11 @@
+[package]
+name = "fax-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "SpanDSP-based fax simulation: T.38 / G.711 loopback runners and TIFF test pages"
+
+[dependencies]
+spandsp-sys = { path = "../spandsp-sys" }

@@ -1,0 +1,11 @@
+# 獨立的 cargo workspace：需要 SpanDSP（C 函式庫），因此不納入根 workspace，
+# 讓沒有 SpanDSP 的主機仍可 `cargo build` 主專案。請用 scripts/e2e-docker.sh 執行。
+[workspace]
+resolver = "3"
+members = ["spandsp-sys", "fax-sim"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"

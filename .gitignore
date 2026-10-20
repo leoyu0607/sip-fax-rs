@@ -7,3 +7,4 @@ web-ui/dist
 .DS_Store
 .codegraph/
 *.swp
+tools/target
