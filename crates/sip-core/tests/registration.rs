@@ -568,3 +568,106 @@ async fn c04_zero_lifetime_grant_and_garbled_challenge_are_failures() {
     );
     assert_eq!(retry_in, Duration::from_secs(10));
 }
+
+// ================================================================ C04b (M1b review fix 3)
+
+#[tokio::test(start_paused = true)]
+async fn c04b_423_raises_expires_to_min_expires_and_resends_immediately() {
+    let (mut fake, handle, _layer) = setup(config());
+    let mut st = handle.subscribe();
+    let (t0, first) = fake.next().await;
+    assert_eq!(t0, 0);
+    assert_eq!(first.headers.get("Expires"), Some("3600"));
+    fake.reply(&first, 423, &[("Min-Expires", "7200".into())])
+        .await;
+    let (t1, second) = fake.next().await;
+    assert_eq!(t1, 0, "resent without any backoff delay");
+    assert_eq!(second.headers.get("Expires"), Some("7200"));
+    assert_eq!(second.headers.cseq().unwrap().seq, 2);
+    assert_eq!(second.headers.call_id(), first.headers.call_id());
+    fake.reply(
+        &second,
+        200,
+        &[("Contact", "<sip:fax@192.0.2.10:5060>;expires=7200".into())],
+    )
+    .await;
+    let s = wait_state(&mut st, |s| {
+        matches!(s, RegistrationState::Registered { .. })
+    })
+    .await;
+    let RegistrationState::Registered { granted, .. } = s else {
+        unreachable!()
+    };
+    assert_eq!(granted, Duration::from_secs(7200));
+    // the refresh keeps asking for the raised value
+    let (t2, refresh) = fake.next().await;
+    assert_eq!(t2, 7200 * 1000 - 720 * 1000, "refresh 10 % before expiry");
+    assert_eq!(refresh.headers.get("Expires"), Some("7200"));
+    println!("C04b 423: Expires 3600 -> 7200 resent at {t1} ms; refresh at {t2} ms");
+}
+
+#[tokio::test(start_paused = true)]
+async fn c04b_423_without_usable_min_expires_is_a_failure_and_loop_is_bounded() {
+    let (mut fake, handle, _layer) = setup(config());
+    let mut st = handle.subscribe();
+    let (_, r1) = fake.next().await;
+    fake.reply(&r1, 423, &[]).await;
+    let s = wait_state(&mut st, |s| matches!(s, RegistrationState::Failed { .. })).await;
+    assert!(matches!(&s, RegistrationState::Failed { reason, .. } if reason.starts_with("423")));
+    // a registrar that keeps answering 423 is only retried once immediately per attempt
+    let (t, r2) = fake.next().await;
+    assert_eq!(t, 5000, "ordinary backoff applies");
+    fake.reply(&r2, 423, &[("Min-Expires", "5000".into())])
+        .await;
+    let (t, r3) = fake.next().await;
+    assert_eq!(t, 5000, "immediate resend");
+    assert_eq!(r3.headers.get("Expires"), Some("5000"));
+    fake.reply(&r3, 423, &[("Min-Expires", "9000".into())])
+        .await;
+    let s = wait_state(&mut st, |s| {
+        matches!(s, RegistrationState::Failed { attempts: 2, .. })
+    })
+    .await;
+    assert!(matches!(s, RegistrationState::Failed { .. }));
+}
+
+#[tokio::test(start_paused = true)]
+async fn c04b_503_retry_after_replaces_backoff() {
+    let (mut fake, handle, _layer) = setup(config());
+    let mut st = handle.subscribe();
+    let (_, r1) = fake.next().await;
+    fake.reply(&r1, 503, &[("Retry-After", "120".into())]).await;
+    let s = wait_state(&mut st, |s| matches!(s, RegistrationState::Failed { .. })).await;
+    assert_eq!(
+        s,
+        RegistrationState::Failed {
+            reason: "503 Service Unavailable".into(),
+            attempts: 1,
+            retry_in: Duration::from_secs(120)
+        }
+    );
+    let (t, r2) = fake.next().await;
+    assert_eq!(t, 120_000, "waited the Retry-After, not the 5 s backoff");
+    // Retry-After with a comment, on a non-503 response
+    fake.reply(&r2, 500, &[("Retry-After", "30 (maintenance)".into())])
+        .await;
+    let s = wait_state(&mut st, |s| {
+        matches!(s, RegistrationState::Failed { attempts: 2, .. })
+    })
+    .await;
+    assert!(
+        matches!(s, RegistrationState::Failed { retry_in, .. } if retry_in == Duration::from_secs(30))
+    );
+    let (t, r3) = fake.next().await;
+    assert_eq!(t, 150_000);
+    // no Retry-After: back to exponential backoff (attempt 3 -> 20 s)
+    fake.reply(&r3, 503, &[]).await;
+    let s = wait_state(&mut st, |s| {
+        matches!(s, RegistrationState::Failed { attempts: 3, .. })
+    })
+    .await;
+    assert!(
+        matches!(s, RegistrationState::Failed { retry_in, .. } if retry_in == Duration::from_secs(20))
+    );
+    println!("C04b 503: retries at 0, 120000, 150000 ms");
+}

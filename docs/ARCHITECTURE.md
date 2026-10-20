@@ -31,11 +31,11 @@ tests/e2e/      端到端整合測試                           ← M1 起
 |---|---|
 | Message | typed header map；compact form、多值與逗號分割；Via/Route/Record-Route；folding；嚴格 Content-Length |
 | Transport | UDP 綁定監聽；TCP listener 加連線池（以 peer addr 為 key，閒置逾時）、`StreamDecoder`（沿用 sipress `take_frame`，含 RFC 5626 CRLF keep-alive）；收到 request 補 `received`/`rport`（RFC 3581）；回應依 Via 路由（RFC 3261 18.2.2）；送出 request 自動填頂端 Via 的 transport/sent-by；來源 IP 白名單（`transport/policy.rs`，drop / 403 / log-only）；以 channel（`Incoming`/`Outgoing`，`TransportHandle::detached`）與上層串接，可不開 socket 測試；TLS 預留介面 |
-| Transaction | 四個純狀態機（`transaction/{server_invite,server_non_invite,client_invite,client_non_invite}.rs`，輸入事件、輸出 `Action` 與計時器；含 RFC 6026 Accepted 狀態）加 tokio driver；`TransactionLayer` 負責比對（17.1.3/17.2.3）、CANCEL（200/487/481）與 TU 介面（`TuInput`）。2xx 的重送與 ACK 由 TU（Dialog 層）負責，不在 transaction 內 |
+| Transaction | 四個純狀態機（`transaction/{server_invite,server_non_invite,client_invite,client_non_invite}.rs`，輸入事件、輸出 `Action` 與計時器；含 RFC 6026 Accepted 狀態）加 tokio driver；`TransactionLayer` 負責比對（17.1.3/17.2.3）、CANCEL（200/487/481）與 TU 介面（`TuInput`）。2xx 的重送與 ACK 由 TU（Dialog 層）負責，不在 transaction 內；ICT 在 Accepted 狀態把重送的 2xx 以 `TuEvent::Retransmitted2xx` 上報，Dialog 層據此重送快取的 ACK（ADR-011）|
 | Registration | `registration.rs`：REGISTER client 任務（digest、到期前 `max(10%, 30s)` 刷新、指數退避、`watch` 狀態）|
-| Dialog | UAS dialog：route set、remote target、雙向 CSeq、local tag；491 glare；session timer（RFC 4028）；OPTIONS 回應 |
+| Dialog | `dialog/`：每個 dialog 一個 tokio task（`task.rs`）。UAS 建立 dialog 與 2xx 重送／AckTimeout（`uas.rs`）；in-dialog request 建構（loose／strict routing）；BYE、re-INVITE（glare 491、CSeq 檢查 500、未知 dialog 481）、OPTIONS／INFO／UPDATE；我方 re-INVITE（491 重試、應用層逾時 CANCEL、401/407 帶憑證重送一次）；session timer（`session_timer.rs`，RFC 4028）|
 | SDP | 完整模型：多個 m-line、`m=image <port> udptl t38` 和全部 `T38Fax*` 屬性、port 0 拒絕規則、o= 版本號遞增 |
-| API | 以 tokio channel 分層（transport → transaction → TU），對外提供 `IncomingCall` 事件和 `Dialog` handle |
+| API | `endpoint.rs`：`Endpoint::bind`／`detached`、`IncomingCall`（ringing／accept／reject）、`DialogHandle`／`DialogControl`（reinvite／bye／next_event）、`Endpoint::invite`（UAC，自動 ACK）、`shutdown()` 結束所有 task。Transport 層另提供選用的訊息 tap（`MessageTap`，預設關閉，不阻塞協定堆疊），是 M1d per-call 擷取的基礎。層與層之間以 tokio channel 串接（transport → transaction → dialog task → 應用層）|
 
 ## fax-in 呼叫流程
 1. 收到 INVITE（通常是 audio），回 100，再回 200 並帶 G.711 SDP（PCMU/PCMA）。

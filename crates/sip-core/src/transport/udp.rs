@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 
+use super::tap::{self, MessageTap, TapDirection};
 use super::{Gate, Incoming, SourcePolicy, TransportKind, admit_request, wait_shutdown};
 use crate::message::{SipMessage, parse_datagram};
 
@@ -20,6 +21,8 @@ pub(super) async fn recv_loop(
     policy: Arc<SourcePolicy>,
     in_tx: mpsc::Sender<Incoming>,
     mut shutdown: watch::Receiver<bool>,
+    tap: Option<MessageTap>,
+    reply_to_malformed: bool,
 ) {
     let mut buf = vec![0u8; 65_536 + 1];
     loop {
@@ -44,9 +47,24 @@ pub(super) async fn recv_loop(
         if data == PONG {
             continue;
         }
+        tap::emit(
+            &tap,
+            TapDirection::Received,
+            source,
+            TransportKind::Udp,
+            data,
+        );
         let msg = match parse_datagram(data) {
             Ok(m) => m,
             Err(e) => {
+                if reply_to_malformed && policy.decide(source.ip()).admits() {
+                    if let Some(reply) = super::recover::bad_request_reply(data, source) {
+                        tracing::debug!(%source, error = %e, "unparseable request answered with 400");
+                        tap::emit(&tap, TapDirection::Sent, source, TransportKind::Udp, &reply);
+                        let _ = socket.send_to(&reply, source).await;
+                        continue;
+                    }
+                }
                 tracing::debug!(%source, error = %e, "unparseable UDP datagram dropped");
                 continue;
             }
@@ -56,6 +74,7 @@ pub(super) async fn recv_loop(
                 Gate::Deliver => SipMessage::Request(req),
                 Gate::Drop => continue,
                 Gate::Reject(bytes) => {
+                    tap::emit(&tap, TapDirection::Sent, source, TransportKind::Udp, &bytes);
                     if let Err(e) = socket.send_to(&bytes, source).await {
                         tracing::debug!(%source, error = %e, "403 send failed");
                     }

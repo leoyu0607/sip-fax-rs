@@ -142,6 +142,13 @@ pub enum Decision {
     Reject403,
 }
 
+impl Decision {
+    /// `true` when the request is processed (allowed, or log-only mode).
+    pub fn admits(self) -> bool {
+        matches!(self, Decision::Allow | Decision::AllowAndWarn)
+    }
+}
+
 /// Allow-list of source networks plus the action for everything else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePolicy {

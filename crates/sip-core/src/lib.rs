@@ -11,6 +11,7 @@
 //! * [`transport`]: UDP / TCP transport, RFC 3581 stamping, response routing, source policy.
 //! * [`transaction`]: the four RFC 3261 transaction state machines (RFC 6026) and the layer
 //!   that runs them.
+//! * [`dialog`] and [`endpoint`]: dialogs, UAS / UAC core, session timers and the high-level API.
 //! * [`registration`]: REGISTER client with digest authentication, refresh and backoff.
 
 #![deny(missing_docs)]
@@ -25,6 +26,8 @@
 )]
 
 pub mod auth;
+pub mod dialog;
+pub mod endpoint;
 pub mod message;
 pub mod net;
 pub mod registration;

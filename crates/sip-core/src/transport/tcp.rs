@@ -13,6 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
 use super::framing::take_frame;
+use super::tap::{self, MessageTap, TapDirection};
 use super::{
     Gate, Incoming, SourcePolicy, Tasks, TransportKind, admit_request, lock, wait_shutdown,
 };
@@ -51,12 +52,18 @@ impl StreamDecoder {
 
     /// Appends `data` and returns every event that became available.
     pub fn push(&mut self, data: &[u8]) -> Vec<StreamEvent> {
+        self.push_raw(data).into_iter().map(|(e, _)| e).collect()
+    }
+
+    /// Like [`Self::push`], but pairs each event with the raw bytes of the frame it came from
+    /// (empty for keep-alives and framing errors).
+    pub fn push_raw(&mut self, data: &[u8]) -> Vec<(StreamEvent, Bytes)> {
         self.buf.extend_from_slice(data);
-        let mut events = Vec::new();
+        let mut events: Vec<(StreamEvent, Bytes)> = Vec::new();
         loop {
             if self.buf.starts_with(b"\r\n\r\n") {
                 self.buf.drain(..4);
-                events.push(StreamEvent::Ping);
+                events.push((StreamEvent::Ping, Bytes::new()));
                 continue;
             }
             if self.buf == b"\r" {
@@ -71,14 +78,17 @@ impl StreamDecoder {
                 continue;
             }
             match take_frame(&mut self.buf) {
-                Ok(Some(frame)) => match parse_message(&frame) {
-                    Ok((msg, _)) => events.push(StreamEvent::Message(msg)),
-                    Err(e) => events.push(StreamEvent::Malformed(e)),
-                },
+                Ok(Some(frame)) => {
+                    let raw = Bytes::copy_from_slice(&frame);
+                    match parse_message(&frame) {
+                        Ok((msg, _)) => events.push((StreamEvent::Message(msg), raw)),
+                        Err(e) => events.push((StreamEvent::Malformed(e), raw)),
+                    }
+                }
                 Ok(None) => break,
                 Err(e) => {
                     self.buf.clear();
-                    events.push(StreamEvent::Fatal(e.to_string()));
+                    events.push((StreamEvent::Fatal(e.to_string()), Bytes::new()));
                     break;
                 }
             }
@@ -103,9 +113,12 @@ pub(super) struct TcpShared {
     in_tx: mpsc::Sender<Incoming>,
     shutdown: watch::Receiver<bool>,
     tasks: Tasks,
+    tap: Option<MessageTap>,
+    reply_to_malformed: bool,
 }
 
 impl TcpShared {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         local: SocketAddr,
         idle: Duration,
@@ -114,6 +127,8 @@ impl TcpShared {
         in_tx: mpsc::Sender<Incoming>,
         shutdown: watch::Receiver<bool>,
         tasks: Tasks,
+        tap: Option<MessageTap>,
+        reply_to_malformed: bool,
     ) -> Self {
         TcpShared {
             local,
@@ -125,6 +140,8 @@ impl TcpShared {
             in_tx,
             shutdown,
             tasks,
+            tap,
+            reply_to_malformed,
         }
     }
 
@@ -241,7 +258,10 @@ async fn conn_loop(
                     Ok(n) => n,
                 };
                 idle.as_mut().reset(tokio::time::Instant::now() + shared.idle);
-                for ev in dec.push(&buf[..n]) {
+                for (ev, raw) in dec.push_raw(&buf[..n]) {
+                    if !raw.is_empty() {
+                        tap::emit(&shared.tap, TapDirection::Received, peer, TransportKind::Tcp, &raw);
+                    }
                     match ev {
                         StreamEvent::Ping => {
                             if wr.write_all(b"\r\n").await.is_err() {
@@ -249,6 +269,15 @@ async fn conn_loop(
                             }
                         }
                         StreamEvent::Malformed(e) => {
+                            if shared.reply_to_malformed && shared.policy.decide(peer.ip()).admits() {
+                                if let Some(reply) = super::recover::bad_request_reply(&raw, peer) {
+                                    tap::emit(&shared.tap, TapDirection::Sent, peer, TransportKind::Tcp, &reply);
+                                    if wr.write_all(&reply).await.is_err() {
+                                        break 'conn;
+                                    }
+                                    continue;
+                                }
+                            }
                             tracing::debug!(%peer, error = %e, "malformed message on TCP dropped");
                         }
                         StreamEvent::Fatal(e) => {
@@ -262,6 +291,7 @@ async fn conn_loop(
                                         Gate::Deliver => SipMessage::Request(req),
                                         Gate::Drop => break 'conn,
                                         Gate::Reject(bytes) => {
+                                            tap::emit(&shared.tap, TapDirection::Sent, peer, TransportKind::Tcp, &bytes);
                                             if wr.write_all(&bytes).await.is_err() {
                                                 break 'conn;
                                             }

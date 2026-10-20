@@ -119,7 +119,44 @@ M1a 審核指出：規格第 9 節要求寬容對待沒有 `Max-Forwards` 的 re
 
 **決策**
 - parser 不再因缺少 `Max-Forwards` 回 `ParseError`；`Headers::max_forwards()` 回傳 `Result<Option<u8>, _>`，值格式錯誤或重複仍然拒絕。缺少時如何處理（例如回 483 或補預設值）由 UAS／上層依旗標決定。`inv2543` 因此改列為「可容忍」。
-- INVITE client transaction 在 Accepted 狀態（RFC 6026 Timer M = 64·T1）吸收重送的 2xx，不重複上報 TU（測試計畫 T09）。因此 **Dialog 層（M1c）必須自行處理重送 2xx 的 re-ACK**（例如以 `TuInput::StrayResponse` 在 transaction 結束後收到的 2xx，並在 M1c 評估是否需要新增「重複 2xx」事件）。
+- INVITE client transaction 在 Accepted 狀態（RFC 6026 Timer M = 64·T1）吸收重送的 2xx，不重複上報 TU（測試計畫 T09）。**此項已被 ADR-011 取代**（改以 `TuEvent::Retransmitted2xx` 上報）。因此 **Dialog 層（M1c）必須自行處理重送 2xx 的 re-ACK**（例如以 `TuInput::StrayResponse` 在 transaction 結束後收到的 2xx，並在 M1c 評估是否需要新增「重複 2xx」事件）。
 - INVITE server transaction 在 Accepted 狀態不重送 2xx，2xx 的重送（13.3.1.4）由 Dialog 層負責。
 - sip-core 的 dev-dependency 啟用 `tokio` 的 `test-util` feature（只用於測試的 paused time），不新增 crate。
 
+
+## ADR-011：M1c 的 Dialog／Endpoint 設計決定（2026-10-20）
+**背景**
+
+M1b 審核（見 docs/test-reports/M1.md「M1b — Opus 審核結論」）要求在 M1c 修正 2xx 重送的 ACK、re-INVITE 應用層逾時、註冊的 423／Retry-After，以及對無法解析的 request 回 400。實作 Dialog 與 Endpoint 時另有幾個規格沒有寫死的選擇。**沒有新增任何依賴**（沿用 ADR-008）。
+
+**決策**
+- **取代 ADR-010 的一部分**：INVITE client transaction 在 Accepted 狀態收到重送的 2xx 時，改以 `TuEvent::Retransmitted2xx(Response)` 上報（第一個 2xx 仍是 `TuEvent::Response`）。Dialog 層重送快取的 ACK（同一組 bytes）。Timer M 之後才到的 2xx 走 `TuInput::StrayResponse`，由 endpoint 依 Call-ID／tag 找到 dialog 後同樣重送 ACK。
+- **架構**：每個 dialog 一個 tokio task（`dialog/task.rs`），狀態與所有計時器（2xx 重送、AckTimeout、re-INVITE 逾時、491 重試、session 更新／逾時）都在 task 內，以 `tokio::time` 驅動；我方送出的 client transaction 事件由小型 forwarder task 轉進同一個 channel。`Endpoint` 的 dispatcher 依 `(Call-ID, local tag, remote tag)` 把 in-dialog request／ACK／stray 2xx 分派給 dialog。所有 task 登記在 `Tasks`，`Endpoint::shutdown()` 全部 join。
+- **對外 API 與規格 §7 的差異**：`DialogHandle::next_event()` 回傳 `Option<DialogEvent>`（`Terminated` 之後為 `None`）；新增 `DialogEvent::Established`（UAS：初始 2xx 的 ACK 到達）供 fax-in 的「ACK 後等 N 秒」策略使用；新增可複製的 `DialogControl`（`reinvite`／`bye`），讓一個 task 等事件、另一個 task 下指令；新增 `ReinviteOutcome::NoAnswer`（2xx 沒有可用 SDP，仍會 ACK）；`bye()` 回傳最終狀態碼（例如驗證失敗時為 407）。
+- **re-INVITE**：序列化執行（UAS 在初始 2xx 的 ACK 之前不發 re-INVITE，RFC 3261 14.1）。應用層逾時預設 32 s（`EndpointConfig::reinvite_timeout`）：收到過 provisional 才送 CANCEL（RFC 9.1），結果為 `Timeout`；未收到任何回應時由 Timer B 在同一時間點結束，不送 CANCEL。491 的重試等待依 RFC 3261 14.1：Call-ID 擁有者（我方是 UAC）2.1–4 s，另一方 0–2 s（規格 §5 只寫了後者）；次數上限 `max_491_retries`（預設 3）。
+- **Session timer**：refreshee 的逾時點依 RFC 4028 §10 為 `interval − min(32, interval/3)`（90 s → 60 s）；refresher 在 `interval/2` 送 re-INVITE，SDP 內容相同、`o=` 版本加一。對方不支援 timer（沒有 `Supported: timer`）時我方自己當 refresher。422 的 `Min-SE` 取我方設定的下限。
+- **Require**：預設只認得 `timer`；其他 tag 回 420 並列出 `Unsupported`，旗標 `accept_unknown_require` 可改為接受（C10）。`Supported` 的未知值一律容忍。
+- **UPDATE 帶 SDP 回 488**（M1 限制，與規格一致）；INFO、不帶 SDP 的 UPDATE 回 200。
+- **400 回應**：由 transport 在收到無法解析的資料時，依 `TransportConfig::reply_to_malformed`（`Endpoint` 預設開啟）呼叫純函式 `transport::recover::bad_request_reply`；取不到 Via／From／To／Call-ID／CSeq，或內容是 response／ACK 時不回應。只對來源政策放行的來源回應。
+- **訊息 tap**：`TransportConfig::tap: Option<MessageTap>`，預設關閉。每一則進出的 SIP 訊息（UDP／TCP、含 403／400 與無法解析的收到資料）以 `TapEvent { at: SystemTime, direction, peer, transport, bytes }` 交給觀察者。`MessageTap::new(callback)` 在 I/O task 內同步呼叫（回呼不得阻塞）；`MessageTap::channel(n)` 用 `try_send`，滿了就丟棄並計數（`dropped()`），因此不會拖慢協定堆疊。M1d 的 per-call 擷取（C11）以此為基礎，用 Call-ID 分流。
+- **註冊**：423 → 把 Expires 調到 Min-Expires 並立即重送（每次嘗試限一次，且記住新值供刷新使用）；任何帶 `Retry-After`（秒數格式）的失敗回應，等待該秒數取代指數退避。
+
+**代價**
+- `TuEvent` 多了一個變體；M1b 外部若有 `match` 需要補上（目前只有 sip-core 自己使用）。
+- HTTP-date 格式的 `Retry-After` 不支援（遇到時退回指數退避）。
+- 每個 client transaction 多一個 forwarder task（壽命與 transaction 相同）。
+
+## ADR-012：Rust 工具鏈固定版本（2026-10-20）
+**背景**
+
+`rust-toolchain.toml` 原本使用浮動的 `stable`：
+- 本機是 1.91.1，CI 和 Docker 是 1.99.1。
+- 新版 clippy 的 `collapsible_match` 讓 M1b 的 commit 在 CI 上 lint 失敗。
+
+**決策**
+
+固定 `channel = "1.99.1"`，元件和 target 一併寫進設定。Docker 測試映像以 `RUST_VERSION` 參數安裝同一個版本。
+
+**影響**
+- 升級時要同時修改 `rust-toolchain.toml` 和 Dockerfile，並在同一個 commit 修正新的 lint。
+- fuzz 仍然使用 nightly。

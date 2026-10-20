@@ -13,7 +13,9 @@
 
 pub mod framing;
 pub mod policy;
+pub mod recover;
 pub mod route;
+mod tap;
 mod tcp;
 mod udp;
 
@@ -28,6 +30,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
 pub use policy::{Cidr, CidrParseError, Decision, PolicyMode, SourcePolicy};
+pub use tap::{MessageTap, TapDirection, TapEvent};
 pub use tcp::{StreamDecoder, StreamEvent};
 
 use crate::message::{Request, Response, SipMessage, StatusCode};
@@ -134,6 +137,12 @@ pub struct TransportConfig {
     pub source_policy: SourcePolicy,
     /// Capacity of the inbound / outbound channels.
     pub queue_capacity: usize,
+    /// Answer an unparseable request with `400 Bad Request` when Via, From, To, Call-ID and
+    /// CSeq can still be recovered (otherwise it is dropped). Only requests from sources the
+    /// policy admits are answered. Off by default; `Endpoint` turns it on.
+    pub reply_to_malformed: bool,
+    /// Optional observer of every SIP message sent or received (off by default).
+    pub tap: Option<MessageTap>,
 }
 
 impl Default for TransportConfig {
@@ -146,6 +155,8 @@ impl Default for TransportConfig {
             tcp_connect_timeout: Duration::from_secs(10),
             source_policy: SourcePolicy::allow_all(),
             queue_capacity: 1024,
+            reply_to_malformed: false,
+            tap: None,
         }
     }
 }
@@ -402,6 +413,8 @@ impl TransportLayer {
                     in_tx.clone(),
                     shutdown_rx.clone(),
                     tasks.clone(),
+                    cfg.tap.clone(),
+                    cfg.reply_to_malformed,
                 ));
                 let s = shared.clone();
                 tasks.spawn(tcp::accept_loop(listener, s));
@@ -416,6 +429,8 @@ impl TransportLayer {
                 policy.clone(),
                 in_tx.clone(),
                 shutdown_rx.clone(),
+                cfg.tap.clone(),
+                cfg.reply_to_malformed,
             ));
         }
         tasks.spawn(route_outgoing(
@@ -424,6 +439,7 @@ impl TransportLayer {
             tcp_shared.clone(),
             shutdown_rx,
             tasks.clone(),
+            cfg.tap.clone(),
         ));
 
         let handle = TransportHandle {
@@ -472,6 +488,7 @@ async fn route_outgoing(
     tcp: Option<Arc<tcp::TcpShared>>,
     mut shutdown: watch::Receiver<bool>,
     tasks: Tasks,
+    tap: Option<MessageTap>,
 ) {
     loop {
         let item = tokio::select! {
@@ -485,7 +502,7 @@ async fn route_outgoing(
                 transport,
             } => {
                 let bytes = req.to_bytes();
-                send_bytes(&udp, &tcp, transport, dest, bytes).await;
+                send_bytes(&udp, &tcp, &tap, transport, dest, bytes).await;
             }
             Outgoing::Response {
                 resp,
@@ -505,6 +522,7 @@ async fn route_outgoing(
                             continue;
                         };
                         if pool.send_existing(source, bytes.clone()).await {
+                            tap::emit(&tap, TapDirection::Sent, source, TransportKind::Tcp, &bytes);
                             continue;
                         }
                         // The original connection is gone: reconnect to the sent-by.
@@ -512,24 +530,28 @@ async fn route_outgoing(
                             tracing::warn!(%source, "response without usable Via dropped");
                             continue;
                         };
-                        let (u, tc, tasks2) = (udp.clone(), tcp.clone(), tasks.clone());
+                        let (u, tc, tasks2, tp) =
+                            (udp.clone(), tcp.clone(), tasks.clone(), tap.clone());
                         tasks2.spawn(async move {
                             if let Some(dest) = resolve(&t).await {
-                                send_bytes(&u, &tc, TransportKind::Tcp, dest, bytes).await;
+                                send_bytes(&u, &tc, &tp, TransportKind::Tcp, dest, bytes).await;
                             }
                         });
                     }
                     (TransportKind::Udp, t) => match t {
-                        None => send_bytes(&udp, &tcp, TransportKind::Udp, source, bytes).await,
+                        None => {
+                            send_bytes(&udp, &tcp, &tap, TransportKind::Udp, source, bytes).await
+                        }
                         Some(t) => match t.socket_addr() {
                             Some(dest) => {
-                                send_bytes(&udp, &tcp, TransportKind::Udp, dest, bytes).await
+                                send_bytes(&udp, &tcp, &tap, TransportKind::Udp, dest, bytes).await
                             }
                             None => {
-                                let (u, tc) = (udp.clone(), tcp.clone());
+                                let (u, tc, tp) = (udp.clone(), tcp.clone(), tap.clone());
                                 tasks.spawn(async move {
                                     if let Some(dest) = resolve(&t).await {
-                                        send_bytes(&u, &tc, TransportKind::Udp, dest, bytes).await;
+                                        send_bytes(&u, &tc, &tp, TransportKind::Udp, dest, bytes)
+                                            .await;
                                     }
                                 });
                             }
@@ -557,10 +579,12 @@ async fn resolve(t: &route::Target) -> Option<SocketAddr> {
 async fn send_bytes(
     udp: &Option<Arc<UdpSocket>>,
     tcp: &Option<Arc<tcp::TcpShared>>,
+    tap: &Option<MessageTap>,
     kind: TransportKind,
     dest: SocketAddr,
     bytes: Bytes,
 ) {
+    tap::emit(tap, TapDirection::Sent, dest, kind, &bytes);
     match kind {
         TransportKind::Udp => match udp {
             Some(s) => {

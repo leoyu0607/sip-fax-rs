@@ -4,6 +4,7 @@
 FROM rockylinux/rockylinux:9
 
 ARG SPANDSP_REF=v3.1.1
+ARG RUST_VERSION=1.99.1
 ARG SIPP_VERSION=3.8.0
 ARG SIPP_SHA256=e4093db1f461b36404e0355a2d72618fd7423419d1fe7e8d5299f0a728629a1d
 
@@ -32,7 +33,7 @@ ENV PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable -c rustfmt,clippy \
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION} -c rustfmt,clippy,llvm-tools-preview -t x86_64-unknown-linux-musl,aarch64-unknown-linux-musl \
  && chmod -R a+w $RUSTUP_HOME $CARGO_HOME
 
 WORKDIR /work

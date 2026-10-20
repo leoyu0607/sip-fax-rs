@@ -735,7 +735,7 @@ fn t08_ack_construction_copies_route_and_uses_response_to() {
 // ================================================================ T09
 
 #[tokio::test(start_paused = true)]
-async fn t09_invite_client_2xx_is_passed_up_once_retransmissions_absorbed() {
+async fn t09_invite_client_2xx_is_passed_up_once_retransmissions_are_distinct_events() {
     let mut h = H::new();
     let mut tx = h
         .layer
@@ -755,8 +755,13 @@ async fn t09_invite_client_2xx_is_passed_up_once_retransmissions_absorbed() {
     let evs = drain_events(&mut tx.events);
     assert_eq!(
         evs,
-        vec![TuEvent::Response(r180), TuEvent::Response(r200)],
-        "180 once, 200 once"
+        vec![
+            TuEvent::Response(r180),
+            TuEvent::Response(r200.clone()),
+            TuEvent::Retransmitted2xx(r200.clone()),
+            TuEvent::Retransmitted2xx(r200)
+        ],
+        "180 once, 200 once as Response, the two copies as Retransmitted2xx (M1b review fix)"
     );
     assert!(
         h.rec.instants("ACK").is_empty(),
@@ -765,14 +770,14 @@ async fn t09_invite_client_2xx_is_passed_up_once_retransmissions_absorbed() {
     assert_eq!(h.rec.instants("INVITE"), ms(&[0]), "1xx stopped Timer A");
     assert!(
         h.tu.try_recv_ok().is_none(),
-        "absorbed 2xx do not surface as stray responses"
+        "retransmitted 2xx belong to the transaction, they are not stray responses"
     );
     // Accepted lasts 64*T1 after the 2xx (RFC 6026 Timer M)
     h.at(32_099).await;
     assert_eq!(h.counts(), (0, 1));
     h.at(32_100).await;
     assert_eq!(h.counts(), (0, 0));
-    println!("T09: TU events = [Response(180), Response(200)], duplicates at 400/900 ms absorbed");
+    println!("T09: TU events = [Response(180), Response(200), Retransmitted2xx x2 (400, 900 ms)]");
 }
 
 trait TryRecvOk {

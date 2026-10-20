@@ -30,9 +30,13 @@ pub enum Action {
 /// Events delivered to the transaction user (TU).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TuEvent {
-    /// Client: a response (provisional or final). For INVITE, a 2xx is reported exactly once;
-    /// retransmissions are absorbed (RFC 6026 Accepted state).
+    /// Client: a response (provisional or final). For INVITE, the first 2xx is reported exactly
+    /// once as `Response`; later copies are reported as [`TuEvent::Retransmitted2xx`].
     Response(Response),
+    /// INVITE client in the Accepted state (RFC 6026): the peer retransmitted a 2xx, which
+    /// means our ACK was lost (or has not arrived yet). The transaction never ACKs a 2xx
+    /// itself, so the TU (dialog / UAC core) must resend its cached ACK.
+    Retransmitted2xx(Response),
     /// Server INVITE in Accepted state: an ACK arrived on this transaction.
     Ack(Request),
     /// Server INVITE: a matching CANCEL was received. The transaction itself has already

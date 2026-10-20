@@ -1,3 +1,7 @@
+# Pinned so local, Docker and CI runs use the same rustc/clippy (new clippy lints
+# on a floating "stable" broke CI once). Bump deliberately, together with
+# RUST_VERSION in docker/test-rocky9.Dockerfile.
 [toolchain]
-channel = "stable"
-components = ["rustfmt", "clippy"]
+channel = "1.99.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

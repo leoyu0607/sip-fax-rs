@@ -3,8 +3,10 @@
 //! * REGISTER with `Expires`; a 401 / 407 is answered once with a digest response computed by
 //!   [`crate::auth::DigestChallenge`];
 //! * the binding is refreshed `max(10 % of the lifetime, 30 s)` before it expires;
+//! * `423 Interval Too Brief` raises Expires to `Min-Expires` and resends at once;
 //! * every failure (non-2xx, rejected credentials, timeout, transport error) is retried with
-//!   exponential backoff (`backoff_initial`, doubling, capped at `backoff_max`);
+//!   exponential backoff (`backoff_initial`, doubling, capped at `backoff_max`), unless the
+//!   response carried `Retry-After` (503 and friends), which is then waited out instead;
 //! * the state is observable through a [`tokio::sync::watch`] channel (for the Web UI / TUI).
 //!
 //! The task only needs a [`TransactionLayer`], so it can be tested against a fake registrar
@@ -204,9 +206,13 @@ async fn run(
                 });
                 d
             }
-            Err(reason) => {
+            Err(Failure {
+                reason,
+                retry_after,
+            }) => {
                 failures += 1;
-                let d = backoff_delay(&s.cfg, failures);
+                // A server-dictated Retry-After replaces the exponential backoff.
+                let d = retry_after.unwrap_or_else(|| backoff_delay(&s.cfg, failures));
                 tracing::warn!(%reason, failures, retry_in = ?d, "registration failed");
                 let _ = state.send(RegistrationState::Failed {
                     reason,
@@ -255,25 +261,46 @@ impl Session {
         req
     }
 
-    /// One registration exchange including the single authenticated retry. Returns the
+    /// One registration exchange including the single authenticated retry and the immediate
+    /// retry after `423 Interval Too Brief` (Expires raised to `Min-Expires`). Returns the
     /// granted lifetime.
-    async fn attempt(&mut self, expires: u32) -> Result<Duration, String> {
+    async fn attempt(&mut self, expires: u32) -> Result<Duration, Failure> {
+        let mut expires = expires;
         let mut auth: Option<(String, String)> = None;
-        for round in 0..2 {
+        let mut auth_used = false;
+        let mut too_brief_used = false;
+        loop {
             let req = self.build(expires, auth.as_ref());
             let tx = self
                 .layer
                 .send_request(req, self.cfg.registrar, self.cfg.transport)
-                .map_err(|e| e.to_string())?;
-            let resp = final_response(tx.events).await?;
+                .map_err(|e| Failure::new(e.to_string()))?;
+            let resp = final_response(tx.events).await.map_err(Failure::new)?;
             let code = resp.status.code();
             if resp.status.is_success() {
-                return self.granted(&resp, expires);
+                return self.granted(&resp, expires).map_err(Failure::new);
+            }
+            if code == 423 && expires != 0 && !too_brief_used {
+                let min = resp
+                    .headers
+                    .get("Min-Expires")
+                    .and_then(|v| v.trim().parse::<u32>().ok());
+                if let Some(min) = min.filter(|m| *m > expires) {
+                    too_brief_used = true;
+                    expires = min;
+                    // Remember it: later refreshes must not fall below the registrar's floor.
+                    self.cfg.expires = self.cfg.expires.max(min);
+                    auth = None;
+                    auth_used = false;
+                    continue;
+                }
+                return Err(Failure::new("423 without a usable Min-Expires".into()));
             }
             if matches!(code, 401 | 407) {
-                if round == 1 {
-                    return Err("authentication rejected".into());
+                if auth_used {
+                    return Err(Failure::new("authentication rejected".into()));
                 }
+                auth_used = true;
                 let proxy = code == 407;
                 let hdr = if proxy {
                     "Proxy-Authenticate"
@@ -284,7 +311,9 @@ impl Session {
                     .headers
                     .get_all(hdr)
                     .find_map(|v| DigestChallenge::from_header_value(v, proxy))
-                    .ok_or_else(|| format!("{code} without a usable Digest challenge"))?;
+                    .ok_or_else(|| {
+                        Failure::new(format!("{code} without a usable Digest challenge"))
+                    })?;
                 let value = challenge.build_authorization(
                     &self.cfg.username,
                     &self.cfg.password,
@@ -294,9 +323,11 @@ impl Session {
                 auth = Some((challenge.header_name().to_string(), value));
                 continue;
             }
-            return Err(format!("{code} {}", resp.reason));
+            return Err(Failure {
+                reason: format!("{code} {}", resp.reason),
+                retry_after: retry_after(&resp),
+            });
         }
-        Err("authentication rejected".into())
     }
 
     /// Lifetime from the 2xx: our contact's `expires` parameter, else the `Expires` header,
@@ -332,6 +363,29 @@ impl Session {
         }
         Ok(Duration::from_secs(u64::from(secs)))
     }
+}
+
+/// Why an attempt failed, and how long the server told us to wait (`Retry-After`).
+struct Failure {
+    reason: String,
+    retry_after: Option<Duration>,
+}
+
+impl Failure {
+    fn new(reason: String) -> Self {
+        Failure {
+            reason,
+            retry_after: None,
+        }
+    }
+}
+
+/// `Retry-After` delta-seconds (`120`, `120 (comment)`, `120;duration=60`); the HTTP-date form
+/// is not supported.
+fn retry_after(resp: &Response) -> Option<Duration> {
+    let v = resp.headers.get("Retry-After")?.trim();
+    let digits: String = v.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse::<u64>().ok().map(Duration::from_secs)
 }
 
 async fn final_response(mut events: mpsc::UnboundedReceiver<TuEvent>) -> Result<Response, String> {

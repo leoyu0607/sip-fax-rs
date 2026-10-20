@@ -117,14 +117,16 @@ impl Machine for ClientInvite {
                     start_or_terminate(&mut out, &mut self.state, Timer::D, d);
                 }
             }
-            State::Completed => {
-                if resp.status.is_final() && !resp.status.is_success() {
-                    if let Some(ack) = &self.ack {
-                        out.push(Action::Send(SipMessage::Request(ack.clone())));
-                    }
+            State::Completed if resp.status.is_final() && !resp.status.is_success() => {
+                if let Some(ack) = &self.ack {
+                    out.push(Action::Send(SipMessage::Request(ack.clone())));
                 }
             }
-            // Accepted: retransmitted 2xx are absorbed (not reported again).
+            // Accepted (RFC 6026): a retransmitted 2xx means our ACK was lost; the TU owns the
+            // ACK, so it is told (distinctly from the first 2xx) and resends it.
+            State::Accepted if resp.status.is_success() => {
+                out.push(Action::Notify(TuEvent::Retransmitted2xx(resp)));
+            }
             _ => {}
         }
         out
