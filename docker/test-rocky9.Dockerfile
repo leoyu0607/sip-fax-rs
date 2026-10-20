@@ -11,7 +11,7 @@ ARG SIPP_SHA256=e4093db1f461b36404e0355a2d72618fd7423419d1fe7e8d5299f0a728629a1d
 RUN dnf -y install epel-release dnf-plugins-core \
  && dnf config-manager --set-enabled crb \
  && dnf -y install gcc gcc-c++ make autoconf automake libtool pkgconf-pkg-config git which diffutils \
-        libtiff-devel libtiff-tools libjpeg-turbo-devel file \
+        libtiff-devel libtiff-tools libjpeg-turbo-devel file poppler-utils \
  && dnf clean all
 
 RUN git clone --depth 1 --branch ${SPANDSP_REF} https://github.com/freeswitch/spandsp.git /src/spandsp \
