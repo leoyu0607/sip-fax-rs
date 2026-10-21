@@ -135,6 +135,72 @@ records_days = 365
 run_at = "03:17"
 
 # ---------------------------------------------------------------------------------------
+# [[routes]]  delivery of received faxes: folder, e-mail, webhook
+# ---------------------------------------------------------------------------------------
+# Without any [[routes]] a received fax is only stored (files + database record). With routes,
+# every fax that ends as `received` is delivered as soon as its record is in the database.
+# The routes are tried in order; the FIRST one that matches is used (all of its deliveries run).
+# A route matches when ALL of its conditions hold: dnis (exact called number), dnis_prefix,
+# trunk (name). `default = true` matches everything and must be the last route.
+#   deliver_partial = true   also deliver faxes that broke off after some pages (default false)
+# Failed deliveries are retried after 1, 5, 15, 60 minutes and then every 4 hours, at most
+# [delivery] max_attempts times; the queue is the delivery_attempts table, so a restart simply
+# continues. A delivery that fails never affects the fax or the record. Delivery is
+# at-least-once: after a crash a fax can arrive twice (a folder delivery of identical content is
+# idempotent; webhooks carry the record id so the receiver can drop duplicates).
+# `sip-faxd config check` shows the routes with passwords, webhook secrets and URL credentials
+# hidden. Placeholders in file names, subjects and bodies: {date} {time} {ani} {dnis} {id}
+# {trunk} {pages} {call_id} {status} {duration} {started_at} {ended_at} {resolution} {tsi}
+# ({date}/{time} are in the server's local time zone).
+#
+# routes-example-begin
+# [[routes]]
+# name = "sales"                      # optional, for logs
+# dnis_prefix = "2557"
+# deliver_partial = true
+#
+# [[routes.deliveries]]               # copy the files into a directory (written atomically)
+# kind = "folder"
+# dir = "/srv/fax-inbox"              # created when missing (create_dir = false: retry instead)
+# filename = "{date}_{ani}_{id}"      # the extension is added: .pdf and .tif
+# formats = ["pdf", "tiff"]           # default: both
+#
+# [[routes.deliveries]]               # e-mail with the PDF attached
+# kind = "email"
+# host = "smtp.example.com"
+# security = "starttls"               # starttls (default, port 587) | smtps (465) | none (25, no AUTH)
+# username = "fax"
+# password = "secret"
+# from = "Fax <fax@example.com>"
+# to = ["ops@example.com", "Sales <sales@example.com>"]
+# subject = "Fax from {ani} ({pages} pages)"
+# attach_tiff = false                 # also attach the TIFF
+#
+# [[routes.deliveries]]               # POST the record as JSON
+# kind = "webhook"
+# url = "https://example.com/fax-hook"
+# secret = "hmac-key"                 # adds X-Sipfax-Signature: sha256=<HMAC-SHA256 of the body>
+# attach_pdf = false                  # true: multipart/form-data with the PDF
+#
+# [[routes]]
+# default = true                      # everything else; must be the last route
+# [[routes.deliveries]]
+# kind = "folder"
+# dir = "/srv/fax-unrouted"
+# routes-example-end
+
+# ---------------------------------------------------------------------------------------
+# [delivery]  how the delivery engine runs (the routes are above)
+# ---------------------------------------------------------------------------------------
+[delivery]
+# At start, queue the deliveries of finished faxes that started at most this many hours ago
+# and have none yet: repairs a crash between "stored" and "queued", and delivers the calls that
+# `sip-faxd db backfill` restored (backfill itself never delivers). 0 = off.
+catch_up_hours = 24
+# Attempts per delivery before it is given up (status giving_up).
+max_attempts = 10
+
+# ---------------------------------------------------------------------------------------
 # [capture]  per-call capture: <dir>/<call-id>/sip.log, udptl.log and result.json
 # ---------------------------------------------------------------------------------------
 [capture]

@@ -15,8 +15,10 @@ export MSYS_NO_PATHCONV=1
 if pwd -W >/dev/null 2>&1; then HOST_PWD="$(pwd -W)"; else HOST_PWD="$PWD"; fi
 BASE=sip-fax-rs-test:rocky9
 IMAGE=sip-fax-rs-musl:zig0.14.1
+if [ -z "${E2E_NO_BUILD:-}" ]; then
 docker build -q --platform linux/amd64 -f docker/test-rocky9.Dockerfile -t "$BASE" docker >/dev/null
 docker build -q --platform linux/amd64 -f docker/musl-zigbuild.Dockerfile -t "$IMAGE" docker >/dev/null
+fi
 docker run --rm --platform linux/amd64 \
   -v "$HOST_PWD":/work \
   -v sip-fax-rs-cargo-registry:/usr/local/cargo/registry \

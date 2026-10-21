@@ -254,7 +254,14 @@ pub struct RecorderConfig {
     pub max_queue: usize,
     /// Wait between attempts.
     pub sleeper: Arc<dyn Sleeper>,
+    /// Called with the row id after a *final* write reached the database (also after retries
+    /// that succeeded). Must not block: sip-faxd hands the id to the delivery engine here.
+    /// Never called for a write that was given up on, nor by [`backfill`].
+    pub on_finalized: Option<FinalizedHook>,
 }
+
+/// Callback of [`RecorderConfig::on_finalized`].
+pub type FinalizedHook = Arc<dyn Fn(i64) + Send + Sync>;
 
 impl RecorderConfig {
     /// Defaults for `data_dir`.
@@ -265,6 +272,7 @@ impl RecorderConfig {
             retry: RetryPolicy::default(),
             max_queue: 10_000,
             sleeper: Arc::new(TokioSleeper),
+            on_finalized: None,
         }
     }
 }
@@ -554,8 +562,13 @@ impl Worker {
                         async move { sink.upsert_finished(&new, &fin).await }
                     })
                     .await;
-                if done.is_none() {
-                    self.spill(&call_id, &json).await;
+                match done {
+                    Some((id, _)) => {
+                        if let Some(hook) = &self.cfg.on_finalized {
+                            hook(id);
+                        }
+                    }
+                    None => self.spill(&call_id, &json).await,
                 }
             }
         }

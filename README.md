@@ -6,7 +6,7 @@ English | [繁體中文](README.zh-TW.md)
 
 A SIP fax server written in Rust. It receives faxes from VoIP gateways (Sonus, AudioCodes, ...) over **T.38**, with **G.711 passthrough** as a fallback. It stores the results in a database and delivers them by email, webhook or folder.
 
-> **Status:** alpha, in field testing (latest: [v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)). **Receiving faxes over T.38 works** and has been verified with a real AudioCodes gateway: `sip-faxd serve` answers the call, switches to T.38, receives a multi-page fax (non-ECM, MH/MR, up to 14400 bit/s) and writes it as TIFF and PDF. In progress (M3, not released yet): **fax records in a database** (list with ANI/DNIS, hang-up reason, status while receiving, page count; retention), ECM receive (off by default), per-trunk resolutions; still to come in M3: PNG preview and delivery (email/webhook/folder). Not yet: management UI, G.711 passthrough. See [CHANGELOG.md](CHANGELOG.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** alpha, in field testing (latest: [v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)). **Receiving faxes over T.38 works** and has been verified with a real AudioCodes gateway: `sip-faxd serve` answers the call, switches to T.38, receives a multi-page fax (non-ECM, MH/MR, up to 14400 bit/s) and writes it as TIFF and PDF. In progress (M3, not released yet): **fax records in a database** (list with ANI/DNIS, hang-up reason, status while receiving, page count; retention), ECM receive (off by default), per-trunk resolutions; **delivery** to a folder, by e-mail or to a webhook (`[[routes]]`, with persistent retries); still to come in M3: PNG preview in the UI. Not yet: management UI, G.711 passthrough. See [CHANGELOG.md](CHANGELOG.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features (planned)
 
@@ -54,7 +54,7 @@ cd sip-fax-rs-<version>-linux-x86_64
 ./sip-faxd serve --config conf/sip-faxd.toml          # run
 ```
 
-Besides the SIP settings, the file has `[database]` (`url`, `auto_migrate`, `max_connections`), `[retention]` (`files_days`, `records_days`, `run_at`) and, per trunk, `[trunks.fax]` (`resolutions`, `ecm`) and `[trunks.numbers]` (where the calling and called number come from: `ani_sources`, `dnis_sources`, `strip_plus`, `ani_strip_prefix`, `dnis_strip_prefix`).
+Besides the SIP settings, the file has `[database]` (`url`, `auto_migrate`, `max_connections`), `[retention]` (`files_days`, `records_days`, `run_at`), `[[routes]]` and `[delivery]` (see [Delivery](#delivery)) and, per trunk, `[trunks.fax]` (`resolutions`, `ecm`) and `[trunks.numbers]` (where the calling and called number come from: `ani_sources`, `dnis_sources`, `strip_plus`, `ani_strip_prefix`, `dnis_strip_prefix`).
 
 ## Fax records and the database
 
@@ -69,6 +69,35 @@ Retention: `[retention]` is copied into the database on the **first** start; aft
 | `sip-faxd db migrate` | Create or upgrade the schema (safe to run from several hosts at once; MySQL/MariaDB migrations can be re-run after a failure) |
 | `sip-faxd db backfill [--dir DIR]` | Insert the calls found in `logs/calls/*/result.json` that are missing from the database |
 | `sip-faxd purge [--dry-run]` | Run the retention job now; `--dry-run` only counts |
+
+## Delivery
+
+With `[[routes]]` in the configuration, every fax that ends as `received` is delivered as soon as its record is in the database (a fax that broke off, `partial`, only when the route says `deliver_partial = true`; `failed` and `no_fax` never). Routes are tried in order and the **first match** wins; a route matches on `dnis` (exact), `dnis_prefix` and `trunk` (all given conditions must hold), or `default = true` for everything else (last route). Each route has one or more deliveries:
+
+```toml
+[[routes]]
+dnis_prefix = "2557"
+[[routes.deliveries]]
+kind = "folder"                     # PDF and TIFF, written atomically
+dir = "/srv/fax-inbox"
+filename = "{date}_{ani}_{id}"
+[[routes.deliveries]]
+kind = "email"                      # PDF attached; STARTTLS (default), SMTPS or none; AUTH
+host = "smtp.example.com"
+username = "fax"
+password = "secret"
+from = "fax@example.com"
+to = ["ops@example.com"]
+[[routes.deliveries]]
+kind = "webhook"                    # JSON POST; optional HMAC-SHA256 signature and PDF upload
+url = "https://example.com/fax-hook"
+secret = "hmac-key"                 # X-Sipfax-Signature: sha256=<hex of the body>
+```
+
+* A failed delivery is retried after 1, 5, 15 and 60 minutes, then every 4 hours, up to `[delivery] max_attempts` (default 10) times, then it is given up. The queue is the `delivery_attempts` table (one row per attempt), so a restart continues where it stopped. A delivery problem, or a database that is down, never affects receiving faxes or the fax record. Delivery is at-least-once.
+* `[delivery] catch_up_hours` (default 24): at start, finished faxes of that many hours that have no delivery yet are queued. This repairs a crash between "stored" and "queued" and delivers calls restored by `sip-faxd db backfill` (backfill itself never delivers, so restoring old records never floods a mailbox; calls older than the window stay undelivered). `0` turns it off.
+* `sip-faxd config check` lists the routes; passwords, webhook secrets and credentials or query values in URLs are shown as `***`.
+* A permanently failing delivery (a 4xx answer other than 408/425/429, SMTP 5xx, a bad destination) is not retried; after fixing the cause an administrator has to re-deliver (a later release adds a button for that).
 
 ## Receiving faxes
 

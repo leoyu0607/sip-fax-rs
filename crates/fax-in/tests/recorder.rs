@@ -680,3 +680,100 @@ fn result_json_round_trips_through_serde() {
     assert!(json.contains("\"bye_by\":\"local\""));
     assert!(json.contains("\"ecm_ppr_sent\":2"));
 }
+
+// ---------------------------------------------------------------- M3f: the finalized hook
+
+fn recorder_with_hook(
+    sink: Arc<dyn RecordSink>,
+    sleeps: &Arc<RecordedSleeps>,
+) -> (Recorder, Arc<Mutex<Vec<i64>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    let mut cfg = RecorderConfig::new("/srv/fax/data".into());
+    cfg.sleeper = sleeps.clone();
+    cfg.retry = RetryPolicy {
+        initial: Duration::from_secs(1),
+        max_delay: Duration::from_secs(30),
+        max_attempts: 3,
+    };
+    cfg.on_finalized = Some(Arc::new(move |id| s2.lock().unwrap().push(id)));
+    (Recorder::start(sink, cfg), seen)
+}
+
+#[tokio::test]
+async fn f01_the_hook_gets_the_row_id_once_the_final_write_is_in_the_database() {
+    let store = memory_store().await;
+    let sleeps = Arc::new(RecordedSleeps::default());
+    let (rec, seen) = recorder_with_hook(Arc::new(StoreSink(store.clone())), &sleeps);
+    rec.record(&started("h1@gw"));
+    rec.record(&page("h1@gw", 1));
+    settle(&rec).await;
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "nothing is announced before the final write"
+    );
+    rec.record(&fin(finished_ok("h1@gw", 2)));
+    settle(&rec).await;
+    let row = store.get_by_call_id("h1@gw").await.unwrap().unwrap();
+    assert_eq!(row.fax_status, FaxStatus::Received);
+    assert_eq!(*seen.lock().unwrap(), vec![row.id]);
+    rec.shutdown(Duration::from_secs(5)).await;
+}
+
+#[tokio::test]
+async fn f02_the_hook_fires_after_a_final_write_that_needed_a_retry() {
+    let store = memory_store().await;
+    let sleeps = Arc::new(RecordedSleeps::default());
+    // the database is down for the first attempt of the final write only
+    let flaky = Flaky::new(store.clone(), 0);
+    let (rec, seen) = recorder_with_hook(flaky.clone(), &sleeps);
+    rec.record(&started("h2@gw"));
+    settle(&rec).await;
+    flaky.set_down(1);
+    rec.record(&fin(finished_ok("h2@gw", 1)));
+    settle(&rec).await;
+    let row = store.get_by_call_id("h2@gw").await.unwrap().unwrap();
+    assert_eq!(row.fax_status, FaxStatus::Received);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![row.id],
+        "exactly one announcement, after the retry succeeded"
+    );
+    rec.shutdown(Duration::from_secs(5)).await;
+}
+
+#[tokio::test]
+async fn f03_the_hook_is_not_called_for_a_final_write_that_was_given_up_on() {
+    let store = memory_store().await;
+    let sleeps = Arc::new(RecordedSleeps::default());
+    let flaky = Flaky::new(store.clone(), 1_000);
+    let (rec, seen) = recorder_with_hook(flaky, &sleeps);
+    rec.record(&fin(finished_ok("h3@gw", 1)));
+    settle(&rec).await;
+    assert_eq!(rec.stats().failed, 1);
+    assert!(seen.lock().unwrap().is_empty());
+    assert!(store.get_by_call_id("h3@gw").await.unwrap().is_none());
+    rec.shutdown(Duration::from_secs(5)).await;
+}
+
+#[tokio::test]
+async fn f04_backfill_creates_no_delivery_attempts() {
+    // backfill has no hook parameter: restored calls are queued for delivery only by the next
+    // `serve` start (catch_up), see docs/test-reports/M3f.md
+    let store = memory_store().await;
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path().join("h4@gw");
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(
+        d.join("result.json"),
+        serde_json::to_string(&finished_ok("h4@gw", 2)).unwrap(),
+    )
+    .unwrap();
+    let rep = backfill(&*store, dir.path(), Path::new("/srv/fax/data")).await;
+    assert_eq!(rep.inserted, 1);
+    let row = store.get_by_call_id("h4@gw").await.unwrap().unwrap();
+    assert!(
+        store.list_deliveries(row.id).await.unwrap().is_empty(),
+        "no delivery attempts were created"
+    );
+}

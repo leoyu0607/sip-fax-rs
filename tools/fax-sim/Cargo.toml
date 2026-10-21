@@ -21,3 +21,5 @@ interop = { path = "../interop" }
 serde_json = "1"
 store = { path = "../../crates/store" }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+hmac = "0.13"
+sha2 = "0.11"

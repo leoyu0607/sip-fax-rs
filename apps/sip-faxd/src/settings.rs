@@ -76,6 +76,28 @@ impl RetentionSection {
     }
 }
 
+/// `[delivery]`: how the delivery engine runs. The routes themselves are the top-level
+/// `[[routes]]` tables (see `delivery::config`).
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct DeliverySection {
+    /// At start, queue the deliveries of finished faxes that started at most this many hours ago
+    /// and have none yet (repairs a crash between the database write and the queueing, and
+    /// delivers what `db backfill` restored). 0 = off.
+    pub catch_up_hours: u32,
+    /// Attempts per delivery before it is given up (`giving_up`).
+    pub max_attempts: u32,
+}
+
+impl Default for DeliverySection {
+    fn default() -> Self {
+        DeliverySection {
+            catch_up_hours: 24,
+            max_attempts: delivery::DEFAULT_MAX_ATTEMPTS,
+        }
+    }
+}
+
 /// The whole configuration file.
 pub struct AppConfig {
     /// `[log]`
@@ -84,6 +106,10 @@ pub struct AppConfig {
     pub database: DatabaseSection,
     /// `[retention]`
     pub retention: RetentionSection,
+    /// `[delivery]`
+    pub delivery: DeliverySection,
+    /// `[[routes]]`
+    pub routes: delivery::Routes,
     /// Everything fax-in reads.
     pub fax_in: FaxInConfig,
 }
@@ -110,12 +136,23 @@ impl AppConfig {
         let log = section(&mut table, "log", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
         let retention: RetentionSection = section(&mut table, "retention", path)?;
+        let delivery: DeliverySection = section(&mut table, "delivery", path)?;
+        let mut routes = delivery::Routes::default();
+        if let Some(v) = table.remove("routes") {
+            let mut t = toml::Table::new();
+            t.insert("routes".into(), v);
+            routes = t.try_into().map_err(|e: toml::de::Error| {
+                format!("{}: [[routes]]: {}", path.display(), e.message())
+            })?;
+        }
         let fax_in =
             FaxInConfig::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
         let cfg = AppConfig {
             log,
             database,
             retention,
+            delivery,
+            routes,
             fax_in,
         };
         cfg.validate()
@@ -139,6 +176,18 @@ impl AppConfig {
             .settings()
             .validate()
             .map_err(|e| format!("[retention] {e}"))?;
+        if self.delivery.max_attempts == 0 {
+            return Err("[delivery] max_attempts must be at least 1".into());
+        }
+        if let Err(errs) = self.routes.validate() {
+            return Err(format!(
+                "[[routes]] {}",
+                errs.join(
+                    "
+  "
+                )
+            ));
+        }
         Ok(())
     }
 
@@ -209,6 +258,28 @@ pub fn mask_url(url: &str) -> String {
     match userinfo.split_once(':') {
         Some((user, _)) => format!("{scheme}://{user}:***@{host}{tail}"),
         None => url.to_string(),
+    }
+}
+
+/// A webhook URL for display: the password of the user info and every query value (tokens) are
+/// replaced by `***`.
+pub fn mask_http_url(url: &str) -> String {
+    let masked = mask_url(url);
+    let (base, query) = match masked.split_once('?') {
+        Some((b, q)) => (b, Some(q)),
+        None => (masked.as_str(), None),
+    };
+    let base = base.split('#').next().unwrap_or(base);
+    match query {
+        Some(q) => {
+            let q = q.split('#').next().unwrap_or(q);
+            let keys: Vec<String> = q
+                .split('&')
+                .map(|kv| format!("{}=***", kv.split('=').next().unwrap_or("")))
+                .collect();
+            format!("{base}?{}", keys.join("&"))
+        }
+        None => base.to_string(),
     }
 }
 
@@ -336,5 +407,118 @@ mod tests {
             resolve_database_url("postgres://h/db", b),
             "postgres://h/db"
         );
+    }
+}
+
+#[cfg(test)]
+mod routes_tests {
+    //! F01..F05 (configuration side of M3f).
+    use super::*;
+    use delivery::DeliveryConfig;
+
+    fn parse(text: &str) -> Result<AppConfig, String> {
+        AppConfig::parse(text, Path::new("test.toml"))
+    }
+
+    const TRUNK: &str = "[[trunks]]\nname = \"t\"\nallowed_sources = [\"10.0.0.0/8\"]\n";
+
+    #[test]
+    fn f01_without_routes_or_a_delivery_section_the_defaults_apply() {
+        let c = parse(TRUNK).unwrap();
+        assert!(c.routes.routes.is_empty());
+        assert_eq!(c.delivery, DeliverySection::default());
+        assert_eq!(c.delivery.catch_up_hours, 24);
+        assert_eq!(c.delivery.max_attempts, 10);
+    }
+
+    #[test]
+    fn f02_routes_and_the_delivery_section_are_read_with_every_kind() {
+        let c = parse(&format!(
+            "[delivery]\ncatch_up_hours = 6\nmax_attempts = 3\n{TRUNK}\
+             [[routes]]\nname = \"sales\"\ndnis_prefix = \"2557\"\ndeliver_partial = true\n\
+             [[routes.deliveries]]\nkind = \"folder\"\ndir = \"/srv/in\"\n\
+             [[routes.deliveries]]\nkind = \"email\"\nhost = \"smtp.example.com\"\nfrom = \"fax@example.com\"\nto = [\"a@example.com\"]\n\
+             [[routes.deliveries]]\nkind = \"webhook\"\nurl = \"https://example.com/hook\"\n\
+             [[routes]]\ndefault = true\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"/srv/other\"\n"
+        ))
+        .unwrap();
+        assert_eq!((c.delivery.catch_up_hours, c.delivery.max_attempts), (6, 3));
+        assert_eq!(c.routes.routes.len(), 2);
+        let r = &c.routes.routes[0];
+        assert_eq!(r.name.as_deref(), Some("sales"));
+        assert_eq!(r.dnis_prefix.as_deref(), Some("2557"));
+        assert!(r.deliver_partial);
+        let kinds: Vec<_> = r.deliveries.iter().map(DeliveryConfig::kind).collect();
+        assert_eq!(kinds, ["folder", "email", "webhook"]);
+        assert!(c.routes.routes[1].default);
+        assert!(!c.routes.routes[1].deliver_partial);
+    }
+
+    #[test]
+    fn f03_invalid_routes_stop_the_start_and_name_every_problem() {
+        let e = parse(&format!(
+            "{TRUNK}[[routes]]\ndefault = true\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"/a\"\n\
+             [[routes]]\ndnis = \"1\"\n"
+        ))
+        .err()
+        .expect("a default route that is not last, a route without deliveries");
+        assert!(e.contains("[[routes]]"), "{e}");
+        assert!(e.contains("default route must be last"), "{e}");
+        assert!(e.contains("no deliveries"), "{e}");
+        for (text, needle) in [
+            ("[[routes]]\ndnis = \"1\"\nbogus = 1\n", "bogus"),
+            (
+                "[[routes]]\ndnis = \"1\"\n[[routes.deliveries]]\nkind = \"ftp\"\n",
+                "ftp",
+            ),
+            ("[delivery]\nmax_attempts = 0\n", "max_attempts"),
+            ("[delivery]\nsurprise = 1\n", "surprise"),
+            ("routes = 5\n", "[[routes]]"),
+        ] {
+            let e = parse(&format!("{text}{TRUNK}"))
+                .err()
+                .unwrap_or_else(|| panic!("{text} accepted"));
+            assert!(e.contains(needle), "{text}: {e}");
+        }
+    }
+
+    #[test]
+    fn f04_webhook_urls_are_masked_for_display() {
+        assert_eq!(
+            mask_http_url("https://user:hunter2@example.com/hook?token=abc&x=1#frag"),
+            "https://user:***@example.com/hook?token=***&x=***"
+        );
+        assert_eq!(
+            mask_http_url("http://example.com:8080/a/b"),
+            "http://example.com:8080/a/b"
+        );
+        assert_eq!(mask_http_url("http://h/p?k"), "http://h/p?k=***");
+    }
+
+    #[test]
+    fn f06_the_routes_in_the_example_file_are_valid_once_uncommented() {
+        let text = include_str!("../../../conf/sip-faxd.toml.example");
+        let begin = text.find("# routes-example-begin").expect("begin marker");
+        let end = text.find("# routes-example-end").expect("end marker");
+        let routes: String = text[begin..end]
+            .lines()
+            .skip(1)
+            .map(|l| {
+                l.strip_prefix("# ")
+                    .or_else(|| l.strip_prefix('#'))
+                    .unwrap_or(l)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        // the example file itself delivers nothing ...
+        assert!(parse(text).unwrap().routes.routes.is_empty());
+        // ... and its documented routes work
+        let c = parse(&format!("{TRUNK}{routes}")).unwrap();
+        assert_eq!(c.routes.routes.len(), 2);
+        assert_eq!(c.routes.routes[0].deliveries.len(), 3);
+        assert!(c.routes.routes[1].default);
+        let at = parse(text).unwrap().delivery;
+        assert_eq!((at.catch_up_hours, at.max_attempts), (24, 10));
+        assert!(text.contains("[delivery]") && text.contains("catch_up_hours"));
     }
 }
