@@ -3,6 +3,8 @@
 //! * [`Decoder`]: streaming MH / MR / MMR decoder with non-ECM error handling and statistics.
 //! * [`Encoder`]: MH / MR / MMR encoder (MMR is what the server stores).
 //! * [`write_tiff`]: multi-page TIFF Class F (CCITT G4) writer.
+//! * [`TiffReader`]: reads TIFF Class F files (G3 / G4 / uncompressed) back into bitmaps.
+//! * [`png`]: 1-bit full page and 300 px thumbnail PNG output for the web preview.
 //! * [`write_pdf`]: minimal PDF writer embedding G4 data with `CCITTFaxDecode`.
 //!
 //! Pixel rows are packed 1-bit, most significant bit first, **1 = black**, `ceil(width / 8)`
@@ -28,8 +30,10 @@ mod decoder;
 mod encoder;
 mod error;
 mod pdf;
+pub mod png;
 mod tables;
 mod tiff;
+mod tiff_read;
 
 pub use decoder::{
     DEFAULT_MAX_ROWS, Decoder, DecoderConfig, EndReason, PageData, Stats, Summary, decode_page,
@@ -38,6 +42,7 @@ pub use encoder::{Encoder, encode_mmr};
 pub use error::Error;
 pub use pdf::write_pdf;
 pub use tiff::{Page, TiffMeta, format_tiff_datetime, write_tiff};
+pub use tiff_read::{Bitmap, TiffCoding, TiffPageInfo, TiffReader};
 
 /// Widest supported line in pixels (the fax widths are 1728, 2048 and 2432).
 pub const MAX_WIDTH: u32 = 8192;

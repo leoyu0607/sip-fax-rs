@@ -12,4 +12,4 @@ docker run --rm --platform linux/amd64 \
   -e CARGO_TARGET_DIR=/work/target/docker \
   -e RUSTFLAGS="-D warnings" \
   -w /work/tools "$IMAGE" \
-  bash -euxc 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -- --nocapture "$@" && cd /work && cargo test -p t4 --test oracle' _ "$@"
+  bash -euxc 'cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -- --nocapture "$@" && cd /work && cargo test -p t4 --test oracle --test png_oracle' _ "$@"

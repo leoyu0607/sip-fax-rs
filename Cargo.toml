@@ -37,6 +37,8 @@ url = "2"
 percent-encoding = "2"
 tempfile = "3"
 tokio-util = { version = "0.7", features = ["compat"] }
+# t4 PNG preview output (M3e, proposed ADR): pure Rust, MIT/Apache-2.0
+png = "0.18"
 
 [profile.release]
 lto = true

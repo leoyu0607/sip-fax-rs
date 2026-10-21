@@ -21,3 +21,10 @@ path = "fuzz_targets/t4_decode.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tiff_read"
+path = "fuzz_targets/tiff_read.rs"
+test = false
+doc = false
+bench = false
