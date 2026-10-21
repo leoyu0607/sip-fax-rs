@@ -180,7 +180,15 @@ impl W {
         W::from_config(cfg).await
     }
 
-    pub async fn from_config(mut cfg: FaxInConfig) -> W {
+    pub async fn from_config(cfg: FaxInConfig) -> W {
+        W::with_factory(cfg, None).await
+    }
+
+    /// Like `from_config`, with the given fax session (default: the stub that holds the call).
+    pub async fn with_factory(
+        mut cfg: FaxInConfig,
+        factory: Option<Arc<dyn fax_in::session::FaxSessionFactory>>,
+    ) -> W {
         // these tests are about call control; the fax session is a stub that holds the call
         cfg.call.fax_session = fax_in::FaxSessionKind::Hold;
         let table = TrunkTable::build(&cfg).unwrap();
@@ -189,8 +197,18 @@ impl W {
         let (ep, calls) = Endpoint::detached(ec, d.handle, d.incoming);
         let t0 = Instant::now();
         let rec = Recorder::spawn(t0, d.outgoing);
-        let (fx, events) =
-            FaxIn::attach(cfg, table, ep, calls, None, StartOptions::default()).await;
+        let (fx, events) = FaxIn::attach(
+            cfg,
+            table,
+            ep,
+            calls,
+            None,
+            StartOptions {
+                session_factory: factory,
+                base_dir: None,
+            },
+        )
+        .await;
         W {
             fx: Some(fx),
             events,

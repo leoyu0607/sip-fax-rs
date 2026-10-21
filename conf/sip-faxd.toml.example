@@ -2,18 +2,57 @@
 #
 # Copy this file to conf/sip-faxd.toml (next to the executable) and edit it.
 # Check it with:   ./sip-faxd config check
-# Run it with:     ./sip-faxd serve            (or --config /path/to/file.toml)
+# Run it with:     ./sip-faxd start            (background; shows the log, Ctrl+C only stops the display)
+#                  ./sip-faxd serve            (foreground; this is what a systemd unit runs)
+#                  (both accept --config /path/to/file.toml)
 #
 # Every section rejects unknown keys, so a misspelled option is reported as an error.
 # Relative paths are relative to the directory of the sip-faxd executable.
 
 # ---------------------------------------------------------------------------------------
-# [log]  application logging (written to stderr)
+# [log]  application logging: a rotating file, and stderr while running in the foreground
 # ---------------------------------------------------------------------------------------
 [log]
 # Log filter: "error", "warn", "info", "debug", "trace" or a tracing filter such as
 # "info,sip_core=debug". The RUST_LOG environment variable overrides this.
 level = "info"
+
+# The log file (`sip-faxd logs`, `sip-faxd logs -f` and `sip-faxd start` show it). Relative to
+# the directory of the executable. "" = no file, stderr only (journald, containers).
+# `serve` in the foreground writes the file AND stderr; `start` writes the file only.
+# file = "logs/sip-faxd.log"
+
+# Rotation: the file is moved to "<file>.<YYYYmmdd-HHMMSS>" and a new one is started when it
+# would grow beyond max_size_mb (a fraction is fine) or, with daily = true, when the local
+# date changes. No log line is lost or split at a rotation.
+# max_size_mb = 50
+# daily = true
+# Rotated files to keep (the live file is not counted); older ones are deleted.
+# keep = 14
+# Compress rotated files with gzip ("<file>.<stamp>.gz"; check one with `gzip -t`).
+# compress = true
+
+# ---------------------------------------------------------------------------------------
+# [service]  `sip-faxd start | stop | restart | status` (Linux)
+# ---------------------------------------------------------------------------------------
+[service]
+# PID file. The running service holds a flock on it, so a second start is refused and a file
+# left by a crash does not count as "running". Relative to the executable's directory.
+# pid_file = "run/sip-faxd.pid"
+
+# Control socket (unix domain socket, mode 0600: only the user that runs the service, and root,
+# can use it). `status`, `stop` and the TUI talk to the service through it.
+# socket = "run/sip-faxd.sock"
+
+# `stop` / SIGTERM: no new calls are accepted (503), the calls in progress are waited for, at
+# most this many seconds. Then they are ended; the pages received so far are written and the
+# fax is `partial` with hangup_code "shutdown". 0 = do not wait. `stop --force` never waits,
+# `stop --timeout N` overrides this once. Under systemd set TimeoutStopSec= to more than this.
+# stop_timeout_secs = 300
+
+# `start` waits this long for the service to answer on the control socket; then it shows the
+# last 50 log lines and gives up.
+# start_timeout_secs = 30
 
 # ---------------------------------------------------------------------------------------
 # [sip]  the SIP listener

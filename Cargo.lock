@@ -2208,6 +2208,8 @@ dependencies = [
  "clap",
  "delivery",
  "fax-in",
+ "flate2",
+ "rustix",
  "serde",
  "serde_json",
  "store",
