@@ -42,3 +42,12 @@ scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
 - 進度或決策有變動時，同一個 commit 要一併更新 `docs/TODO.md`、`docs/ROADMAP.md`、`docs/DECISIONS.md`。
 - 從 sipress 抽取程式碼時，必須記錄在 `docs/sipress-extraction.md`。
 - 文件語言：README 有英文版（`README.md`）和繁中版（`README.zh-TW.md`），兩份要同步更新；docs/ 下以繁體中文撰寫。
+
+## 發版檢查清單（每次打 tag 前都要完成，並在同一個 commit 一起更新）
+1. 更新 `Cargo.toml`（以及 `tools/Cargo.toml`）的 `version`。
+2. 把 `CHANGELOG.md` 的 `[Unreleased]` 改成新版本號和日期，英文和繁中兩段都要寫。
+3. 更新兩份 README 頂部的**狀態**段落（`README.md`、`README.zh-TW.md` 要同步）。
+4. 在 `docs/ROADMAP.md` 的「發佈紀錄」表格加上一列；里程碑狀態有變動時一併更新。
+5. 影響部署或試接時，同步更新 `docs/field-test.md` 和 `conf/sip-faxd.toml.example`。
+6. 在 `docs/TODO.md` 記錄這次發佈。
+7. 先跑 `scripts/ci-local.sh`，push 後等 CI 全綠，才打 tag。

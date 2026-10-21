@@ -11,7 +11,7 @@ STAGE="$ROOT/dist/$NAME"
 rm -rf "$STAGE" && mkdir -p "$STAGE"/{conf,data,logs}
 cp "$ROOT/target/$TARGET/release/sip-faxd" "$STAGE/"
 cp "$ROOT/conf/sip-faxd.toml.example" "$STAGE/conf/"
-cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/README.zh-TW.md" "$STAGE/"
+cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/README.zh-TW.md" "$ROOT/CHANGELOG.md" "$STAGE/"
 mkdir -p "$STAGE/docs" && cp "$ROOT/docs/field-test.md" "$STAGE/docs/"
 export COPYFILE_DISABLE=1   # no macOS ._ AppleDouble files in local builds
 # Store files as root:root so extracting as root never maps them to an unrelated local

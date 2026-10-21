@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** 早期開發中。**已能透過 T.38 接收傳真**（里程碑 M2，待最後審核）：`sip-faxd serve` 接聽 gateway 的來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。G.711 passthrough、ECM、資料庫、投遞與管理介面尚未完成。進度請見 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3）：資料庫紀錄、PNG 預覽、清整、投遞、ECM。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 

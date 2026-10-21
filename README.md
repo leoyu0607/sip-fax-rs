@@ -6,7 +6,7 @@ English | [繁體中文](README.zh-TW.md)
 
 A SIP fax server written in Rust. It receives faxes from VoIP gateways (Sonus, AudioCodes, ...) over **T.38**, with **G.711 passthrough** as a fallback. It stores the results in a database and delivers them by email, webhook or folder.
 
-> **Status:** early development. **Receiving faxes over T.38 works** (milestone M2, awaiting final review): `sip-faxd serve` answers a gateway's call, switches to T.38, receives a multi-page fax (non-ECM, MH/MR, up to 14400 bit/s) and writes it as TIFF and PDF. G.711 passthrough, ECM, the database, delivery and the management UI are not there yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** alpha, in field testing (latest: [v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)). **Receiving faxes over T.38 works** and has been verified with a real AudioCodes gateway: `sip-faxd serve` answers the call, switches to T.38, receives a multi-page fax (non-ECM, MH/MR, up to 14400 bit/s) and writes it as TIFF and PDF. In progress (M3): database records, PNG preview, retention, delivery, ECM. Not yet: management UI, G.711 passthrough. See [CHANGELOG.md](CHANGELOG.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features (planned)
 
