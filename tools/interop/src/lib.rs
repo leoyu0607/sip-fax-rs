@@ -204,7 +204,11 @@ impl Faxd {
         let socket_no = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let socket =
             std::env::temp_dir().join(format!("sf{}-{}.sock", std::process::id(), socket_no));
-        let pid_file = dir.join("run").join("sip-faxd.pid");
+        // The PID file too: `flock` on a Docker Desktop bind mount does not exclude another
+        // process, so a running service would look stopped there.
+        let pid_file = std::env::temp_dir()
+            .join(format!("sf{}-{}-run", std::process::id(), socket_no))
+            .join("sip-faxd.pid");
         // The log goes to the temp dir, not to the scratch dir: on a Docker Desktop bind mount
         // inode numbers are not stable, and `logs -f` recognises a rotation by the inode.
         let log_path = opts.log_file.then(|| {

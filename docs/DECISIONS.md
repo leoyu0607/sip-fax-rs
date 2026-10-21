@@ -404,3 +404,23 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 
 - 轉檔完成後再確認一次紀錄；若這段期間已經清整（`files_purged_at`），就刪掉剛寫的快取並回 `Purged`（HTTP 410）。轉檔因目錄被刪而出現 I/O 錯誤時，也判為 `Purged`。清整標記之後再掃一次快取目錄。
 - `[storage] preview_cache_mb`（預設 2048）：超過時依最後使用時間淘汰（以檔案修改時間代表，快取命中時更新）；60 秒內用過的檔案不刪；上限是軟性的。
+
+## ADR-055：服務管理、控制 socket、log 輪替與 TUI（2026-10-22，M4d）
+**背景**
+
+使用者要求 `sip-faxd start | stop | restart | status | logs`，stop 要等進行中的傳真收完（`docs/TODO.md` M4），以及本機的 TUI（`docs/design/m4-web.md` §7）。
+
+**決策**
+
+- **PID 檔**：`run/sip-faxd.pid` 以 `flock` 鎖住，鎖由 kernel 管理，當機只會留下檔案、不會留下鎖；「是否在執行」一律看鎖，不看檔案內容。`flock` 在 Docker Desktop 的 bind mount 和某些網路檔案系統上不會互斥，所以 `run/` 必須放在本機檔案系統（E2E 把 PID 檔放在容器內的暫存目錄）。
+- **控制 socket**：`run/sip-faxd.sock`，權限 0600，一行一個 JSON（`status`、`calls`、`stop`、`reload`、`subscribe`）。能連上就等同管理員，不另外登入。socket 在 SIP 開始監聽之後才建立，所以 `start` 看到它回應 `status` 就代表服務已就緒。`reload` 呼叫 M4a 的 `ConfigService::reload`。
+- **stop**：fax-in 的 `drain` 讓新的 INVITE 立刻回 503，再等進行中的通話結束，最多 `stop_timeout_secs`；逾時、`--force` 或第二次收到訊號時，結束剩下的通話，已收到的頁面照樣寫出（`partial`、`hangup_code = shutdown`）。`serve` 收到 SIGTERM 時走同一套流程。
+- **systemd**：偵測到 `INVOCATION_ID`，或 PID 檔指向的程序的父程序是 PID 1 且有 `NOTIFY_SOCKET` 時，`start`／`stop`／`restart` 提示改用 `systemctl` 並回非 0，`--ignore-systemd` 可略過。
+- **log 輪替**：自行實作，不用 `tracing-appender`，因為它不支援依大小輪替與 gzip。依大小或日期輪替，舊檔在背景執行緒以 gzip 壓縮，保留 `[log] keep` 份；時鐘可注入。`logs -f` 以 inode 判斷檔案是否已輪替。
+- **TUI**：`sip-faxd tui` 使用 ratatui＋crossterm。傳真資料（列表、詳細、已讀、備註、投遞）直接讀寫 DB，操作者記為 `cli:<作業系統帳號>`，與 CLI 相同；狀態、通話和即時事件來自控制 socket。服務沒有執行時，TUI 仍可操作 DB。語言跟隨 `LANG`。
+- **新增依賴**：`rustix`（flock、kill、umask；純 Rust）、`flate2`（`rust_backend`，log 壓縮）、`ratatui` 0.30（`default-features = false`，只開 `crossterm`）、`crossterm` 0.29。全部是純 Rust，`cargo deny` 通過。
+- **投遞**：投遞 worker 啟動時先執行一次 `run_due`，讓 catch-up 排入的投遞立即送出，不必等一個 `poll_interval`（10 秒）。
+
+**影響**
+
+`[service]`（`pid_file`、`socket`、`stop_timeout_secs`、`start_timeout_secs`）與 `[log]` 的輪替設定屬於啟動設定，留在設定檔（ADR-051）。這些服務指令與 TUI 只支援 unix；其他系統只能使用 `serve`。
