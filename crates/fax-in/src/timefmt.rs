@@ -18,6 +18,15 @@ pub fn rfc3339(t: SystemTime) -> String {
     )
 }
 
+/// The UTC calendar date `(year, month, day)` of `t`.
+pub(crate) fn ymd(t: SystemTime) -> (i64, u32, u32) {
+    let secs = t
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_secs();
+    civil_from_days(i64::try_from(secs / 86_400).unwrap_or(0))
+}
+
 /// Days since 1970-01-01 to (year, month, day), proleptic Gregorian (Howard Hinnant).
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;

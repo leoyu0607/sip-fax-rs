@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** 早期開發中（里程碑 M0），尚未可用。進度請見 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** 早期開發中。**已能透過 T.38 接收傳真**（里程碑 M2，待最後審核）：`sip-faxd serve` 接聽 gateway 的來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。G.711 passthrough、ECM、資料庫、投遞與管理介面尚未完成。進度請見 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 
@@ -54,12 +54,23 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 ## 設定
 
-`sip-faxd` 讀取 TOML 設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）。[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) 說明所有選項：SIP 監聽、每個上游的 `[[trunks]]` 設定（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、選用的 REGISTER），以及每通來電的 SIP 擷取。
+`sip-faxd` 讀取 TOML 設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）。[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) 說明所有選項：SIP 監聽、每個上游的 `[[trunks]]` 設定（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、選用的 REGISTER），以及每通來電的 SIP／UDPTL 擷取和傳真輸出目錄。
 
 ```sh
 ./sip-faxd config check --config conf/sip-faxd.toml   # 驗證設定
 ./sip-faxd serve --config conf/sip-faxd.toml          # 執行
 ```
+
+## 接收傳真
+
+每份收到的傳真會寫成：
+
+```
+data/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif    多頁 TIFF Class F（CCITT G4）
+data/faxes/<YYYY>/<MM>/<DD>/<call-id>.pdf    同樣頁面的 PDF
+```
+
+（日期為通話當天的 UTC 日期；目錄由 `[storage] data_dir` 設定，預設為執行檔旁的 `data/`）。傳到一半中斷的傳真，已收到的頁面仍會寫出，並在結果中標記 `"partial": true`。擷取功能開啟時（預設），`logs/calls/<call-id>/` 內有 `sip.log`（所有 SIP 訊息）、`udptl.log`（每個 T.38 封包一行：摘要，含十六進位的 T.30 frame 但不含影像資料；`[capture] udptl = "full"` 會記錄完整封包，也就是傳真內容）和 `result.json`（通話結果：T.30 結果碼、頁數、速率、解析度、編碼、對方 TSI、每頁 bad lines、檔案路徑、UDPTL 統計）。
 
 ## 開發
 

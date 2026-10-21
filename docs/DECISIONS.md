@@ -227,3 +227,31 @@ M1d 在 sip-core 之上建立 fax-in 呼叫控制骨架與可執行的 `sip-faxd
 - SpanDSP 3.1.1 在 non-ECM 下不會使用 T.6，且無論遮罩都保留 MH；non-ECM 的「MMR 互通」不可能，改在 M3 的 ECM 驗證。
 - SpanDSP 的 `NO_TCF` 模式不等 CFR，是 localTCF 對端的行為參考。`t30_terminate` 不送 DCN，只會讓我方走 T2 逾時。
 - 協定 crate 的涵蓋率量測不得同時在同一 target 目錄執行兩個 `cargo llvm-cov`（`scripts/ci-local.sh` 已加鎖）。
+
+## ADR-023：T.38 session、輸出與通話結果規則（2026-10-21）
+- `fax-in::t38session::T38FaxSession` 是 `FaxSession` 的正式實作；socket 在 `SessionContext.t38.local_port`（pool 埠）、bind 於 `[sip] bind` 的 IP；先送往 SDP 位址，第一個能解析的 UDPTL 封包 latch；EC 與版本取自 SDP 協商結果（`udp_ec`、`version`、`rate_management`、`max_bit_rate`、`peer_max_datagram`），redundancy 深度與 FEC 參數取自 `[trunks.t38]`（`redundancy_depth`／`fec_span`／`fec_entries`）。
+- 輸出 `<data_dir>/faxes/YYYY/MM/DD/<call-id>.tif|.pdf`（UTC 日期、`.part`＋rename、不覆蓋、Call-ID 淨化加 hash）；部分頁面也寫並 `partial=true`。
+- `CallResult.fax: FaxReport`；`Completed` 的通話若 `fax.code≠0` 或 `store_error` → `Failed(Session)`；EOP 的 MCF 之後對方未送 DCN 就掛斷視為成功。
+- `[call] fax_session = "hold"` 保留只維持通話的 stub。`udptl.log` 為 `<time> RX|TX <seq> <hex>`，緩衝 16 KB，與 `sip.log` 各自受 `max_bytes_per_call` 限制。
+## ADR-024：T.38 引擎對「對方比我方 burst 尾巴早開始」與重複 sig-end 的處理（2026-10-21）
+- 對方的 frame／影像資料／資料結束／V.21 preamble／training 指示到達，而 T.30 仍在 Sending* 狀態，引擎立即完成我方排程中的 `TxComplete`（取出佇列中的標記並餵給 T.30）；尚在佇列的 `no-signal` 等封包照常送出。
+- `t4-non-ecm-sig-end` 在影像已結束後一律是重複（無論是否帶資料）。
+- 回歸測試：`r16_peer_that_answers_before_our_burst_tail_is_over_loses_nothing`、`r14_sig_end_copies_that_repeat_the_last_octets_are_duplicates`；E 測試是獨立證據。
+## ADR-025：端到端測試規範（2026-10-21）
+- E 測試對真實 `sip-faxd` 執行檔、SpanDSP 即時 gateway（真實 UDP、牆鐘）；每個圖像以 libtiff（`tiffcmp -t`＋`tiffcp -c none` 後逐 byte）與 poppler（`pdftoppm -mono`）**各比一次**，兩者都要有負向對照；同步一律輪詢條件，不用固定 sleep。遺失用兩個方向各自獨立的帶種子 PRNG，使每個方向的遺失型態只取決於自己的封包序號。
+
+## ADR-026：擷取預設不保存傳真影像內容（2026-10-21）
+**背景**
+
+M2d 原本的 `udptl.log` 會寫入完整的封包 hex，等同於複製一份傳真內容。再加上 `keep = "all"` 的預設值，每份傳真都會在 `logs/` 留下一份副本。
+
+**決策**
+
+新增 `[capture] udptl = "off" | "summary" | "full"`，預設為 `summary`：
+- 每個封包都記錄摘要，T.30 控制 frame 保留完整 hex，影像資料只記錄長度。
+- `full` 只在除錯時開啟，設定範例和 README 都會加上警告。
+
+**理由**
+
+- 傳真常含個資或機密，log 目錄通常沒有和傳真檔相同的存取控管。
+- T.30 控制 frame 已經足以診斷對接問題。

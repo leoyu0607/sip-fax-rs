@@ -241,6 +241,15 @@ impl T38Engine {
         let mut events = Vec::new();
         self.rx.on_ifp(ifp, &mut events);
         for ev in events {
+            if matches!(
+                ev,
+                Event::Frame { .. }
+                    | Event::ImageData(_)
+                    | Event::DataEnd
+                    | Event::Signal(t30::RxSignal::V21Preamble | t30::RxSignal::Training)
+            ) {
+                self.peer_is_transmitting();
+            }
             self.feed(self.clock_us, ev);
         }
         // Responses that are due immediately (no pacing) leave now.
@@ -262,6 +271,25 @@ impl T38Engine {
                 self.on_loss(now_ms);
                 Err(e)
             }
+        }
+    }
+
+    /// The peer has started its next signal, so it has heard everything we sent: whatever is
+    /// left of the burst we were still sending (flags, FCS, the 100 ms hold, trailing
+    /// `no-signal` copies) cannot matter any more. A real gateway answers a CFR or MCF as soon as it
+    /// has seen the last frame, which is before the end of the burst's modelled air time;
+    /// without this the image data that follows would arrive while T.30 is still "sending"
+    /// and be dropped. Found by the M2d end-to-end tests.
+    fn peer_is_transmitting(&mut self) {
+        use t30::State;
+        if !matches!(
+            self.t30.state(),
+            State::SendingDis | State::SendingCfr | State::SendingFtt | State::SendingPostPage
+        ) {
+            return;
+        }
+        for _ in 0..self.sched.take_tx_complete() {
+            self.feed(self.clock_us, Event::TxComplete);
         }
     }
 

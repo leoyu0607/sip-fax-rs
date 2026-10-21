@@ -100,8 +100,15 @@ pub struct FaxdOptions {
     pub extra: String,
     /// `keep = "failed"` instead of `"all"`.
     pub capture_keep_failed: bool,
+    /// Extra lines inside `[capture]` (e.g. `udptl = "full"`).
+    pub capture_extra: String,
     /// Use this port instead of a free one.
     pub port: Option<u16>,
+    /// Run the real T.38 fax session. Off by default: the signalling tests only want the
+    /// call held (`fax_session = "hold"`).
+    pub real_fax: bool,
+    /// Data directory for received faxes (default: `<scratch>/data`).
+    pub data_dir: Option<PathBuf>,
 }
 
 /// A running `sip-faxd serve`.
@@ -113,6 +120,8 @@ pub struct Faxd {
     pub dir: PathBuf,
     /// Capture directory (`logs/calls`).
     pub calls_dir: PathBuf,
+    /// Data directory (`<data_dir>/faxes/...`).
+    pub data_dir: PathBuf,
     log: Arc<Mutex<Vec<String>>>,
 }
 
@@ -123,18 +132,26 @@ impl Faxd {
         let dir = scratch(name);
         let port = opts.port.unwrap_or_else(free_port);
         let calls_dir = dir.join("calls");
+        let data_dir = opts.data_dir.clone().unwrap_or_else(|| dir.join("data"));
         let cfg = format!(
             "[log]\nlevel = \"debug\"\n\n[sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
-             [call]\n{}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n\n\
+             [call]\n{}\n{}\n\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
              [[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}\n\n{}\n",
             opts.sip,
             opts.call,
+            if opts.real_fax {
+                ""
+            } else {
+                "fax_session = \"hold\""
+            },
+            data_dir.display().to_string(),
             calls_dir.display().to_string(),
             if opts.capture_keep_failed {
                 "failed"
             } else {
                 "all"
             },
+            opts.capture_extra,
             opts.trunk,
             opts.extra
         );
@@ -176,6 +193,7 @@ impl Faxd {
             port,
             dir,
             calls_dir,
+            data_dir,
             log,
         }
     }

@@ -188,8 +188,11 @@ impl RxAdapter {
                 }
             }
             FieldType::T4NonEcmSigEnd => {
-                if !self.image_active && data.is_empty() {
-                    // a repeat of a sig-end that already ended the image
+                if !self.image_active {
+                    // A repeat of a sig-end that already ended the image. The copies the
+                    // sender emits for UDP loss are identical, so they carry the last octets
+                    // again: they must not be taken for new data (they used to be dropped by
+                    // accident while T.30 was still "sending" its response).
                     self.duplicates += 1;
                     return;
                 }

@@ -3,12 +3,14 @@
 //! * [`tiff_writer`] / [`tiff_reader`]: independent minimal TIFF implementations.
 //! * [`spandsp`]: safe RAII wrappers over `spandsp-sys`.
 //! * [`sip_uac`]: a simulated gateway placing a call into `sip-faxd` through sip-core (M1d).
+//! * [`gateway`]: SpanDSP `t38_terminal` on a real UDP socket and clock (M2d); `sip_uac` uses it.
 //! * [`engine_loopback`]: SpanDSP `t38_terminal` (caller) against our sans-IO engine (M2c).
 //! * [`t38_loopback`] / [`audio_loopback`]: deterministic in-process fax sessions
 //!   driven by a simulated clock (no sleeping).
 
 pub mod audio_loopback;
 pub mod engine_loopback;
+pub mod gateway;
 pub mod sip_uac;
 pub mod spandsp;
 pub mod t38_loopback;

@@ -120,6 +120,13 @@ impl Scheduler {
         self.queue.clear();
     }
 
+    /// Removes the pending "burst has left" markers and returns how many there were.
+    pub(crate) fn take_tx_complete(&mut self) -> usize {
+        let before = self.queue.len();
+        self.queue.retain(|(_, item)| *item != Item::TxComplete);
+        before - self.queue.len()
+    }
+
     pub(crate) fn next_at(&self) -> Option<u64> {
         self.queue.front().map(|(t, _)| *t)
     }

@@ -278,6 +278,11 @@ pub struct CallConfig {
     pub reinvite_timeout_secs: u64,
     /// How often a re-INVITE answered with 491 is retried.
     pub max_491_retries: u32,
+    /// What runs once T.38 is established: the real fax session or a stub that only holds
+    /// the call (signalling tests).
+    pub fax_session: FaxSessionKind,
+    /// Our station identification (CSI in the DIS). Empty sends no CSI.
+    pub station_id: String,
 }
 
 impl Default for CallConfig {
@@ -288,6 +293,35 @@ impl Default for CallConfig {
             max_duration_secs: 3600,
             reinvite_timeout_secs: 32,
             max_491_retries: 3,
+            fax_session: FaxSessionKind::T38,
+            station_id: String::new(),
+        }
+    }
+}
+
+/// `[call] fax_session`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FaxSessionKind {
+    /// Receive the fax over T.38 and write TIFF / PDF (default).
+    T38,
+    /// Only hold the call until the peer hangs up or `max_duration_secs` passes.
+    Hold,
+}
+
+/// `[storage]`
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StorageConfig {
+    /// Received faxes are written to `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|.pdf`.
+    /// A relative path is relative to the executable directory.
+    pub data_dir: PathBuf,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        StorageConfig {
+            data_dir: PathBuf::from("data"),
         }
     }
 }
@@ -304,6 +338,21 @@ pub struct CaptureConfig {
     pub keep: KeepMode,
     /// Upper bound of the captured text per call (further messages are counted, not stored).
     pub max_bytes_per_call: usize,
+    /// What `udptl.log` records.
+    pub udptl: UdptlLogMode,
+}
+
+/// `[capture] udptl`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UdptlLogMode {
+    /// No `udptl.log`.
+    Off,
+    /// One line per datagram: time, direction, seq, length and the decoded IFP summary. T.30
+    /// control frames are included in full; image data is never recorded (default).
+    Summary,
+    /// Every datagram in full hex. This stores the fax content.
+    Full,
 }
 
 impl Default for CaptureConfig {
@@ -313,6 +362,7 @@ impl Default for CaptureConfig {
             dir: PathBuf::from("logs/calls"),
             keep: KeepMode::All,
             max_bytes_per_call: 1 << 20,
+            udptl: UdptlLogMode::Summary,
         }
     }
 }
@@ -335,6 +385,13 @@ pub struct T38Section {
     pub udp_ec: UdpEcName,
     /// We can do UDPTL FEC (otherwise an offered FEC is answered with redundancy).
     pub fec: bool,
+    /// UDPTL redundancy we send when `t38UDPRedundancy` is in force: how many previous
+    /// packets each datagram repeats (0 = none).
+    pub redundancy_depth: u8,
+    /// UDPTL FEC we send when `t38UDPFEC` is in force: packets per parity entry.
+    pub fec_span: u8,
+    /// UDPTL FEC we send when `t38UDPFEC` is in force: parity entries per datagram.
+    pub fec_entries: u8,
     /// `T38FaxFillBitRemoval`
     pub fill_bit_removal: bool,
     /// `T38FaxTranscodingMMR`
@@ -354,6 +411,9 @@ impl Default for T38Section {
             max_datagram: d.max_datagram,
             udp_ec: UdpEcName::Redundancy,
             fec: false,
+            redundancy_depth: 3,
+            fec_span: 3,
+            fec_entries: 3,
             fill_bit_removal: false,
             transcoding_mmr: false,
             transcoding_jbig: false,
@@ -505,6 +565,8 @@ pub struct FaxInConfig {
     pub call: CallConfig,
     /// `[capture]`
     pub capture: CaptureConfig,
+    /// `[storage]`
+    pub storage: StorageConfig,
     /// `[[trunks]]`
     pub trunks: Vec<TrunkConfig>,
 }
@@ -520,6 +582,8 @@ struct Sections {
     call: CallConfig,
     #[serde(default)]
     capture: CaptureConfig,
+    #[serde(default)]
+    storage: StorageConfig,
 }
 
 fn merge(base: &mut toml::Table, over: toml::Table) {
@@ -576,6 +640,7 @@ impl FaxInConfig {
             media: sections.media,
             call: sections.call,
             capture: sections.capture,
+            storage: sections.storage,
             trunks: Vec::new(),
         };
         for (i, t) in trunks.into_iter().enumerate() {
@@ -629,6 +694,21 @@ impl FaxInConfig {
         }
         if self.call.max_duration_secs == 0 {
             return invalid("[call] max_duration_secs must be greater than 0");
+        }
+        for t in &self.trunks {
+            let c = &t.t38;
+            if c.redundancy_depth > 8 {
+                return invalid(format!(
+                    "trunk \"{}\": [trunks.t38] redundancy_depth {} is above 8",
+                    t.name, c.redundancy_depth
+                ));
+            }
+            if !(1..=8).contains(&c.fec_span) || !(1..=8).contains(&c.fec_entries) {
+                return invalid(format!(
+                    "trunk \"{}\": [trunks.t38] fec_span and fec_entries must be 1..=8",
+                    t.name
+                ));
+            }
         }
         Ok(())
     }

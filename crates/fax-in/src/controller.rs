@@ -24,13 +24,18 @@ use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 
 use crate::capture::Capture;
+use crate::config::FaxSessionKind;
 use crate::config::{
     ConfigError, FaxInConfig, TransportName, UnknownSource, resolve_peer, split_host_port,
 };
 use crate::event::{CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path};
+use crate::event::{FaxReport, ReportSink};
 use crate::media::{self, Accepted, MediaCtx, Unacceptable};
 use crate::ports::PortPool;
-use crate::session::{FaxSessionFactory, SessionContext, SessionOutcome, StubFactory};
+use crate::session::{
+    FaxSessionFactory, SessionContext, SessionOutcome, StubFactory, UdptlSettings,
+};
+use crate::t38session::{T38SessionEnv, T38SessionFactory};
 use crate::trunk::{Trunk, TrunkTable};
 
 /// Things that can go wrong when starting the controller.
@@ -153,11 +158,29 @@ impl FaxIn {
     ) -> (FaxIn, mpsc::UnboundedReceiver<CallEvent>) {
         let (ev_tx, ev_rx) = mpsc::unbounded_channel();
         let (stop_tx, stop_rx) = watch::channel(false);
-        let factory = opts.session_factory.unwrap_or_else(|| {
-            Arc::new(StubFactory {
-                max_duration: Duration::from_secs(cfg.call.max_duration_secs),
-            })
-        });
+        let max_duration = Duration::from_secs(cfg.call.max_duration_secs);
+        let factory: Arc<dyn FaxSessionFactory> = match opts.session_factory {
+            Some(f) => f,
+            None => match cfg.call.fax_session {
+                FaxSessionKind::Hold => Arc::new(StubFactory { max_duration }),
+                FaxSessionKind::T38 => {
+                    let data_dir = match &opts.base_dir {
+                        Some(b) if cfg.storage.data_dir.is_relative() => {
+                            b.join(&cfg.storage.data_dir)
+                        }
+                        _ => cfg.storage.data_dir.clone(),
+                    };
+                    Arc::new(T38SessionFactory::new(T38SessionEnv {
+                        data_dir,
+                        capture: capture.clone(),
+                        bind_ip: cfg.sip.bind.ip(),
+                        station_id: cfg.call.station_id.clone(),
+                        max_duration,
+                        pacing: crate::t38engine::Pacing::default(),
+                    }))
+                }
+            },
+        };
         let media = MediaCtx {
             local_address: cfg.media_address(),
             audio_port: cfg.media.audio_port,
@@ -342,6 +365,8 @@ struct Rec {
     answered_at: Option<SystemTime>,
     t38_at: Option<SystemTime>,
     t38: Option<T38Negotiated>,
+    /// Where the fax session leaves its report.
+    fax: Option<ReportSink>,
 }
 
 async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
@@ -381,6 +406,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
                     t38_established_at: None,
                     ended_at: SystemTime::now(),
                     t38: None,
+                    fax: None,
                     outcome: CallOutcome::Failed {
                         reason: FailureReason::UnknownSource,
                     },
@@ -404,8 +430,28 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         answered_at: None,
         t38_at: None,
         t38: None,
+        fax: None,
     };
-    let outcome = drive(&sh, call, &trunk, &call_id, &mut rec).await;
+    let mut outcome = drive(&sh, call, &trunk, &call_id, &mut rec).await;
+    let fax: Option<FaxReport> = rec.fax.as_ref().and_then(|s| {
+        s.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    });
+    // A call that ended "normally" without delivering the fax is a failure.
+    if let (CallOutcome::Completed, Some(f)) = (&outcome, &fax) {
+        if f.code != 0 || f.store_error.is_some() {
+            outcome = failed(FailureReason::Session {
+                detail: match &f.store_error {
+                    Some(e) => format!("fax received but not stored: {e}"),
+                    None => format!(
+                        "T.30 {} ({}) after {} page(s)",
+                        f.code_name, f.code, f.pages
+                    ),
+                },
+            });
+        }
+    }
     let result = CallResult {
         call_id: call_id.clone(),
         trunk: trunk.name().to_string(),
@@ -417,6 +463,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         t38_established_at: rec.t38_at,
         ended_at: SystemTime::now(),
         t38: rec.t38,
+        fax,
         outcome,
     };
     match &result.outcome {
@@ -539,6 +586,7 @@ async fn drive(
         aux: JoinSet::new(),
         internal_tx: mpsc::unbounded_channel().0,
         session_cancel: None,
+        session_finished: false,
         t38: false,
         initiate_at: None,
         audio_deadline: None,
@@ -550,6 +598,8 @@ async fn drive(
 
 /// How long the call result waits for the answer to our BYE.
 const BYE_WAIT: Duration = Duration::from_secs(5);
+/// How long a cancelled fax session may take to write its files.
+const SESSION_FINISH_WAIT: Duration = Duration::from_secs(3);
 /// ... when the whole server is shutting down.
 const BYE_WAIT_SHUTDOWN: Duration = Duration::from_secs(2);
 
@@ -579,6 +629,8 @@ struct Live<'a> {
     aux: JoinSet<()>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     session_cancel: Option<watch::Sender<bool>>,
+    /// The session's result has been received on the internal channel.
+    session_finished: bool,
     t38: bool,
     initiate_at: Option<Instant>,
     audio_deadline: Option<Instant>,
@@ -629,10 +681,19 @@ impl Live<'_> {
             at: now,
         });
         let (cancel_tx, cancel_rx) = watch::channel(false);
+        let t38cfg = &self.trunk.cfg.t38;
+        let report: ReportSink = Arc::default();
+        self.rec.fax = Some(report.clone());
         let ctx = SessionContext {
             call_id: self.call_id.to_string(),
             trunk: self.trunk.name().to_string(),
             t38: p,
+            udptl: UdptlSettings {
+                redundancy_depth: t38cfg.redundancy_depth,
+                fec_span: t38cfg.fec_span,
+                fec_entries: t38cfg.fec_entries,
+            },
+            report,
             cancel: cancel_rx,
         };
         let session = self.sh.factory.create(&ctx);
@@ -847,7 +908,9 @@ impl Live<'_> {
                     }
                 }
                 Some(i) = irx.recv() => match i {
-                    Internal::Session(out) => match out {
+                    Internal::Session(out) => {
+                        self.session_finished = true;
+                        match out {
                         SessionOutcome::Completed => break (CallOutcome::Completed, true, false),
                         SessionOutcome::MaxDuration => {
                             tracing::warn!(call_id = self.call_id, "maximum call duration reached");
@@ -857,7 +920,8 @@ impl Live<'_> {
                             break (failed(FailureReason::Session { detail: d }), true, false);
                         }
                         SessionOutcome::Aborted => session_result = Some(SessionOutcome::Aborted),
-                    },
+                        }
+                    }
                 },
                 () = at(self.initiate_at) => {
                     self.initiate_at = None;
@@ -878,6 +942,12 @@ impl Live<'_> {
             }
         };
         self.cancel_session();
+        // Let the session finish what it is doing (it writes the received pages when it is
+        // cancelled) before the call result is read.
+        if self.t38 && !self.session_finished {
+            let wait = async { irx.recv().await };
+            let _ = tokio::time::timeout(SESSION_FINISH_WAIT, wait).await;
+        }
         if send_bye {
             // The call is over either way; do not hold the result back for an unresponsive peer
             // (the BYE transaction itself keeps retransmitting inside the dialog task).
@@ -902,7 +972,8 @@ impl Live<'_> {
         self.cancel_session();
         if self.t38 && session_result.is_none() {
             let wait = async { irx.recv().await.map(|Internal::Session(o)| o) };
-            if let Ok(Some(o)) = tokio::time::timeout(Duration::from_secs(1), wait).await {
+            if let Ok(Some(o)) = tokio::time::timeout(SESSION_FINISH_WAIT, wait).await {
+                self.session_finished = true;
                 *session_result = Some(o);
             }
         }

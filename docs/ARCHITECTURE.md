@@ -16,7 +16,7 @@ apps/sip-faxd/  單一執行檔：serve / tui / CLI 子命令
 web-ui/         SPA 原始碼（Svelte + Vite）           ← M4 建立
 tools/          獨立的 cargo workspace（不在根 workspace 內，因為需要 SpanDSP C 函式庫；根 Cargo.toml 以 exclude 排除）
   spandsp-sys/  手寫的最小 FFI（opaque pointer，pkg-config 連結 SpanDSP >= 3.1）            ← M0
-  fax-sim/      T.38/音訊 loopback 執行器、測試頁 TIFF 產生器與獨立讀取器；`sip_uac` 模式（模擬 gateway 撥入 sip-faxd）← M0/M1d
+  fax-sim/      T.38/音訊 loopback 執行器、測試頁 TIFF 產生器與獨立讀取器；`sip_uac` 模式（模擬 gateway 撥入 sip-faxd；M2d 起帶 SpanDSP `t38_terminal` 在真實 UDP socket／即時時鐘上送傳真，`gateway.rs`，UDPTL 用我們的 t38 crate、可設 redundancy 與帶種子的遺失）← M0/M1d/M2d
   interop/      啟動真實 `sip-faxd` 並以 SIPp 3.8.0 驅動的測試 harness；場景在 `tools/sipp/*.xml`   ← M1d
                 只在開發和 CI 使用，需在 Rocky 9 容器內以 scripts/e2e-docker.sh 執行
 tests/e2e/      端到端整合測試                           ← M1 起
@@ -38,17 +38,18 @@ tests/e2e/      端到端整合測試                           ← M1 起
 | SDP | 完整模型：多個 m-line、`m=image <port> udptl t38` 和全部 `T38Fax*` 屬性、port 0 拒絕規則、o= 版本號遞增 |
 | API | `endpoint.rs`：`Endpoint::bind`／`detached`、`IncomingCall`（ringing／accept／reject）、`DialogHandle`／`DialogControl`（reinvite／bye／next_event）、`Endpoint::invite`（UAC，自動 ACK）、`shutdown()` 結束所有 task。Transport 層另提供選用的訊息 tap（`MessageTap`，預設關閉，不阻塞協定堆疊），是 M1d per-call 擷取的基礎。層與層之間以 tokio channel 串接（transport → transaction → dialog task → 應用層）|
 
-## fax-in（M1d 骨架）
+## fax-in（M1d 骨架＋M2d T.38 session）
 | 模組 | 內容 |
 |---|---|
 | `config` | TOML 設定（`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`）；trunk 先套 preset（`generic`、`cht-cs210`）；未知鍵一律報錯。範例見 `conf/sip-faxd.toml.example` |
 | `trunk` | 來源 IP → trunk 對應（第一個符合者）、傳給 transport 的來源過濾（所有 trunk 聯集，`unknown_source` = drop / reject / log）|
 | `controller` | `FaxIn`：每通來電一個 task。依 `t38_policy`（auto / wait-peer / initiate / audio-only）回 G.711 或 T.38、接受對方 re-INVITE 或在 ACK 後 `initiate_after_secs` 發我方 re-INVITE；488/415/606 → BYE 並記錄 `g711_passthrough_unsupported`。per-trunk 相容旗標（未知 `Require`、`min_max_datagram`）|
 | `media` | 以 trunk 政策產生 SDP answer／T.38 offer；SDP 寬容度（缺 RateManagement、c= 層級、MaxDatagram 下限）與警告 |
-| `session` | `FaxSession`／`FaxSessionFactory` trait；M1d 為只維持通話的 stub，M2 換成 T.38/T.30 |
-| `event` | `CallEvent`、`CallResult`（trunk、T.38 協商參數、時間戳、結果／失敗原因），M3 寫入 DB |
-| `capture` | 以訊息 tap 寫 `logs/calls/<call-id>/sip.log` 與 `result.json`；`keep = "failed"` 只留失敗通話 |
-| `t38engine`（M2c） | sans-IO 的 T.38 接收引擎：`T38Engine`（`start/advance/on_ifp/poll_output`，虛擬時鐘）把 IFP 轉成 t30 事件、把 t30 動作排成帶 SpanDSP 式 pacing 的 IFP 序列（指示重複 3 次、V.21 逐 octet 配合 300 bit/s），收到的頁面重新編成 MMR（`ReceivedPage`）；`UdptlEngine` 是 UDPTL 薄包裝（redundancy/FEC 送出，接收端補洞與 Gap 轉成壞 FCS）。socket 與 `T38FaxSession` 在 M2d |
+| `session` | `FaxSession`／`FaxSessionFactory` trait、`SessionContext`（含 `report` 槽，session 結束前把 `FaxReport` 放進去）；`StubFaxSession` 只維持通話（`[call] fax_session = "hold"`，訊號測試用）|
+| `t38session`（M2d） | 真正的 `T38FaxSession`：在該通電話的 pool 埠綁 UDPTL socket，先送往 SDP 位址，第一個能解析的 UDPTL 封包「latch」對方實際位址（之後其他來源丟棄）；以 SDP 協商的 `udp_ec`／版本／rate management／`T38FaxMaxDatagram` 設定 `UdptlEngine`；tokio 以 `next_wakeup_ms` 喚醒、datagram 餵 `UdptlReceiver`（`Gap`／reorder flush 在引擎內）；T.30 完成、peer BYE（取消）或 `max_duration_secs` 結束；結束時寫 `<data_dir>/faxes/YYYY/MM/DD/<call-id>.tif|.pdf`（先寫 `.part` 再 rename；部分頁面也寫並標記 `partial`）|
+| `event` | `CallEvent`、`CallResult`（trunk、T.38 協商參數、時間戳、結果／失敗原因、`fax: FaxReport`：T.30 結果碼、頁數、速率、解析度、編碼、TSI、每頁 bad lines、檔案路徑、`partial`、UDPTL 計數），M3 寫入 DB |
+| `capture` | 以訊息 tap 寫 `logs/calls/<call-id>/sip.log`、`udptl.log`（每個 UDPTL datagram 一行：時間、RX/TX、seq、hex）與 `result.json`；`keep = "failed"` 只留失敗通話；兩個日誌各有 `max_bytes_per_call` 上限 |
+| `t38engine`（M2c） | sans-IO 的 T.38 接收引擎：`T38Engine`（`start/advance/on_ifp/poll_output`，虛擬時鐘）把 IFP 轉成 t30 事件、把 t30 動作排成帶 SpanDSP 式 pacing 的 IFP 序列（指示重複 3 次、V.21 逐 octet 配合 300 bit/s），收到的頁面重新編成 MMR（`ReceivedPage`）；`UdptlEngine` 是 UDPTL 薄包裝（redundancy/FEC 送出，接收端補洞與 Gap 轉成壞 FCS）。socket 與 `T38FaxSession` 見 `t38session`（M2d）。引擎在對方已開始下一個訊號（V.21 preamble、training、frame、影像資料）時，把我方尚未播完的 burst 視為已送完（真實 gateway 在聽到最後一個 frame 就回應，早於我方模擬的 flag／FCS／100 ms 尾巴）|
 
 `sip-faxd serve --config <path>` 啟動 `FaxIn`，`sip-faxd config check` 驗證設定檔。
 

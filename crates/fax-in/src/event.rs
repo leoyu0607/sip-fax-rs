@@ -128,6 +128,66 @@ impl CallOutcome {
     }
 }
 
+/// UDPTL counters of one T.38 session.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct UdptlCounters {
+    /// Datagrams received from the peer (all, including ones that did not parse).
+    pub rx_datagrams: u64,
+    /// Datagrams sent to the peer.
+    pub tx_datagrams: u64,
+    /// Received datagrams ignored because they came from another address than the latched one.
+    pub rx_foreign: u64,
+    /// Received datagrams that failed to parse (or whose IFP packet did not decode).
+    pub rx_malformed: u64,
+    /// Duplicate datagrams.
+    pub rx_duplicates: u64,
+    /// Packets recovered from redundancy.
+    pub recovered_redundancy: u64,
+    /// Packets recovered from FEC.
+    pub recovered_fec: u64,
+    /// Packets lost for good (reported to T.30 as damaged data).
+    pub lost: u64,
+}
+
+/// What the T.38 / T.30 fax session delivered. Present in [`CallResult`] when a fax session
+/// ran, whether it succeeded or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FaxReport {
+    /// T.30 result code (0 = success).
+    pub code: u8,
+    /// Stable name of the code (`ok`, `t2_expired_command`, ...).
+    pub code_name: String,
+    /// Pages received and confirmed.
+    pub pages: u32,
+    /// Image data rate of the last DCS in bit/s.
+    pub bit_rate: u32,
+    /// Modem of the last DCS (`v27ter`, `v29`, `v17`, ...).
+    pub modem: Option<String>,
+    /// Vertical resolution (`standard`, `fine`, ...).
+    pub resolution: Option<String>,
+    /// Coding of the last DCS (`mh`, `mr`, `mmr`).
+    pub compression: Option<String>,
+    /// The caller's TSI.
+    pub remote_ident: Option<String>,
+    /// Bad lines of every confirmed page.
+    pub bad_lines_per_page: Vec<u32>,
+    /// T.30 duration in milliseconds.
+    pub duration_ms: u64,
+    /// The call failed but pages were received and stored.
+    pub partial: bool,
+    /// The TIFF file, if any page was received.
+    pub tiff: Option<String>,
+    /// The PDF file, if any page was received.
+    pub pdf: Option<String>,
+    /// Why the files could not be written, if that failed.
+    pub store_error: Option<String>,
+    /// UDPTL counters.
+    pub udptl: UdptlCounters,
+}
+
+/// Where a session leaves its [`FaxReport`] for the controller to pick up.
+pub type ReportSink = std::sync::Arc<std::sync::Mutex<Option<FaxReport>>>;
+
 /// Everything known about a finished call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CallResult {
@@ -155,6 +215,8 @@ pub struct CallResult {
     pub ended_at: SystemTime,
     /// Negotiated T.38 parameters, if T.38 was established.
     pub t38: Option<T38Negotiated>,
+    /// What the fax session delivered (T.30 result, pages, files), if one ran.
+    pub fax: Option<FaxReport>,
     /// The result.
     pub outcome: CallOutcome,
 }

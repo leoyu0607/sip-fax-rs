@@ -47,9 +47,9 @@
 - [x] [Sonnet] t4：MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF 輸出（M2b）
 - [x] [Sonnet] 第 2 層互通測試：與 SpanDSP `t38_terminal` 以 IFP 互打（M2c X01–X05，Docker；逐像素比對每一頁）
 - [x] [Sonnet] fax-sim 加入 UDPTL redundancy/FEC 模型，補上 ECM + 封包遺失案例（多個 seed）（M0 審核追蹤 #1，M2a X06）
-- [x] [Sonnet] 以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2；M2c 的 X 測試已做；SIP 端到端版本在 M2d）
-- [ ] [Sonnet] fax-in：串起 SIP 到 T.38、T.30 再到文件，並完成端到端多頁接收
-- [ ] [Opus] 審核 docs/test-reports/M2.md
+- [x] [Sonnet] 以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2；M2c 的 X 測試已做；SIP 端到端版本 M2d 完成，且改用 libtiff／poppler 兩個獨立來源比對）
+- [x] [Sonnet] fax-in：串起 SIP 到 T.38、T.30 再到文件，並完成端到端多頁接收（M2d：`t38session`、TIFF/PDF 輸出、`udptl.log`、fax-sim 即時 gateway；E01–E07 通過，見 docs/test-reports/M2d.md；待 Opus 審核）
+- [x] [Opus] 審核 docs/test-reports/M2a–M2d.md（全數通過）
 
 - [x] [Sonnet] 調查 sip-core 涵蓋率一次掉到 83.5% 的不穩定測試（M2a 審核；M2c 結論見報告第 6 節）
 - [x] [Sonnet] t4 在小量餵入時的效能，以實際 T.38 封包大小量測（M2b 審核；M2c：最差 1 byte 一包也只用線路時間的 0.7 %，不需要改成可續解）
@@ -79,6 +79,7 @@
 - [ ] [Opus] 審核 docs/test-reports/M5.md
 
 ## M6 — 互通強化與發佈
+- [ ] [Sonnet] T.38 latch 之後對方位址改變的處理（M2d 審核）
 - [ ] [Any] 用 CS210 的實際擷取驗證 localTCF 時是否送 CFR，並調整 `cht-cs210` 預設組（M2c 審核）
 - [ ] [Sonnet] K01 的根本解：dialog 改用單一有序事件佇列（ADR-016）
 - [ ] [Opus] 撰寫 docs/test-plans/M6.md

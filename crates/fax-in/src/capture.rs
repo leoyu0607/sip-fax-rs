@@ -21,7 +21,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::config::{CaptureConfig, KeepMode};
+use crate::config::{CaptureConfig, KeepMode, UdptlLogMode};
 use crate::timefmt::rfc3339;
 
 /// Events queued for the writer before the tap starts dropping.
@@ -33,8 +33,15 @@ const MAX_PENDING_PER_CALL: usize = 16;
 /// How long late messages (retransmissions, the 200 to our BYE) are still appended.
 const LATE_WINDOW: Duration = Duration::from_secs(64);
 
+/// Buffered `udptl.log` text is written out once it reaches this size (`keep = "all"`).
+const UDPTL_FLUSH_BYTES: usize = 16 * 1024;
+
 enum Msg {
     Tap(TapEvent),
+    Udptl {
+        call_id: String,
+        line: String,
+    },
     Begin(String),
     End {
         call_id: String,
@@ -46,6 +53,7 @@ enum Msg {
 
 /// Handle to the capture writer.
 pub struct Capture {
+    udptl_mode: UdptlLogMode,
     tx: mpsc::UnboundedSender<Msg>,
     queued: Arc<AtomicUsize>,
     dropped: Arc<AtomicU64>,
@@ -84,6 +92,7 @@ impl Capture {
         });
         (
             Arc::new(Capture {
+                udptl_mode: cfg.udptl,
                 tx,
                 queued,
                 dropped,
@@ -105,6 +114,40 @@ impl Capture {
             failed,
             result_json,
         });
+    }
+
+    /// Records one UDPTL datagram of the call in `udptl.log` according to `[capture] udptl`:
+    /// `summary`: `<time> RX|TX <seq> len=<n> <IFP summary>` (T.30 frames in hex, image data
+    /// never); `full`: `<time> RX|TX <seq> <hex of the whole datagram>`; `off`: nothing.
+    /// Subject to the same `keep` and `max_bytes_per_call` rules as `sip.log` (separate budget).
+    pub fn udptl(
+        &self,
+        call_id: &str,
+        at: std::time::SystemTime,
+        transmit: bool,
+        datagram: &[u8],
+        version: t38::T38Version,
+        hdlc: &mut Vec<u8>,
+    ) {
+        if self.udptl_mode == UdptlLogMode::Off {
+            return;
+        }
+        if self.queued.fetch_add(1, Ordering::Relaxed) >= MAX_QUEUED {
+            self.queued.fetch_sub(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let line = udptl_line(at, transmit, datagram, self.udptl_mode, version, hdlc);
+        if self
+            .tx
+            .send(Msg::Udptl {
+                call_id: call_id.to_string(),
+                line,
+            })
+            .is_err()
+        {
+            self.queued.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 
     /// Events dropped because the writer could not keep up.
@@ -172,6 +215,92 @@ pub fn dir_name(call_id: &str) -> String {
     }
 }
 
+/// One `udptl.log` line (see [`Capture::udptl`]).
+pub fn udptl_line(
+    at: std::time::SystemTime,
+    transmit: bool,
+    datagram: &[u8],
+    mode: UdptlLogMode,
+    version: t38::T38Version,
+    hdlc: &mut Vec<u8>,
+) -> String {
+    use std::fmt::Write as _;
+    let seq = match datagram {
+        [a, b, ..] => u16::from_be_bytes([*a, *b]).to_string(),
+        _ => "-".to_string(),
+    };
+    let mut s = String::with_capacity(64);
+    let _ = write!(
+        s,
+        "{} {} {} ",
+        rfc3339(at),
+        if transmit { "TX" } else { "RX" },
+        seq
+    );
+    if mode == UdptlLogMode::Full {
+        s.reserve(datagram.len() * 2);
+        for b in datagram {
+            let _ = write!(s, "{b:02x}");
+        }
+    } else {
+        let _ = write!(
+            s,
+            "len={} {}",
+            datagram.len(),
+            ifp_summary(datagram, version, hdlc)
+        );
+    }
+    s.push('\n');
+    s
+}
+
+/// The primary IFP packet of a datagram, described without any image data. The octets of
+/// V.21 (HDLC) fields are T.30 control frames: shown in hex, and at the end of a frame the
+/// whole frame (`frame=...`, assembled from the packets of the same direction); the data of every other
+/// field (`t4-non-ecm-data`, ...) only as a length.
+fn ifp_summary(datagram: &[u8], version: t38::T38Version, hdlc: &mut Vec<u8>) -> String {
+    use std::fmt::Write as _;
+    let Ok(pkt) = t38::UdptlPacket::decode(datagram) else {
+        return "undecodable-udptl".into();
+    };
+    match t38::Ifp::decode_prefix(&pkt.primary, version) {
+        Ok((t38::Ifp::Indicator(i), _)) => format!("ind={i:?}"),
+        Ok((t38::Ifp::Data { data_type, fields }, _)) => {
+            let mut s = format!("data={data_type:?}");
+            for f in &fields {
+                let _ = write!(s, " {:?}({})", f.field_type, f.data.len());
+                if data_type != t38::DataType::V21 {
+                    continue;
+                }
+                if !f.data.is_empty() {
+                    s.push('=');
+                    for b in &f.data {
+                        let _ = write!(s, "{b:02x}");
+                    }
+                    hdlc.extend_from_slice(&f.data);
+                }
+                // the end of a frame: show the whole frame (T.30 control frames carry no image)
+                if matches!(
+                    f.field_type,
+                    t38::FieldType::HdlcFcsOk
+                        | t38::FieldType::HdlcFcsBad
+                        | t38::FieldType::HdlcFcsOkSigEnd
+                        | t38::FieldType::HdlcFcsBadSigEnd
+                ) && !hdlc.is_empty()
+                {
+                    let _ = write!(s, " frame=");
+                    for b in hdlc.iter().take(300) {
+                        let _ = write!(s, "{b:02x}");
+                    }
+                    hdlc.clear();
+                }
+            }
+            s
+        }
+        Err(_) => "undecodable-ifp".into(),
+    }
+}
+
 fn format_entry(ev: &TapEvent) -> String {
     let (dir, prep) = match ev.direction {
         TapDirection::Received => ("RECV", "from"),
@@ -198,6 +327,10 @@ struct Log {
     skipped: u64,
     /// `buf` has been written to disk already (keep = all).
     on_disk: bool,
+    /// `udptl.log` text not written yet.
+    udptl_buf: String,
+    udptl_bytes: usize,
+    udptl_skipped: u64,
 }
 
 struct Writer {
@@ -217,6 +350,10 @@ impl Writer {
                 Msg::Tap(ev) => {
                     self.queued.fetch_sub(1, Ordering::Relaxed);
                     self.on_tap(&ev).await;
+                }
+                Msg::Udptl { call_id, line } => {
+                    self.queued.fetch_sub(1, Ordering::Relaxed);
+                    self.on_udptl(&call_id, line).await;
                 }
                 Msg::Begin(id) => self.on_begin(id).await,
                 Msg::End {
@@ -275,10 +412,32 @@ impl Writer {
                 bytes: 0,
                 skipped: 0,
                 on_disk: false,
+                udptl_buf: String::new(),
+                udptl_bytes: 0,
+                udptl_skipped: 0,
             },
         );
         for e in early {
             self.append(&id, e).await;
+        }
+    }
+
+    async fn on_udptl(&mut self, id: &str, line: String) {
+        let keep_all = self.keep == KeepMode::All;
+        let dir = self.call_dir(id);
+        let max = self.max_bytes;
+        let Some(log) = self.active.get_mut(id) else {
+            return;
+        };
+        if log.udptl_bytes + line.len() > max {
+            log.udptl_skipped += 1;
+            return;
+        }
+        log.udptl_bytes += line.len();
+        log.udptl_buf.push_str(&line);
+        if keep_all && log.udptl_buf.len() >= UDPTL_FLUSH_BYTES {
+            let text = std::mem::take(&mut log.udptl_buf);
+            let _ = append_file(&dir, "udptl.log", text.as_bytes()).await;
         }
     }
 
@@ -310,6 +469,16 @@ impl Writer {
         let keep = self.keep == KeepMode::All || failed;
         if keep {
             let dir = self.call_dir(&id);
+            let mut utail = log.udptl_buf.clone();
+            if log.udptl_skipped > 0 {
+                utail.push_str(&format!(
+                    "[capture] {} further datagram(s) not stored (max_bytes_per_call reached)\n",
+                    log.udptl_skipped
+                ));
+            }
+            if !utail.is_empty() {
+                let _ = append_file(&dir, "udptl.log", utail.as_bytes()).await;
+            }
             let mut tail = String::new();
             if !log.buf.is_empty() {
                 tail.push_str(&log.buf);

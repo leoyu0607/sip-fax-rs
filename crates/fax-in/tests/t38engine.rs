@@ -67,6 +67,28 @@ impl Bench {
         }
     }
 
+    /// Steps until the engine has sent a frame with this FCF as the newest one, and stops at
+    /// that instant (so that the caller can answer while the engine's burst tail runs).
+    fn run_until_fcf(&mut self, fcf: u8, limit: u64) {
+        let before = self.frames().len();
+        while self.now <= limit
+            && !(self.frames().len() > before && self.frame_fcfs().last() == Some(&fcf))
+        {
+            self.step();
+            self.now += 1;
+        }
+        assert_eq!(
+            self.frame_fcfs().last(),
+            Some(&fcf),
+            "frame {fcf:#04x} not heard by {limit} ms: {:#?}\n{:?}",
+            self.eng.drain_log(),
+            self.heard
+                .iter()
+                .filter(|(_, h)| !matches!(h, Heard::Ind(_)))
+                .collect::<Vec<_>>()
+        );
+    }
+
     fn run_until_done(&mut self, limit: u64) {
         while self.now <= limit && !self.eng.is_done() {
             self.step();
@@ -157,16 +179,14 @@ impl Bench {
             self.schedule(t, Ifp::Indicator(ind));
         }
         t += 200;
-        let chunks: Vec<&[u8]> = data_bytes.chunks(chunk).collect();
-        for (i, c) in chunks.iter().enumerate() {
-            if i + 1 == chunks.len() {
-                for _ in 0..3 {
-                    self.schedule(t, data(dt, FieldType::T4NonEcmSigEnd, c));
-                }
-            } else {
-                self.schedule(t, data(dt, FieldType::T4NonEcmData, c));
-            }
+        // The data goes out once; the signal end follows as empty copies (as SpanDSP and the
+        // gateways do). A copy that repeated the data would be new data to any receiver.
+        for c in data_bytes.chunks(chunk) {
+            self.schedule(t, data(dt, FieldType::T4NonEcmData, c));
             t += 30;
+        }
+        for _ in 0..3 {
+            self.schedule(t, data(dt, FieldType::T4NonEcmSigEnd, &[]));
         }
         for _ in 0..3 {
             self.schedule(t, Ifp::Indicator(Indicator::NoSignal));
@@ -633,6 +653,22 @@ fn full_call(
     rate_bytes: usize,
     chunk: usize,
 ) -> Bench {
+    full_call_gap(cfg, pages, dcs, ind, dt, rate_bytes, chunk, 400)
+}
+
+/// [`full_call`] where the caller starts its next signal `gap` ms after the end of our
+/// previous frame (the engine's own burst tail lasts about 220 ms).
+#[allow(clippy::too_many_arguments)]
+fn full_call_gap(
+    cfg: EngineConfig,
+    pages: &[(Vec<u8>, usize)],
+    dcs: &str,
+    ind: Indicator,
+    dt: DataType,
+    rate_bytes: usize,
+    chunk: usize,
+    gap: u64,
+) -> Bench {
     let mut b = Bench::new(cfg);
     b.eng.start(0);
     // wait for the first DIS burst
@@ -651,7 +687,7 @@ fn full_call(
     let mut t = b.send_burst(t0, &[&tsi("12345678"), &dcs]);
     // TCF: 1.5 s of zeros
     t = b.send_image(t, ind, dt, &vec![0u8; rate_bytes * 3 / 2], chunk);
-    b.run_until(t + 2_500);
+    b.run_until_fcf(0x21, t + 2_500);
     let mut want = base.clone();
     want.push(0x21);
     assert_eq!(
@@ -660,20 +696,14 @@ fn full_call(
         "CFR after the TCF: {:?}",
         b.eng.drain_log()
     );
-    let after_cfr = b.frames().last().unwrap().0;
-    t = t.max(after_cfr + 100);
+    // the caller answers `gap` ms after the end of our CFR (our burst tail is still running)
+    t = b.frames().last().unwrap().0 + gap;
     for (i, (bm, rows)) in pages.iter().enumerate() {
         t = b.send_image(t, ind, dt, &mh(bm, *rows), chunk);
         let cmd: &str = if i + 1 == pages.len() { EOP } else { MPS };
         t = b.send_burst(t, &[&hexs(cmd)]);
-        b.run_until(t + 2_500);
-        assert_eq!(
-            *b.frame_fcfs().last().unwrap(),
-            0x31,
-            "MCF after page {}",
-            i + 1
-        );
-        t = t.max(b.frames().last().unwrap().0 + 100);
+        b.run_until_fcf(0x31, t + 2_500);
+        t = b.frames().last().unwrap().0 + gap;
     }
     let _ = b.send_burst(t, &[&hexs(DCN)]);
     b.run_until_done(t + 10_000);
@@ -705,7 +735,7 @@ fn r16_three_page_call_paced_every_page_pixel_exact() {
         54,
     );
     let r = b.eng.result().unwrap().clone();
-    assert_eq!(r.code, t30::ResultCode::Ok);
+    assert_eq!(r.code, t30::ResultCode::Ok, "{:#?}", b.eng.drain_log());
     assert_eq!(r.pages, 3);
     assert_eq!(r.bit_rate, 14400);
     assert_eq!(r.remote_ident.as_deref(), Some("12345678"));
@@ -735,6 +765,35 @@ fn r16_three_page_call_paced_every_page_pixel_exact() {
         assert!(pdf.starts_with(b"%PDF"));
     }
     assert!(b.eng.take_pages().is_empty());
+}
+
+/// A real gateway (SpanDSP over loopback) answers our CFR / MCF as soon as it has seen the
+/// last frame, i.e. before the engine's own burst tail (about 220 ms of flags, FCS and hold)
+/// is over. Data that arrives then must not be lost (found by the M2d end-to-end tests: one
+/// to three bad lines at the start of the second page).
+#[test]
+fn r16_peer_that_answers_before_our_burst_tail_is_over_loses_nothing() {
+    let pages: Vec<(Vec<u8>, usize)> = (0..3)
+        .map(|i| (test_bitmap(120 + i * 10, i as u32), 120 + i * 10))
+        .collect();
+    let mut b = full_call_gap(
+        cfg_id(),
+        &pages,
+        DCS_STD_MH_14400,
+        Indicator::V17_14400LongTraining,
+        DataType::V17_14400,
+        1800,
+        54,
+        5,
+    );
+    let r = b.eng.result().unwrap().clone();
+    assert_eq!(r.code, t30::ResultCode::Ok, "{:?}", b.eng.drain_log());
+    assert_eq!(r.pages, 3);
+    assert_eq!(r.bad_lines_per_page, vec![0, 0, 0]);
+    let got = b.eng.take_pages();
+    for (i, p) in got.iter().enumerate() {
+        assert_eq!(decode_g4(p), pages[i].0, "page {} pixel exact", i + 1);
+    }
 }
 
 #[test]
@@ -1148,4 +1207,47 @@ fn r18_undecodable_ifp_inside_a_valid_datagram_counts_as_loss() {
     let d = tx.build(&[0xC0, 0x05]).unwrap();
     u.on_datagram(5, &d).unwrap();
     assert_eq!(u.malformed, 1);
+}
+
+/// SpanDSP-style signal end: the last octets ride in the `t4-non-ecm-sig-end` packet and the
+/// copies repeat them. The copies are duplicates, not data, whatever state T.30 is in by then.
+#[test]
+fn r14_sig_end_copies_that_repeat_the_last_octets_are_duplicates() {
+    let mut b = Bench::new(cfg_id());
+    b.eng.start(0);
+    while !b.frame_fcfs().contains(&0x01) {
+        b.step();
+        b.now += 1;
+    }
+    let t0 = b.now + 300;
+    let dcs = hexs(DCS_STD_MH_14400);
+    let mut t = b.send_burst(t0, &[&tsi("12345678"), &dcs]);
+    for _ in 0..3 {
+        b.schedule(t, Ifp::Indicator(Indicator::V17_14400LongTraining));
+    }
+    t += 200;
+    let dt = DataType::V17_14400;
+    for _ in 0..50 {
+        b.schedule(t, data(dt, FieldType::T4NonEcmData, &[0u8; 54]));
+        t += 30;
+    }
+    for _ in 0..3 {
+        // the copies arrive one after the other, the engine answers in between
+        b.schedule(t, data(dt, FieldType::T4NonEcmSigEnd, &[0u8; 54]));
+        t += 60;
+    }
+    b.schedule(t, Ifp::Indicator(Indicator::NoSignal));
+    b.run_until_fcf(0x21, t + 5_000);
+    b.run_until(b.now + 1_000);
+    assert_eq!(
+        b.eng.state(),
+        State::WaitImage,
+        "no phantom page was started"
+    );
+    let (dups, _) = b.eng.rx_counters();
+    assert!(
+        dups >= 2,
+        "the two repeated sig-ends are duplicates: {dups}"
+    );
+    assert_eq!(b.frame_fcfs().iter().filter(|f| **f == 0x21).count(), 1);
 }

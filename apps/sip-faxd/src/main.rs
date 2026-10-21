@@ -129,6 +129,11 @@ fn config_check(path: &Path) -> ExitCode {
         f.capture.keep,
         f.capture.dir.display()
     );
+    println!(
+        "  fax session: {:?}, received faxes -> {}/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|pdf",
+        f.call.fax_session,
+        f.storage.data_dir.display()
+    );
     for t in &f.trunks {
         println!(
             "  trunk {}: preset {}, peer {}, allowed {:?}, {:?}, t38_policy {:?}, register {}",

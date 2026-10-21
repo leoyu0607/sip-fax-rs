@@ -53,6 +53,12 @@ impl UdptlEngine {
         self.reorder_wait_ms = ms;
     }
 
+    /// Limits the size of the datagrams we send (the peer's `T38FaxMaxDatagram`): redundancy
+    /// entries that would exceed it are dropped, the primary packet is always sent.
+    pub fn set_max_datagram(&mut self, max: usize) {
+        self.sender = self.sender.clone().with_max_datagram(max);
+    }
+
     /// The wrapped engine.
     pub fn engine(&self) -> &T38Engine {
         &self.engine

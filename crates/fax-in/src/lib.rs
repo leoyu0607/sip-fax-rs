@@ -11,7 +11,9 @@
 //! * [`capture`]: per-call SIP capture under `logs/calls/<call-id>/`.
 //!
 //! M2c adds [`t38engine`], the sans-IO T.38 receive engine (IFP in, IFP out, virtual clock)
-//! that glues `t38`, `t30` and `t4`; the socket and the session wiring follow in M2d.
+//! that glues `t38`, `t30` and `t4`. M2d adds [`t38session`], the real [`session::FaxSession`]:
+//! a UDPTL socket on the call's pool port, the engine on a real-time clock, and the TIFF / PDF
+//! output under `[storage] data_dir`.
 
 #![deny(missing_docs)]
 
@@ -23,10 +25,14 @@ pub mod media;
 pub mod ports;
 pub mod session;
 pub mod t38engine;
+pub mod t38session;
 mod timefmt;
 pub mod trunk;
 
-pub use config::{ConfigError, FaxInConfig};
+pub use config::{ConfigError, FaxInConfig, FaxSessionKind};
 pub use controller::{FaxIn, StartError, StartOptions};
-pub use event::{CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path};
+pub use event::{
+    CallEvent, CallOutcome, CallResult, FailureReason, FaxReport, ReportSink, T38Negotiated,
+    T38Path, UdptlCounters,
+};
 pub use timefmt::rfc3339;

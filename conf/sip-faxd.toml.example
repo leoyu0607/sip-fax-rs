@@ -68,28 +68,60 @@ port_range = "30000-30999"
 send_ringing = true
 # Wait this long after the 180 before sending 200 OK (milliseconds).
 answer_delay_ms = 0
-# Until the fax engine exists, a T.38 call is held until the peer hangs up or this many
-# seconds pass, then we send BYE (recorded as a failure: "max_duration"). An audio call that
-# never reaches T.38 is ended the same way.
+# Longest a call may last: a fax session still running after this many seconds is aborted
+# (pages received so far are kept) and we send BYE (recorded as a failure: "max_duration").
+# An audio call that never reaches T.38 is ended the same way.
 max_duration_secs = 3600
+# What runs once T.38 is established:
+#   "t38"  - receive the fax (T.30 over T.38) and write TIFF and PDF (default)
+#   "hold" - only hold the call until the peer hangs up; for signalling tests
+# fax_session = "t38"
+# Our station identification, sent as CSI in the DIS (up to 20 characters; empty sends none).
+# station_id = "+886 2 1234 5678"
 # Our T.38 re-INVITE must get a final answer within this many seconds.
 reinvite_timeout_secs = 32
 # How often a re-INVITE answered with 491 (glare) is retried.
 max_491_retries = 3
 
 # ---------------------------------------------------------------------------------------
-# [capture]  per-call SIP capture: <dir>/<call-id>/sip.log and result.json
+# [storage]  where received faxes are written
+# ---------------------------------------------------------------------------------------
+[storage]
+# Every received fax is written as <data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif (multi-page
+# TIFF Class F, CCITT G4) and a .pdf with the same name (UTC date of the call; characters in
+# the Call-ID that are unsafe in file names are replaced). A fax that broke off after some
+# pages is still written and flagged "partial": true in result.json. A relative path is
+# relative to the directory of the sip-faxd executable.
+data_dir = "data"
+
+# ---------------------------------------------------------------------------------------
+# [capture]  per-call capture: <dir>/<call-id>/sip.log, udptl.log and result.json
 # ---------------------------------------------------------------------------------------
 [capture]
 # Write captures. sip.log holds every SIP message of the call with a UTC timestamp, the
 # direction (RECV from / SEND to), the peer address, the transport and the raw message.
+# udptl.log has one line per UDPTL datagram, see "udptl" below. result.json is the call result, including the fax
+# report (T.30 result code, pages, rate, TSI, bad lines per page, file paths, UDPTL counters).
 enabled = true
 dir = "logs/calls"
 # "all"    - keep every call
 # "failed" - keep only calls that ended with a failure (the capture is held in memory until
 #            the call ends)
 keep = "all"
-# Upper bound of the stored text per call; further messages are counted, not stored.
+# What udptl.log records:
+#   "summary" - (default) per datagram: UTC timestamp, RX or TX, UDPTL sequence number, length
+#               and the decoded IFP packet: indicator name, or data type + field types with
+#               their lengths. T.30 control frames (DIS, DCS, CFR, MCF, DCN, ...) are shown
+#               in hex (and as one "frame=..." at the end of each frame). Image data is NEVER
+#               recorded.
+#   "off"     - no udptl.log
+#   "full"    - every datagram in full hex.
+#               WARNING: this stores the CONTENT of every received fax (the image data) in
+#               logs/calls/, in addition to the TIFF/PDF. Use it only to diagnose a problem,
+#               and make sure the log directory is protected and cleaned up.
+udptl = "summary"
+# Upper bound of the stored text per call, separately for sip.log and udptl.log; further
+# messages are counted, not stored.
 max_bytes_per_call = 1048576
 
 # ---------------------------------------------------------------------------------------
@@ -118,7 +150,7 @@ peer = "203.0.113.10:5060"
 #                 re-INVITE initiate_after_secs after the ACK (default)
 #   "wait-peer" - like auto but we never send the re-INVITE ourselves
 #   "initiate"  - like auto; the emphasis is on our own re-INVITE (identical on the wire for
-#                 now; CNG detection arrives with M2)
+#                 now; CNG detection comes later)
 #   "audio-only"- stay on G.711: T.38 offers get 488 (G.711 passthrough itself is not
 #                 implemented yet, so such a call is recorded as a failure when it ends)
 # t38_policy = "auto"
@@ -136,6 +168,9 @@ peer = "203.0.113.10:5060"
 # max_datagram = 260         # T38FaxMaxDatagram
 # udp_ec = "redundancy"      # our own offers: "redundancy", "fec" or "none"
 # fec = false                # we can do UDPTL FEC (else an offered FEC is answered with redundancy)
+# redundancy_depth = 3       # UDPTL: packets repeated in each datagram when redundancy is in force
+# fec_span = 3               # UDPTL: packets per parity entry when FEC is in force ...
+# fec_entries = 3            # ... and parity entries per datagram
 # fill_bit_removal = false
 # transcoding_mmr = false
 # transcoding_jbig = false

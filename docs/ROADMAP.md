@@ -6,7 +6,7 @@
 |---|---|---|---|
 | M0 | ✅ | Repo、文件、workspace 骨架、CI、musl 建置、Rocky 9 測試容器、fax-sim 雛形（SpanDSP 綁定可運作）| CI 全綠；`sip-faxd` 是靜態連結；fax-sim 能在容器內呼叫 SpanDSP |
 | M1 | ✅ | sip-core：message/transport/transaction/UAS dialog/SDP-T.38/re-INVITE | fax-sim 能完成 INVITE→200→ACK→re-INVITE(T.38)→BYE，包含重送情境 |
-| M2 | ⬜ | t38 + t30（non-ECM）+ t4 → TIFF/PDF | 與 SpanDSP 互通，端到端收到多頁傳真 |
+| M2 | ✅ | t38 + t30（non-ECM）+ t4 → TIFF/PDF | 與 SpanDSP 互通，端到端收到多頁傳真 |
 | M3 | ⬜ | store（4 種 DB）+ delivery（folder/email/webhook）+ ECM | 各 DB 在容器中的整合測試通過；投遞重試正確 |
 | M4 | ⬜ | Web 管理介面 + TUI + CLI 完整 | 可查詢和下載傳真、管理路由與設定 |
 | M5 | ⬜ | fax-modem：G.711 passthrough | fax-sim 以 G.711 模式送傳真，可以成功接收 |

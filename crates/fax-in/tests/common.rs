@@ -180,7 +180,9 @@ impl W {
         W::from_config(cfg).await
     }
 
-    pub async fn from_config(cfg: FaxInConfig) -> W {
+    pub async fn from_config(mut cfg: FaxInConfig) -> W {
+        // these tests are about call control; the fax session is a stub that holds the call
+        cfg.call.fax_session = fax_in::FaxSessionKind::Hold;
         let table = TrunkTable::build(&cfg).unwrap();
         let d = TransportHandle::detached(LOCAL.parse().unwrap());
         let ec = FaxIn::endpoint_config(&cfg, &table, None);

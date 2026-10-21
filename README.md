@@ -6,7 +6,7 @@ English | [繁體中文](README.zh-TW.md)
 
 A SIP fax server written in Rust. It receives faxes from VoIP gateways (Sonus, AudioCodes, ...) over **T.38**, with **G.711 passthrough** as a fallback. It stores the results in a database and delivers them by email, webhook or folder.
 
-> **Status:** early development (milestone M0). Nothing is usable yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** early development. **Receiving faxes over T.38 works** (milestone M2, awaiting final review): `sip-faxd serve` answers a gateway's call, switches to T.38, receives a multi-page fax (non-ECM, MH/MR, up to 14400 bit/s) and writes it as TIFF and PDF. G.711 passthrough, ECM, the database, delivery and the management UI are not there yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features (planned)
 
@@ -47,12 +47,23 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 ## Configuration
 
-`sip-faxd` reads a TOML file (default: `conf/sip-faxd.toml` next to the executable; override with `--config`). [`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) documents every option: the SIP listener, per-peer `[[trunks]]` profiles (presets `generic` and `cht-cs210`, source-IP allow-lists, T.38 policy, optional registration), and per-call SIP capture.
+`sip-faxd` reads a TOML file (default: `conf/sip-faxd.toml` next to the executable; override with `--config`). [`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) documents every option: the SIP listener, per-peer `[[trunks]]` profiles (presets `generic` and `cht-cs210`, source-IP allow-lists, T.38 policy, optional registration), per-call SIP/UDPTL capture and the fax output directory.
 
 ```sh
 ./sip-faxd config check --config conf/sip-faxd.toml   # validate
 ./sip-faxd serve --config conf/sip-faxd.toml          # run
 ```
+
+## Receiving faxes
+
+Each received fax is written to
+
+```
+data/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif    multi-page TIFF Class F (CCITT G4)
+data/faxes/<YYYY>/<MM>/<DD>/<call-id>.pdf    the same pages as a PDF
+```
+
+(the date is the UTC date of the call; the directory is `[storage] data_dir`, by default `data/` next to the executable). A fax that broke off after some pages is still written and marked `"partial": true` in its result. With capture enabled (the default), `logs/calls/<call-id>/` holds `sip.log` (every SIP message), `udptl.log` (every T.38 datagram, one line each: a summary with the T.30 frames in hex but never the image data; `[capture] udptl = "full"` records complete datagrams and therefore the fax content) and `result.json` (the call result: T.30 result code, pages, bit rate, resolution, coding, sender's TSI, bad lines per page, file paths, UDPTL counters).
 
 ## Development
 

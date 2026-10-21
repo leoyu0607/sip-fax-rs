@@ -56,7 +56,8 @@ fn config(
     .unwrap()
 }
 
-async fn start(cfg: FaxInConfig) -> (FaxIn, mpsc::UnboundedReceiver<CallEvent>) {
+async fn start(mut cfg: FaxInConfig) -> (FaxIn, mpsc::UnboundedReceiver<CallEvent>) {
+    cfg.call.fax_session = fax_in::FaxSessionKind::Hold;
     FaxIn::start(cfg, StartOptions::default()).await.unwrap()
 }
 
@@ -666,4 +667,159 @@ async fn trunk_registration_sends_register_with_the_configured_identity() {
         .unwrap();
     assert!(dereg.contains("\r\nExpires: 0"), "{dereg}");
     reg_task.abort();
+}
+
+// ================================================================ the fax report in the call result
+
+struct ReportingSession {
+    report: fax_in::FaxReport,
+    outcome: fax_in::session::SessionOutcome,
+}
+
+impl fax_in::session::FaxSession for ReportingSession {
+    fn run(
+        self: Box<Self>,
+        ctx: fax_in::session::SessionContext,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = fax_in::session::SessionOutcome> + Send>>
+    {
+        Box::pin(async move {
+            *ctx.report.lock().unwrap() = Some(self.report.clone());
+            // like the real session, end only when the call is over
+            let mut cancel = ctx.cancel.clone();
+            if self.outcome == fax_in::session::SessionOutcome::Completed {
+                return self.outcome;
+            }
+            fax_in::session::cancelled(&mut cancel).await;
+            self.outcome
+        })
+    }
+}
+
+struct ReportingFactory(fax_in::FaxReport, fax_in::session::SessionOutcome);
+
+impl fax_in::session::FaxSessionFactory for ReportingFactory {
+    fn create(&self, _: &fax_in::session::SessionContext) -> Box<dyn fax_in::session::FaxSession> {
+        Box::new(ReportingSession {
+            report: self.0.clone(),
+            outcome: self.1.clone(),
+        })
+    }
+}
+
+fn report(code: u8, name: &str, pages: u32) -> fax_in::FaxReport {
+    fax_in::FaxReport {
+        code,
+        code_name: name.into(),
+        pages,
+        bit_rate: 9600,
+        modem: Some("v29".into()),
+        resolution: Some("fine".into()),
+        compression: Some("mh".into()),
+        remote_ident: Some("+886 2 1234".into()),
+        bad_lines_per_page: vec![0; pages as usize],
+        duration_ms: 1234,
+        partial: code != 0 && pages > 0,
+        tiff: Some("/data/faxes/x.tif".into()),
+        pdf: Some("/data/faxes/x.pdf".into()),
+        store_error: None,
+        udptl: fax_in::UdptlCounters::default(),
+    }
+}
+
+async fn run_reporting_call(
+    name: &str,
+    rep: fax_in::FaxReport,
+    outcome: fax_in::session::SessionOutcome,
+) -> (CallResult, serde_json::Value) {
+    let completes_itself = outcome == fax_in::session::SessionOutcome::Completed;
+    let dir = scratch(name);
+    let (fx, mut ev) = FaxIn::start(
+        config(Some((&dir, "all")), "", "", ""),
+        StartOptions {
+            session_factory: Some(std::sync::Arc::new(ReportingFactory(rep, outcome))),
+            base_dir: None,
+        },
+    )
+    .await
+    .unwrap();
+    let gw = uac().await;
+    let dlg = gw
+        .invite(invite_opts(&fx, TransportKind::Udp, T38_SDP))
+        .await
+        .unwrap();
+    let call_id = dlg.id().call_id.clone();
+    if !completes_itself {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(dlg.bye().await.unwrap().code(), 200);
+    }
+    // (a session that completes itself makes the server hang up)
+    let res = next_result(&mut ev).await;
+    fx.shutdown().await;
+    let json_path = dir
+        .join(fax_in::capture::dir_name(&call_id))
+        .join("result.json");
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
+    (res, json)
+}
+
+/// The session's fax report lands in the call result and in result.json.
+#[tokio::test]
+async fn m2d_the_fax_report_is_part_of_the_call_result_and_result_json() {
+    let rep = report(0, "ok", 2);
+    let (res, json) = run_reporting_call(
+        "report-ok",
+        rep.clone(),
+        fax_in::session::SessionOutcome::Completed,
+    )
+    .await;
+    assert_eq!(res.outcome, CallOutcome::Completed, "{res:?}");
+    assert_eq!(res.fax, Some(rep));
+    assert_eq!(json["fax"]["code"], 0);
+    assert_eq!(json["fax"]["pages"], 2);
+    assert_eq!(json["fax"]["remote_ident"], "+886 2 1234");
+    assert_eq!(json["fax"]["bit_rate"], 9600);
+    assert_eq!(json["fax"]["tiff"], "/data/faxes/x.tif");
+    assert_eq!(json["fax"]["udptl"]["rx_datagrams"], 0);
+    assert_eq!(json["outcome"]["status"], "completed");
+}
+
+/// The peer hangs up (session "aborted") but T.30 had not finished: not a success, and the
+/// partial pages stay in the result.
+#[tokio::test]
+async fn m2d_a_hangup_before_the_fax_is_complete_is_a_failed_call() {
+    let rep = report(7, "partial_dcn", 1);
+    let (res, json) = run_reporting_call(
+        "report-partial",
+        rep.clone(),
+        fax_in::session::SessionOutcome::Aborted,
+    )
+    .await;
+    match &res.outcome {
+        CallOutcome::Failed {
+            reason: FailureReason::Session { detail },
+        } => assert!(
+            detail.contains("partial_dcn") && detail.contains("1 page"),
+            "{detail}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(res.fax.as_ref().map(|f| f.partial), Some(true));
+    assert_eq!(json["fax"]["code_name"], "partial_dcn");
+    assert_eq!(json["outcome"]["status"], "failed");
+    // a fax that was received but could not be stored is a failure too
+    let mut rep = report(0, "ok", 1);
+    rep.store_error = Some("disk full".into());
+    let (res, _) = run_reporting_call(
+        "report-store",
+        rep,
+        fax_in::session::SessionOutcome::Aborted,
+    )
+    .await;
+    match &res.outcome {
+        CallOutcome::Failed {
+            reason: FailureReason::Session { detail },
+        } => assert!(detail.contains("not stored: disk full"), "{detail}"),
+        other => panic!("{other:?}"),
+    }
 }

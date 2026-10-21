@@ -49,7 +49,10 @@ async fn uac_gateway_initiated_t38_reinvite_against_sip_faxd() {
         assert_eq!(res[0]["trunk"], "sipp");
         assert_eq!(res[0]["outcome"]["status"], "completed");
         assert_eq!(res[0]["t38"]["path"], "peer_reinvite");
-        assert_eq!(res[0]["t38"]["peer_media"], "127.0.0.1:5004");
+        assert_eq!(
+            res[0]["t38"]["peer_media"],
+            format!("127.0.0.1:{}", r.media_port).as_str()
+        );
         faxd.stop();
     }
 }

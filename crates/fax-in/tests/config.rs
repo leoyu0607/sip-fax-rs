@@ -303,3 +303,45 @@ fn legacy_t38_port_is_refused_with_a_pointer_to_port_range() {
     // other unknown keys are still rejected by deny_unknown_fields
     assert!(err("[media]\nt38port = 1\n").contains("t38port"));
 }
+
+#[test]
+fn m2d_storage_fax_session_station_id_and_udptl_options() {
+    let c = parse("");
+    assert_eq!(c.storage.data_dir, std::path::PathBuf::from("data"));
+    assert_eq!(c.call.fax_session, fax_in::FaxSessionKind::T38);
+    assert_eq!(c.call.station_id, "");
+    let c = parse(
+        "[storage]\ndata_dir = \"/srv/faxes\"\n[call]\nfax_session = \"hold\"\nstation_id = \"+886 2 1234\"\n\
+         [[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.t38]\nredundancy_depth = 5\nfec_span = 2\nfec_entries = 1\n",
+    );
+    assert_eq!(c.storage.data_dir, std::path::PathBuf::from("/srv/faxes"));
+    assert_eq!(c.call.fax_session, fax_in::FaxSessionKind::Hold);
+    assert_eq!(c.call.station_id, "+886 2 1234");
+    let t = &c.trunks[0].t38;
+    assert_eq!((t.redundancy_depth, t.fec_span, t.fec_entries), (5, 2, 1));
+    // defaults
+    let c = parse("[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n");
+    let t = &c.trunks[0].t38;
+    assert_eq!((t.redundancy_depth, t.fec_span, t.fec_entries), (3, 3, 3));
+}
+
+#[test]
+fn m2d_bad_udptl_settings_and_unknown_storage_keys_are_rejected() {
+    for bad in [
+        "redundancy_depth = 9",
+        "fec_span = 0",
+        "fec_span = 9",
+        "fec_entries = 0",
+        "fec_entries = 9",
+    ] {
+        let e = err(&format!(
+            "[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.t38]\n{bad}\n"
+        ));
+        assert!(e.contains("[trunks.t38]"), "{bad}: {e}");
+    }
+    assert!(err("[storage]\ndata = \"x\"\n").contains("data"));
+    assert!(
+        err("[call]\nfax_session = \"nope\"\n").contains("fax_session")
+            || err("[call]\nfax_session = \"nope\"\n").contains("nope")
+    );
+}

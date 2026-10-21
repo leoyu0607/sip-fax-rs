@@ -1,5 +1,5 @@
 //! The fax session seam: once T.38 is established the controller hands the call to a
-//! [`FaxSession`]. M1d ships a stub that only holds the call; M2 plugs in T.38/T.30.
+//! [`FaxSession`]. The stub only holds the call; [`crate::t38session`] is the real T.38 / T.30 session.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -7,7 +7,29 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use crate::event::T38Negotiated;
+use crate::event::{ReportSink, T38Negotiated};
+
+/// The UDPTL error recovery we send, from the trunk's `[trunks.t38]` settings (the scheme in
+/// force comes from [`T38Negotiated::udp_ec`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UdptlSettings {
+    /// Redundancy depth for `t38UDPRedundancy`.
+    pub redundancy_depth: u8,
+    /// FEC span for `t38UDPFEC`.
+    pub fec_span: u8,
+    /// FEC entries for `t38UDPFEC`.
+    pub fec_entries: u8,
+}
+
+impl Default for UdptlSettings {
+    fn default() -> Self {
+        UdptlSettings {
+            redundancy_depth: 3,
+            fec_span: 3,
+            fec_entries: 3,
+        }
+    }
+}
 
 /// What the session knows about the call.
 #[derive(Debug, Clone)]
@@ -18,6 +40,10 @@ pub struct SessionContext {
     pub trunk: String,
     /// The T.38 parameters in force.
     pub t38: T38Negotiated,
+    /// Error recovery settings of the trunk.
+    pub udptl: UdptlSettings,
+    /// The session leaves its fax report here before it returns.
+    pub report: ReportSink,
     /// Turns `true` when the call ends underneath the session (peer BYE, shutdown).
     pub cancel: watch::Receiver<bool>,
 }
