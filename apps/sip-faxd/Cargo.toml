@@ -10,6 +10,7 @@ publish = false
 clap = { workspace = true }
 fax-in = { workspace = true }
 store = { path = "../../crates/store" }
+delivery = { path = "../../crates/delivery" }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

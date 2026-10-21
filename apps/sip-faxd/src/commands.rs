@@ -9,7 +9,7 @@ use store::{ConnectOptions, Purger, RetentionSettings, SystemClock};
 
 use crate::db::Db;
 use crate::schedule;
-use crate::settings::{AppConfig, mask_url};
+use crate::settings::{AppConfig, mask_http_url, mask_url};
 
 fn fail(msg: impl std::fmt::Display) -> ExitCode {
     eprintln!("sip-faxd: error: {msg}");
@@ -22,6 +22,79 @@ fn onoff(b: bool) -> &'static str {
 
 fn or_dash(s: &Option<String>) -> &str {
     s.as_deref().unwrap_or("-")
+}
+
+/// One line per route and per delivery for `config check`. Secrets never appear: passwords and
+/// HMAC keys are shown as `***`, URLs go through [`mask_http_url`].
+pub fn routes_summary(routes: &delivery::Routes) -> Vec<String> {
+    use delivery::DeliveryConfig;
+    let mut out = Vec::new();
+    for (i, r) in routes.routes.iter().enumerate() {
+        let mut when = Vec::new();
+        if let Some(d) = &r.dnis {
+            when.push(format!("dnis = {d}"));
+        }
+        if let Some(p) = &r.dnis_prefix {
+            when.push(format!("dnis_prefix = {p}"));
+        }
+        if let Some(t) = &r.trunk {
+            when.push(format!("trunk = {t}"));
+        }
+        if r.default {
+            when.push("default (everything else)".into());
+        }
+        out.push(format!(
+            "    route {}{}: {}; partial faxes {}",
+            i + 1,
+            r.name
+                .as_deref()
+                .map(|n| format!(" ({n})"))
+                .unwrap_or_default(),
+            when.join(" and "),
+            if r.deliver_partial {
+                "delivered"
+            } else {
+                "not delivered"
+            }
+        ));
+        for d in &r.deliveries {
+            out.push(match d {
+                DeliveryConfig::Folder(f) => format!(
+                    "      folder {} (filename {}, {})",
+                    f.dir,
+                    f.filename,
+                    f.formats
+                        .iter()
+                        .map(|x| x.ext())
+                        .collect::<Vec<_>>()
+                        .join("+")
+                ),
+                DeliveryConfig::Email(e) => format!(
+                    "      email {}:{} {:?}{}, from {}, to {}",
+                    e.host,
+                    e.effective_port(),
+                    e.security,
+                    match (&e.username, &e.password) {
+                        (Some(u), Some(_)) => format!(", user {u} password ***"),
+                        _ => String::new(),
+                    },
+                    e.from,
+                    e.to.join(", ")
+                ),
+                DeliveryConfig::Webhook(w) => format!(
+                    "      webhook {}{}{}",
+                    mask_http_url(&w.url),
+                    if w.secret.is_some() {
+                        format!(", HMAC {} secret ***", w.signature_header)
+                    } else {
+                        ", unsigned".into()
+                    },
+                    if w.attach_pdf { ", with PDF" } else { "" }
+                ),
+            });
+        }
+    }
+    out
 }
 
 /// `sip-faxd config check`
@@ -77,6 +150,23 @@ pub fn config_check(path: &Path) -> ExitCode {
         days(r.records_days),
         r.run_at
     );
+    if cfg.routes.routes.is_empty() {
+        println!("  routes: none (received faxes are stored, nothing is delivered)");
+    } else {
+        println!(
+            "  routes: {} (first match wins; catch-up at start: {}; up to {} attempts per delivery)",
+            cfg.routes.routes.len(),
+            if cfg.delivery.catch_up_hours == 0 {
+                "off".to_string()
+            } else {
+                format!("last {} hours", cfg.delivery.catch_up_hours)
+            },
+            cfg.delivery.max_attempts
+        );
+        for l in routes_summary(&cfg.routes) {
+            println!("{l}");
+        }
+    }
     for t in &f.trunks {
         println!(
             "  trunk {}: preset {}, peer {}, allowed {:?}, {:?}, t38_policy {:?}, register {}",
@@ -290,4 +380,38 @@ pub async fn purge_daily(db: Arc<Db>, data_dir: PathBuf) {
         job,
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    //! F05: the route summary of `config check`.
+    use super::*;
+
+    #[test]
+    fn f05_the_route_summary_lists_everything_and_hides_every_secret() {
+        let routes: delivery::Routes = toml::from_str(
+            "[[routes]]\nname = \"sales\"\ndnis_prefix = \"2557\"\ntrunk = \"cht\"\n\
+             [[routes.deliveries]]\nkind = \"folder\"\ndir = \"/srv/in\"\nformats = [\"pdf\"]\n\
+             [[routes.deliveries]]\nkind = \"email\"\nhost = \"smtp.example.com\"\nusername = \"fax\"\npassword = \"mailpw-123\"\nfrom = \"fax@example.com\"\nto = [\"a@example.com\", \"b@example.com\"]\n\
+             [[routes.deliveries]]\nkind = \"webhook\"\nurl = \"https://hookuser:urlpw-456@example.com/h?token=tok-789\"\nsecret = \"hmac-secret-000\"\nattach_pdf = true\n\
+             [[routes]]\ndefault = true\ndeliver_partial = true\n\
+             [[routes.deliveries]]\nkind = \"webhook\"\nurl = \"http://example.com/open\"\n",
+        )
+        .unwrap();
+        routes.validate().unwrap();
+        let text = routes_summary(&routes).join("\n");
+        for must in [
+            "route 1 (sales): dnis_prefix = 2557 and trunk = cht; partial faxes not delivered",
+            "folder /srv/in (filename {date}_{time}_{ani}_{id}, pdf)",
+            "email smtp.example.com:587 Starttls, user fax password ***, from fax@example.com, to a@example.com, b@example.com",
+            "webhook https://hookuser:***@example.com/h?token=***, HMAC X-Sipfax-Signature secret ***, with PDF",
+            "route 2: default (everything else); partial faxes delivered",
+            "webhook http://example.com/open, unsigned",
+        ] {
+            assert!(text.contains(must), "missing {must:?} in:\n{text}");
+        }
+        for secret in ["mailpw-123", "urlpw-456", "tok-789", "hmac-secret-000"] {
+            assert!(!text.contains(secret), "{secret} leaked:\n{text}");
+        }
+    }
 }

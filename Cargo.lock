@@ -2206,6 +2206,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "delivery",
  "fax-in",
  "serde",
  "serde_json",

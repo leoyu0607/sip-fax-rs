@@ -46,10 +46,9 @@ impl std::ops::Deref for Server {
 }
 
 impl Server {
-    pub fn stop(mut self) {
-        if let Some(f) = self.0.take() {
-            f.stop();
-        }
+    /// Stops the server (SIGTERM) and returns its complete log.
+    pub fn stop(mut self) -> Vec<String> {
+        self.0.take().map(Faxd::stop).unwrap_or_default()
     }
 }
 
@@ -77,6 +76,20 @@ pub fn faxd_with(name: &str, ports: u16, trunk: &str, call: &str, capture_extra:
 /// A server whose `[database] url` is `db_url` (default: its own SQLite file).
 pub fn faxd_db(name: &str, ports: u16, trunk: &str, db_url: &str) -> Server {
     faxd_full(name, ports, trunk, "", "", Some(db_url.into()))
+}
+
+/// A server with `[[routes]]` (and whatever else `tail` holds) appended to its configuration.
+pub fn faxd_routes(name: &str, ports: u16, tail: &str) -> Server {
+    let opts = FaxdOptions {
+        call: "station_id = \"0287654321\"\n".into(),
+        extra: format!(
+            "\n[media]\nport_range = \"{}\"\n\n{tail}\n",
+            media_range(ports)
+        ),
+        real_fax: true,
+        ..FaxdOptions::default()
+    };
+    Server(Some(Faxd::start(name, &opts)))
 }
 
 fn faxd_full(

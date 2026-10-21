@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3，尚未發佈）：**傳真紀錄存入資料庫**（列表含 ANI/DNIS、掛線原因、接收中狀態與頁數、清整）、ECM 接收（預設關閉）、每個 trunk 的解析度設定；M3 還沒做完的有 PNG 預覽與投遞（Email／Webhook／資料夾）。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3，尚未發佈）：**傳真紀錄存入資料庫**（列表含 ANI/DNIS、掛線原因、接收中狀態與頁數、清整）、ECM 接收（預設關閉）、每個 trunk 的解析度設定；**投遞**到資料夾、Email 或 Webhook（`[[routes]]`，失敗會持久化重試）也已完成；M3 還沒做完的有介面上的 PNG 預覽。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 
@@ -61,7 +61,7 @@ cd sip-fax-rs-<version>-linux-x86_64
 ./sip-faxd serve --config conf/sip-faxd.toml          # 執行
 ```
 
-除了 SIP 相關設定，設定檔還有 `[database]`（`url`、`auto_migrate`、`max_connections`）、`[retention]`（`files_days`、`records_days`、`run_at`），以及每個 trunk 的 `[trunks.fax]`（`resolutions`、`ecm`）和 `[trunks.numbers]`（進線號碼與撥打號碼取自哪個 header：`ani_sources`、`dnis_sources`、`strip_plus`、`ani_strip_prefix`、`dnis_strip_prefix`）。
+除了 SIP 相關設定，設定檔還有 `[database]`（`url`、`auto_migrate`、`max_connections`）、`[retention]`（`files_days`、`records_days`、`run_at`）、`[[routes]]` 與 `[delivery]`（見[投遞](#投遞)），以及每個 trunk 的 `[trunks.fax]`（`resolutions`、`ecm`）和 `[trunks.numbers]`（進線號碼與撥打號碼取自哪個 header：`ani_sources`、`dnis_sources`、`strip_plus`、`ani_strip_prefix`、`dnis_strip_prefix`）。
 
 ## 傳真紀錄與資料庫
 
@@ -76,6 +76,35 @@ cd sip-fax-rs-<version>-linux-x86_64
 | `sip-faxd db migrate` | 建立或升級資料表結構（多台同時執行也安全；MySQL/MariaDB 的 migration 失敗後可以重跑） |
 | `sip-faxd db backfill [--dir DIR]` | 把 `logs/calls/*/result.json` 裡資料庫沒有的通話補進去 |
 | `sip-faxd purge [--dry-run]` | 立刻執行清整；`--dry-run` 只計數、不刪除 |
+
+## 投遞
+
+設定檔有 `[[routes]]` 時，每份結果為 `received` 的傳真，在紀錄寫入資料庫後立刻投遞（中途斷線的 `partial` 只有路由設 `deliver_partial = true` 才投遞；`failed`、`no_fax` 永不投遞）。路由依序比對，**第一條符合的**生效；條件為 `dnis`（完全相同）、`dnis_prefix`、`trunk`（寫了幾個就要全部符合），或 `default = true`（其餘全部，必須是最後一條）。每條路由有一個以上的投遞：
+
+```toml
+[[routes]]
+dnis_prefix = "2557"
+[[routes.deliveries]]
+kind = "folder"                     # PDF 與 TIFF，原子性寫入
+dir = "/srv/fax-inbox"
+filename = "{date}_{ani}_{id}"
+[[routes.deliveries]]
+kind = "email"                      # 附 PDF；STARTTLS（預設）、SMTPS 或 none；支援 AUTH
+host = "smtp.example.com"
+username = "fax"
+password = "secret"
+from = "fax@example.com"
+to = ["ops@example.com"]
+[[routes.deliveries]]
+kind = "webhook"                    # POST JSON；可選 HMAC-SHA256 簽章與上傳 PDF
+url = "https://example.com/fax-hook"
+secret = "hmac-key"                 # X-Sipfax-Signature: sha256=<body 的 hex>
+```
+
+* 投遞失敗會在 1、5、15、60 分鐘後重試，之後每 4 小時一次，最多 `[delivery] max_attempts`（預設 10）次，用盡就放棄。佇列就是 `delivery_attempts` 資料表（每次嘗試一列），所以重新啟動會從中斷處繼續。投遞出問題、或資料庫連不上，都不影響收傳真，也不改傳真紀錄。投遞是 at-least-once（至少一次）。
+* `[delivery] catch_up_hours`（預設 24）：啟動時，把這段時間內已結束、還沒有投遞的傳真補排進佇列。用來修復「已存檔、還沒排入佇列」之間當機的情形，也會投遞 `sip-faxd db backfill` 補回的通話（backfill 本身從不投遞，所以補回舊紀錄不會灌爆信箱；超過這個時間範圍的通話不會投遞）。`0` 代表關閉。
+* `sip-faxd config check` 會列出路由；密碼、Webhook secret、URL 裡的帳密與 query 值一律顯示為 `***`。
+* 永久性失敗（HTTP 4xx 但不含 408/425/429、SMTP 5xx、目的地設定錯誤）不會重試；排除原因後需由管理員重新投遞（之後的版本會提供按鈕）。
 
 ## 接收傳真
 

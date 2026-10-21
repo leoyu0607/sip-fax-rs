@@ -15,6 +15,7 @@
 
 mod commands;
 mod db;
+mod delivery_service;
 mod schedule;
 mod settings;
 
@@ -28,6 +29,7 @@ use fax_in::recorder::{Recorder, RecorderConfig};
 use fax_in::{CallEvent, FaxIn, StartOptions};
 
 use crate::db::{Db, Startup};
+use crate::delivery_service::DeliveryService;
 use crate::settings::AppConfig;
 
 /// SIP fax server (fax-in over T.38 / G.711).
@@ -239,6 +241,20 @@ async fn run(cfg: AppConfig) -> ExitCode {
     let data_dir = cfg.data_dir(&base);
     let mut rcfg = RecorderConfig::new(data_dir.clone());
     rcfg.spill_dir = Some(cfg.calls_dir(&base));
+    // Delivery: only when routes are configured. The recorder announces every fax row it has
+    // written; a database that is down or a failing delivery never reaches the call path.
+    let delivery = if cfg.routes.routes.is_empty() {
+        tracing::info!("no [[routes]] configured: received faxes are stored, not delivered");
+        None
+    } else {
+        Some(DeliveryService::start_default(
+            db.clone(),
+            cfg.routes.clone(),
+            data_dir.clone(),
+            cfg.delivery.clone(),
+        ))
+    };
+    rcfg.on_finalized = delivery.as_ref().map(DeliveryService::hook);
     let recorder = Arc::new(Recorder::start(db.clone(), rcfg));
     let purge_task = tokio::spawn(commands::purge_daily(db.clone(), data_dir));
 
@@ -252,6 +268,9 @@ async fn run(cfg: AppConfig) -> ExitCode {
             eprintln!("sip-faxd: error: {e}");
             purge_task.abort();
             recorder.shutdown(RECORDER_GRACE).await;
+            if let Some(d) = delivery {
+                d.shutdown().await;
+            }
             return ExitCode::from(1);
         }
     };
@@ -274,6 +293,9 @@ async fn run(cfg: AppConfig) -> ExitCode {
     let _ = logger.await;
     purge_task.abort();
     recorder.shutdown(RECORDER_GRACE).await;
+    if let Some(d) = delivery {
+        d.shutdown().await;
+    }
     db.close().await;
     ExitCode::SUCCESS
 }

@@ -5,6 +5,7 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+- Delivery is wired into `sip-faxd serve`: `[[routes]]` / `[delivery]` in the configuration, folder / e-mail / webhook deliveries with persistent retries, start-up catch-up, `config check` lists the routes with secrets hidden.
 - M3 in progress: fax records in a database (SQLite / PostgreSQL / MySQL·MariaDB / MSSQL), live "receiving" status, PNG preview, retention/cleanup, delivery (folder / email / webhook), ECM and MMR.
 
 ## [0.1.1-alpha] - 2026-10-21
@@ -30,7 +31,7 @@ All notable changes to this project are documented here. Versions follow [Semant
   - 接收中狀態
   - PNG 預覽
   - 清整機制
-  - 投遞（資料夾 / Email / Webhook）
+  - 投遞（資料夾 / Email / Webhook）：已接進 `sip-faxd serve`（設定檔 `[[routes]]`、`[delivery]`，失敗持久化重試，啟動時補排，`config check` 列出路由並遮蔽密碼）
   - ECM 與 MMR
 
 ### [0.1.1-alpha] - 2026-10-21
