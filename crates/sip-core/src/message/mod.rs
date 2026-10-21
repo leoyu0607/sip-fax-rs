@@ -270,13 +270,13 @@ impl Response {
                 continue;
             };
             let mut value = v.to_string();
-            if name == "To" && status != StatusCode::TRYING {
-                if let (Some(tag), Ok(mut na)) = (to_tag, NameAddr::parse(v)) {
-                    if na.tag().is_none() {
-                        na.set_tag(tag);
-                        value = na.to_string();
-                    }
-                }
+            if name == "To"
+                && status != StatusCode::TRYING
+                && let (Some(tag), Ok(mut na)) = (to_tag, NameAddr::parse(v))
+                && na.tag().is_none()
+            {
+                na.set_tag(tag);
+                value = na.to_string();
             }
             resp.headers.push(name, value);
         }

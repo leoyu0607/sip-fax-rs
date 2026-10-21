@@ -12,6 +12,8 @@ fuzz_target!(|data: &[u8]| {
     let cfg = Config {
         tcf: if mode & 1 == 0 { TcfMode::Transferred } else { TcfMode::Local },
         mmr: mode & 2 != 0,
+        ecm: mode & 4 != 0,
+        ecm_max_ppr: 3,
         max_rows: 400,
         ..Config::default()
     };
@@ -29,7 +31,7 @@ fuzz_target!(|data: &[u8]| {
         let (payload, next) = tail.split_at(len.min(tail.len()));
         rest = next;
         now += u64::from(sel & 3) * 5;
-        let ev = match sel % 11 {
+        let ev = match sel % 14 {
             0 => Event::Start,
             1 => Event::TxComplete,
             2 => Event::Abort,
@@ -43,6 +45,29 @@ fuzz_target!(|data: &[u8]| {
                 _ => RxSignal::NoSignal,
             }),
             6 => Event::Timer(Timer::ALL[usize::from(payload.first().copied().unwrap_or(0)) % 4]),
+            11 => {
+                // ECM image frame: FF C0 60, frame number, data
+                let mut f = vec![0xFF, 0xC0, 0x60];
+                f.extend_from_slice(payload);
+                Event::Frame { data: f, fcs_ok: sel & 4 == 0 }
+            }
+            12 => {
+                // ECM command: the first payload octet picks PPS / EOR / CTC / RR / RCP
+                let fcf = [0xFDu8, 0xF3, 0xC8, 0xF6, 0x61][usize::from(payload.first().copied().unwrap_or(0)) % 5];
+                let mut f = vec![0xFF, 0xC8, fcf];
+                f.extend_from_slice(payload.get(1..).unwrap_or(&[]));
+                Event::Frame { data: f, fcs_ok: sel & 4 == 0 }
+            }
+            13 => {
+                // a well formed DCS for ECM (bit 27, optionally 64 octet frames) to reach the ECM states
+                let mut fif = vec![0x00, 0x44, 0x1F, 0x20];
+                if payload.first().is_some_and(|b| b & 1 != 0) {
+                    fif[3] |= 0x10;
+                }
+                let mut f = vec![0xFF, 0xC8, 0xC1];
+                f.extend_from_slice(&fif);
+                Event::Frame { data: f, fcs_ok: true }
+            }
             7 | 8 => {
                 // well formed header so that the payload reaches the command handlers
                 let mut f = vec![0xFF, 0xC8];

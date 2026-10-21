@@ -57,6 +57,70 @@ jobs:
       - run: cargo llvm-cov -p t38 --fail-under-lines 85
       - run: cargo llvm-cov -p t4 --fail-under-lines 85
       - run: cargo llvm-cov -p t30 --fail-under-lines 85
+      # store (M3a): non-protocol crate gate, line coverage >= 80 % (SQLite run; the server
+      # backends run the same suite in the db-matrix job).
+      - run: cargo llvm-cov -p store --fail-under-lines 80
+
+  # M3a: the store behaviour suite on the four server databases (SQLite runs in `test`).
+  # Required check names: "db-matrix (postgres)", "db-matrix (mysql)", "db-matrix (mariadb)", "db-matrix (mssql)".
+  db-matrix:
+    name: db-matrix (${{ matrix.db }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db: postgres
+            image: postgres:16
+            port: 5432
+            health: pg_isready -U postgres -h 127.0.0.1
+            url: postgres://postgres:Sipfax_Test_1@127.0.0.1:5432/postgres
+          - db: mysql
+            image: mysql:8.0
+            port: 3306
+            health: mysqladmin ping -h 127.0.0.1 -uroot -pSipfax_Test_1 --silent
+            url: mysql://root:Sipfax_Test_1@127.0.0.1:3306/mysql
+          - db: mariadb
+            image: mariadb:11
+            port: 3306
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pSipfax_Test_1 --silent
+            url: mariadb://root:Sipfax_Test_1@127.0.0.1:3306/mysql
+          - db: mssql
+            image: mcr.microsoft.com/mssql/server:2022-latest
+            port: 1433
+            health: /opt/mssql-tools18/bin/sqlcmd -C -S 127.0.0.1 -U sa -P Sipfax_Test_1 -Q 'SELECT 1'
+            url: mssql://sa:Sipfax_Test_1@127.0.0.1:1433/master?trust_server_certificate=true
+    services:
+      db:
+        image: ${{ matrix.image }}
+        # Every image ignores the variables of the others.
+        env:
+          POSTGRES_PASSWORD: Sipfax_Test_1
+          MYSQL_ROOT_PASSWORD: Sipfax_Test_1
+          MARIADB_ROOT_PASSWORD: Sipfax_Test_1
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Sipfax_Test_1
+          TZ: Asia/Taipei
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Store suite on ${{ matrix.db }} (S01-S11, R01-R08)
+        env:
+          SIP_FAXD_TEST_DB: ${{ matrix.url }}
+          TZ: Asia/Taipei
+        run: |
+          # S11 stops and restarts the service container to prove the pool reconnects.
+          export SIP_FAXD_TEST_DB_CONTAINER=$(docker ps -q --filter "ancestor=${{ matrix.image }}" | head -1)
+          echo "service container: $SIP_FAXD_TEST_DB_CONTAINER"
+          cargo test -p store -- --test-threads=4
 
   build-musl:
     runs-on: ubuntu-latest
@@ -81,6 +145,15 @@ jobs:
           BIN=target/${{ matrix.target }}/release/sip-faxd
           file "$BIN"
           file "$BIN" | grep -q "statically linked"
+      # sip-faxd does not link the store crate until M3b, so prove now that sqlx (bundled SQLite)
+      # and tiberius (rustls) link statically on musl: build the store test executable.
+      - name: Verify store crate links statically (M3a)
+        run: |
+          EXE=$(cargo zigbuild --release --locked --target ${{ matrix.target }} -p store --tests --message-format=json \
+            | jq -r 'select(.profile.test == true and .executable != null) | .executable' | head -1)
+          file "$EXE"
+          file "$EXE" | grep -q "statically linked"
+          if [ "${{ matrix.target }}" = x86_64-unknown-linux-musl ]; then "$EXE" --test-threads=4; fi
       - run: scripts/package.sh ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
@@ -133,7 +206,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, test, coverage, smoke-rhel, e2e-spandsp]
+    needs: [lint, test, coverage, db-matrix, smoke-rhel, e2e-spandsp]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -42,6 +42,8 @@ pub struct SessionContext {
     pub t38: T38Negotiated,
     /// Error recovery settings of the trunk.
     pub udptl: UdptlSettings,
+    /// Fax capabilities of the trunk (`[trunks.fax]`): resolutions and ECM.
+    pub fax: crate::config::FaxSection,
     /// The session leaves its fax report here before it returns.
     pub report: ReportSink,
     /// Turns `true` when the call ends underneath the session (peer BYE, shutdown).

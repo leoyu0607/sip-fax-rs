@@ -1093,12 +1093,16 @@ fn r17_ignored_inputs_are_counted_not_acted_on() {
     cfg.pacing = Pacing::none();
     let mut e = T38Engine::new(cfg);
     e.start(0);
-    // V.34 / V.8 material and ECM HDLC on a fast modem
+    // V.34 / V.8 material (ECM HDLC on a fast modem is no longer ignored since M3d: it is turned
+    // into T.30 frames, see tests/ecm_engine.rs)
     e.on_ifp(1, &Ifp::Indicator(Indicator::V8Ansam));
     e.on_ifp(1, &data(DataType::V8, FieldType::CmMessage, &[1]));
+    let (_, ignored) = e.rx_counters();
+    assert_eq!(ignored, 2);
+    // a fast HDLC field outside an ECM block is harmless
     e.on_ifp(1, &data(DataType::V17_14400, FieldType::HdlcData, &[1]));
     let (_, ignored) = e.rx_counters();
-    assert_eq!(ignored, 3);
+    assert_eq!(ignored, 2);
     assert_eq!(e.state(), State::SendingDis.max_state());
 }
 

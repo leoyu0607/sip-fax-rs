@@ -269,15 +269,14 @@ async fn conn_loop(
                             }
                         }
                         StreamEvent::Malformed(e) => {
-                            if shared.reply_to_malformed && shared.policy.decide(peer.ip()).admits() {
-                                if let Some(reply) = super::recover::bad_request_reply(&raw, peer) {
+                            if shared.reply_to_malformed && shared.policy.decide(peer.ip()).admits()
+                                && let Some(reply) = super::recover::bad_request_reply(&raw, peer) {
                                     tap::emit(&shared.tap, TapDirection::Sent, peer, TransportKind::Tcp, &reply);
                                     if wr.write_all(&reply).await.is_err() {
                                         break 'conn;
                                     }
                                     continue;
                                 }
-                            }
                             tracing::debug!(%peer, error = %e, "malformed message on TCP dropped");
                         }
                         StreamEvent::Fatal(e) => {

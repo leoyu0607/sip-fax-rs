@@ -1,4 +1,4 @@
-//! T.30 fax procedure, receiving (answering) terminal, non-ECM.
+//! T.30 fax procedure, receiving (answering) terminal, with optional ECM (T.30 Annex A).
 //!
 //! The crate is pure: it performs no I/O, owns no clock and never panics on any input.
 //!
@@ -30,9 +30,11 @@ pub mod frame;
 pub mod receiver;
 pub mod result;
 
-pub use caps::{Compression, Dcs, DcsError, Dis, Modem, Resolution, Unsupported, build_dis_fif};
+pub use caps::{
+    Compression, Dcs, DcsError, Dis, Modem, Resolution, Unsupported, build_dis_fif, parse_rate,
+};
 pub use config::{Config, MinScanTime, Modems, PaperLength, PaperWidth, TcfMode, Timers};
 pub use event::{Action, Event, PageData, RxSignal, Timer, TxSignal};
-pub use frame::{Frame, FrameError, decode_ident, encode_ident, fcf, fif_bit};
+pub use frame::{Frame, FrameError, decode_ident, encode_ident, fcf, fcf2, fif_bit, lsb_first};
 pub use receiver::{Receiver, State};
 pub use result::{ResultCode, T30Result};

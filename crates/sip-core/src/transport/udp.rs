@@ -57,13 +57,14 @@ pub(super) async fn recv_loop(
         let msg = match parse_datagram(data) {
             Ok(m) => m,
             Err(e) => {
-                if reply_to_malformed && policy.decide(source.ip()).admits() {
-                    if let Some(reply) = super::recover::bad_request_reply(data, source) {
-                        tracing::debug!(%source, error = %e, "unparseable request answered with 400");
-                        tap::emit(&tap, TapDirection::Sent, source, TransportKind::Udp, &reply);
-                        let _ = socket.send_to(&reply, source).await;
-                        continue;
-                    }
+                if reply_to_malformed
+                    && policy.decide(source.ip()).admits()
+                    && let Some(reply) = super::recover::bad_request_reply(data, source)
+                {
+                    tracing::debug!(%source, error = %e, "unparseable request answered with 400");
+                    tap::emit(&tap, TapDirection::Sent, source, TransportKind::Udp, &reply);
+                    let _ = socket.send_to(&reply, source).await;
+                    continue;
                 }
                 tracing::debug!(%source, error = %e, "unparseable UDP datagram dropped");
                 continue;

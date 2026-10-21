@@ -168,21 +168,37 @@ fn r02_cases() -> Vec<(&'static str, Config, Vec<u8>, Vec<usize>)> {
             b,
         ));
     }
-    // MMR needs the fourth octet; the extend bit 24 links it.
+    // T.6 is valid only with ECM (Table 2 notes 9 and 17): MMR alone sets nothing.
     let mut c = base();
     c.mmr = true;
     v.push((
-        "MMR offered",
+        "MMR without ECM is not offered",
         c.clone(),
-        vec![0x00, 0x77, 0x1F, 0x02],
-        vec![10, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24, 31],
+        vec![0x00, 0x77, 0x1E],
+        vec![10, 11, 12, 14, 15, 16, 20, 21, 22, 23],
     ));
-    c.t38_iaf = true;
+    // ECM needs the fourth octet; the extend bit 24 links it.
+    let mut e = base();
+    e.ecm = true;
+    v.push((
+        "ECM offered",
+        e.clone(),
+        vec![0x00, 0x77, 0x1F, 0x20],
+        vec![10, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24, 27],
+    ));
+    e.mmr = true;
+    v.push((
+        "ECM and MMR offered",
+        e.clone(),
+        vec![0x00, 0x77, 0x1F, 0x22],
+        vec![10, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24, 27, 31],
+    ));
+    e.t38_iaf = true;
     v.push((
         "everything",
-        c,
-        vec![0x20, 0x77, 0x1F, 0x02],
-        vec![3, 10, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24, 31],
+        e,
+        vec![0x20, 0x77, 0x1F, 0x22],
+        vec![3, 10, 11, 12, 14, 15, 16, 20, 21, 22, 23, 24, 27, 31],
     ));
     v
 }
@@ -202,16 +218,22 @@ fn r02_dis_fif_matches_table_2_bit_for_bit() {
 
 #[test]
 fn r02_bits_that_must_never_be_set() {
-    // Never claimed: ready to transmit (9), V.8 (6), 64 octet ECM (7/28), ECM (27), uncompressed
-    // (26), T.6 without the MMR option, 2-D/superfine resolutions (41..43), colour, T.4 options.
+    // Never claimed: ready to transmit (9), V.8 (6), 64 octet ECM preference (7), DIS bit 28 (set
+    // to 0), ECM (27) unless configured, uncompressed (26), T.6 without ECM and the MMR option,
+    // 2-D/superfine resolutions (41..43), colour, T.4 options.
     for (name, cfg, _, _) in r02_cases() {
         let fif = build_dis_fif(&cfg);
-        for forbidden in [1, 2, 4, 5, 6, 7, 8, 9, 13, 25, 26, 27, 28, 29, 30, 32] {
+        for forbidden in [1, 2, 4, 5, 6, 7, 8, 9, 13, 25, 26, 28, 29, 30, 32] {
             assert!(!fif_bit(&fif, forbidden), "{name}: bit {forbidden}");
         }
-        if !cfg.mmr {
-            assert!(!fif_bit(&fif, 31), "{name}: T.6 only when configured");
-            assert_eq!(fif.len(), 3, "{name}: no fourth octet without MMR");
+        assert_eq!(fif_bit(&fif, 27), cfg.ecm, "{name}: bit 27 is ECM");
+        assert_eq!(
+            fif_bit(&fif, 31),
+            cfg.ecm && cfg.mmr,
+            "{name}: T.6 needs ECM"
+        );
+        if !cfg.ecm {
+            assert_eq!(fif.len(), 3, "{name}: no fourth octet without ECM");
         }
         // The extend bit is set exactly when another octet follows.
         assert_eq!(fif_bit(&fif, 24), fif.len() > 3, "{name}");
@@ -356,13 +378,11 @@ fn r02_dis_round_trips_through_parse() {
         let d = Dis::parse(&build_dis_fif(&cfg));
         assert_eq!(d.t38_iaf, cfg.t38_iaf, "{name}");
         assert!(d.can_receive, "{name}");
-        assert!(
-            !d.ready_to_transmit && !d.ecm && !d.uncompressed && !d.v8,
-            "{name}"
-        );
+        assert!(!d.ready_to_transmit && !d.uncompressed && !d.v8, "{name}");
+        assert_eq!(d.ecm, cfg.ecm, "{name}");
         assert_eq!(d.fine, cfg.fine, "{name}");
         assert_eq!(d.mr, cfg.mr, "{name}");
-        assert_eq!(d.mmr, cfg.mmr, "{name}");
+        assert_eq!(d.mmr, cfg.ecm && cfg.mmr, "{name}");
         assert_eq!(d.width, cfg.max_width, "{name}");
         assert_eq!(d.length, cfg.max_length, "{name}");
         assert_eq!(d.min_scan, cfg.min_scan, "{name}");

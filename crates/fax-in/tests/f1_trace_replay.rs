@@ -360,9 +360,9 @@ fn page_bitmap(rows: usize, seed: u32) -> Vec<u8> {
         for x in 0..216usize {
             let h =
                 (y as u32).wrapping_mul(131) ^ (x as u32).wrapping_mul(17) ^ seed.wrapping_mul(7);
-            v[y * 216 + x] = if h % 23 == 0 {
+            v[y * 216 + x] = if h.is_multiple_of(23) {
                 0xF0
-            } else if y % 20 < 9 && (y / 20 + x / 9 + seed as usize) % 4 == 0 {
+            } else if y % 20 < 9 && (y / 20 + x / 9 + seed as usize).is_multiple_of(4) {
                 0x3C
             } else {
                 0
@@ -566,15 +566,14 @@ impl Continuation {
     /// Looks at what we sent and schedules the peer's next burst.
     fn react(&mut self, r: &mut Replay) {
         // our first MCF after the last thing the peer did
-        if self.mcf_seen.is_none() {
-            if let Some((t, _)) = r
+        if self.mcf_seen.is_none()
+            && let Some((t, _)) = r
                 .heard
                 .frames
                 .iter()
                 .find(|(t, f)| *t > self.after_ms && f.get(2) == Some(&0x31))
-            {
-                self.mcf_seen = Some(*t);
-            }
+        {
+            self.mcf_seen = Some(*t);
         }
         let Some(mcf_at) = self.mcf_seen else { return };
         let Some(&end) = r.heard.no_signals.iter().find(|t| **t >= mcf_at) else {
@@ -597,10 +596,11 @@ impl Continuation {
                 let mut ifp = to_ifp(&line, &mut sub);
                 if last {
                     // EOP instead of MPS: the F2 octet of the command
-                    if let Ifp::Data { fields, .. } = &mut ifp {
-                        if fields[0].field_type == FieldType::HdlcData && fields[0].data == [0xF2] {
-                            fields[0].data = vec![0xF4];
-                        }
+                    if let Ifp::Data { fields, .. } = &mut ifp
+                        && fields[0].field_type == FieldType::HdlcData
+                        && fields[0].data == [0xF2]
+                    {
+                        fields[0].data = vec![0xF4];
                     }
                 }
                 last_t = t0 + off;
@@ -622,10 +622,11 @@ impl Continuation {
             let mut sub = Substitute::new(vec![]);
             for (off, line) in &self.template[i0..] {
                 let mut ifp = to_ifp(line, &mut sub);
-                if let Ifp::Data { fields, .. } = &mut ifp {
-                    if fields[0].field_type == FieldType::HdlcData && fields[0].data == [0xF2] {
-                        fields[0].data = vec![0xDF]; // DCN with the X bit, as the peer writes it
-                    }
+                if let Ifp::Data { fields, .. } = &mut ifp
+                    && fields[0].field_type == FieldType::HdlcData
+                    && fields[0].data == [0xF2]
+                {
+                    fields[0].data = vec![0xDF]; // DCN with the X bit, as the peer writes it
                 }
                 r.schedule(t0 + off - base, Input::Ifp(ifp));
             }

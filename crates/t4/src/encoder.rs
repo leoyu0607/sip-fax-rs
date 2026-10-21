@@ -27,10 +27,10 @@ impl Encoder {
         if width == 0 || width > MAX_WIDTH {
             return Err(Error::InvalidWidth(width));
         }
-        if let Coding::Mr { k } = coding {
-            if k < 2 {
-                return Err(Error::InvalidK(k));
-            }
+        if let Coding::Mr { k } = coding
+            && k < 2
+        {
+            return Err(Error::InvalidK(k));
         }
         Ok(Self {
             width,
@@ -99,7 +99,7 @@ impl Encoder {
                 self.encode_1d(&cur);
             }
             Coding::Mr { k } => {
-                let one_d = self.rows % u32::from(k) == 0;
+                let one_d = self.rows.is_multiple_of(u32::from(k));
                 self.put_eol(one_d);
                 if one_d {
                     self.encode_1d(&cur);

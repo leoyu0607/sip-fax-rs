@@ -19,6 +19,8 @@ fn result_codes_have_stable_numbers_and_names() {
         (ResultCode::UnexpectedFrames, 10, "unexpected_frames"),
         (ResultCode::Aborted, 11, "aborted"),
         (ResultCode::DecoderError, 12, "decoder_error"),
+        (ResultCode::EcmFailed, 13, "ecm_failed"),
+        (ResultCode::EcmFramesLost, 14, "ecm_frames_lost"),
     ];
     for (c, n, name) in all {
         assert_eq!((c.as_u8(), c.name(), c.is_ok()), (n, name, n == 0));
@@ -37,6 +39,9 @@ fn partial_means_failed_with_pages() {
         remote_ident: None,
         bad_lines_per_page: vec![0, 1],
         duration_ms: 1,
+        ecm: false,
+        ecm_ppr_sent: 0,
+        ecm_frames_lost: 0,
     };
     assert!(r.is_partial());
     r.pages = 0;

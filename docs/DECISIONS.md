@@ -279,3 +279,39 @@ M2d 原本的 `udptl.log` 會寫入完整的封包 hex，等同於複製一份�
 **決策**
 
 `scripts/package.sh` 打包時固定寫入 `0/0`（`--owner=0 --group=0 --numeric-owner`），並關閉 macOS 的 AppleDouble 檔。安裝文件建議解壓縮後，用 `chown` 把擁有者改成實際執行服務的帳號。
+
+## ADR-031：ECM 接收的設計與範圍（2026-10-21）
+- 依 T.30 Annex A／T.4 Annex A；`t30` 新增狀態 `EcmWaitBlock`／`EcmRxBlock`／`EcmWaitPps`，區塊在 PPS 確認時一次交給 `t4` 解碼器；PPS-NULL／MPS／EOP／EOM、PPR（256 bit，區塊外的位元為 1）、CTC→CTR（更新速率）、EOR→ERR（缺的 frame 補零並計入 `ecm_frames_lost`）、RR 重送上一個回應；重複的命令重送上一個回應；`ecm_max_ppr`（預設 12）保護。結果碼 `EcmFramesLost`（頁面有洞）、`EcmFailed`。
+- FCD／RCP 的 frame 號與 PPS 計數器採 LSB first，在本專案 octet 慣例（第一個傳送的位元為 MSB）下是位元反轉值（ADR-019 的延伸）。
+- 引擎：image-rate 的 HDLC 欄位與 V.21 走同一條路徑變成 `Event::Frame`；送出端不變（回應都在 V.21）。
+- 不做：RNR、T5、PIP／PIN、EOS、流量控制模式、半頁救回。
+## ADR-032：DIS 宣告規則與 `[trunks.fax]`（2026-10-21）
+- `ecm`（預設 true）決定 bit 27；MMR（bit 31）只在 ECM 時宣告（T.30 表 2 註 9、17）；`resolutions`（預設 `["standard","fine"]`，不得為空、只允許這兩個值）決定 bit 15；DIS bit 7（frame 大小偏好）不設、bit 28 不設。
+## ADR-033：T.30 原文核對結論（2026-10-21）
+- 已以 ITU-T T.30 (09/2005) 與 T.4 (07/2003) 原文核對 DIS／DCS 位元與 ECM 相關 FCF（`crates/t30/tests/e06_t30_audit.rs`），無差異。V.33：DCS `0010`／`0110` 在 2005 版為 Invalid，依註 31 作為舊機器相容接受、不宣告。掃描時間碼依表 2。ADR-019 末段的「原文離線無法取得」作廢。
+## ADR-034：SpanDSP ECM 互通的限制（2026-10-21）
+- SpanDSP 3.1.1 一律送 256 octet 的 ECM frame；ECM＋`NO_TCF` 的 T.38 terminal 會停住；EOR/ERR 之後不會接著傳下一頁（直接 DCN）。64 octet frame 與 ECM＋localTCF 只由單元／引擎測試涵蓋。E03 的 PPR 證明以「只讓影像資料包遺失」進行（見本報告 §5-1）。
+
+## ADR-035：ECM 預設關閉，直到經過真實 gateway 驗證（2026-10-21）
+**背景**
+
+M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前是以 non-ECM 運作並已打通，如果預設宣告 ECM，就等於把一條真機沒有測過的路徑直接推到現場。
+
+**決策**
+
+`[trunks.fax] ecm` 預設為 `false`，需要時再依 trunk 開啟。在真實 gateway（AudioCodes 和 CS210）上驗證 ECM 之後（M6），再重新評估預設值。
+
+## ADR-036：store 以「單一 SQL 實作＋四個薄驅動」實現 `FaxStore`（2026-10-21）
+取代「每個方言各寫一個 Repository」。方言差異集中在：`?` 佔位符改寫（`$n`／`@Pn`）、`LIMIT`／`TOP`、`RETURNING`／`OUTPUT INSERTED`／`last_insert_id`、時間型別編碼、整數寬度與 MySQL `_bin` 文字欄位解碼。好處：一份行為、一份測試；風險：不能使用任何方言專屬 SQL（目前不需要）。
+
+## ADR-037：sqlx 0.9 ＋ tiberius 0.13（修訂 ADR-003 的版本）（2026-10-21）
+理由見 §6.1（0.8／0.12 的相依有未修補的 advisory）。附帶：根 `rust-version` 需提高到 1.94。
+
+## ADR-038：接受 ring 與 aws-lc-rs 並存（2026-10-21）
+（sqlx 用 ring、tiberius 預設 aws-lc-rs），兩者皆可靜態連結 musl，無 OpenSSL。
+
+## ADR-039：時間欄位統一 UTC 毫秒；MySQL 以 naive UTC 綁定（2026-10-21）
+，不使用 `TIMESTAMP`（有 2038 與連線時區轉換問題）。
+
+## ADR-040：資料庫版本比程式新時拒絕啟動；migration 不提供降版（2026-10-21）
+（規格已有，建議補入決策紀錄。）

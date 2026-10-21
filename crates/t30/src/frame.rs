@@ -93,6 +93,41 @@ pub mod fcf {
     pub const CRP: u8 = 0x58;
     /// Disconnect.
     pub const DCN: u8 = 0x5F;
+    /// Facsimile coded data (ECM image frame; T.4 Annex A.3.5 "0110 0000").
+    pub const FCD: u8 = 0x60;
+    /// Return to control for partial page (ECM; T.4 Annex A.3.5 "0110 0001").
+    pub const RCP: u8 = 0x61;
+}
+
+/// FCF2 values of PPS / EOR (T.30 Figure A.1 / A.2): the post-message command a partial page
+/// signal announces. The first transmitted bit is the most significant one (octet convention of
+/// [`crate::frame`]); FCF2 for a command other than NULL has its first bit set (`1111 0010` for
+/// MPS).
+pub mod fcf2 {
+    /// NULL: a partial page boundary, more of the same page follows.
+    pub const NULL: u8 = 0x00;
+    /// EOM.
+    pub const EOM: u8 = 0xF1;
+    /// MPS.
+    pub const MPS: u8 = 0xF2;
+    /// EOP.
+    pub const EOP: u8 = 0xF4;
+    /// EOS.
+    pub const EOS: u8 = 0xF8;
+    /// PRI-EOM.
+    pub const PRI_EOM: u8 = 0xF9;
+    /// PRI-MPS.
+    pub const PRI_MPS: u8 = 0xFA;
+    /// PRI-EOP.
+    pub const PRI_EOP: u8 = 0xFC;
+}
+
+/// An 8-bit counter or frame number as T.30 / T.4 Annex A transmit it: **least significant bit
+/// first** (PPS page / block / frame counters, the FCD frame number), which in the octet
+/// convention of this crate (first transmitted bit = most significant bit) is the bit reversed
+/// value. The same function converts both ways.
+pub fn lsb_first(value: u8) -> u8 {
+    value.reverse_bits()
 }
 
 /// Why a byte string is not an HDLC frame of this crate's shape.
@@ -245,6 +280,8 @@ pub fn fcf_name(fcf: u8) -> &'static str {
         fcf::FNV => "FNV",
         fcf::CRP => "CRP",
         fcf::DCN => "DCN",
+        fcf::FCD => "FCD",
+        fcf::RCP => "RCP",
         _ => "unknown",
     }
 }

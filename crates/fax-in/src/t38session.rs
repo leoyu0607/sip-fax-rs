@@ -130,6 +130,10 @@ fn engine_config(env: &T38SessionEnv, ctx: &SessionContext) -> EngineConfig {
         TcfMode::Transferred
     };
     cfg.t30.modems = modems_for(ctx.t38.max_bit_rate);
+    cfg.t30.fine = ctx.fax.fine();
+    // MMR (T.6) is only valid together with ECM (T.30 Table 2 notes 9 and 17).
+    cfg.t30.ecm = ctx.fax.ecm;
+    cfg.t30.mmr = ctx.fax.ecm;
     cfg
 }
 

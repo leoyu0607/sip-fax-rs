@@ -156,10 +156,10 @@ impl Header {
 
     /// The name as it is written on the wire (compact letter when `compact`).
     pub fn wire_name(&self) -> String {
-        if self.compact {
-            if let Some(l) = compact_letter(&self.name) {
-                return l.to_string();
-            }
+        if self.compact
+            && let Some(l) = compact_letter(&self.name)
+        {
+            return l.to_string();
         }
         self.name.clone()
     }

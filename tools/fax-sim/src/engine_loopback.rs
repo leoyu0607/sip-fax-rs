@@ -11,8 +11,8 @@ use crate::{STEP_MS, STEP_SAMPLES, SplitMix64};
 use fax_in::t38engine::{EngineConfig, ReceivedPage, UdptlEngine};
 use std::path::PathBuf;
 use t38::{
-    ErrorRecovery, Ifp, ReceiverConfig, ReceiverStats, RxEvent, Source, T38Version, UdptlReceiver,
-    UdptlSender,
+    DataType, ErrorRecovery, FieldType, Ifp, ReceiverConfig, ReceiverStats, RxEvent, Source,
+    T38Version, UdptlReceiver, UdptlSender,
 };
 
 /// Run parameters.
@@ -28,12 +28,21 @@ pub struct EngineRunConfig {
     pub compressions: Option<i32>,
     /// `T30_IAF_MODE_*` for the caller (`None` = default, with TCF).
     pub iaf: Option<i32>,
+    /// ECM enabled on the SpanDSP caller (`t30_set_ecm_capability`).
+    pub ecm: bool,
+    /// Drop, on every transmission, the ECM frame with this number (caller to engine). The
+    /// datagrams are still numbered, so the receiver sees real sequence gaps.
+    pub drop_frame: Option<u8>,
     /// Our T.30 / engine configuration.
     pub engine: EngineConfig,
     /// Error recovery used by both senders.
     pub recovery: ErrorRecovery,
     /// Datagram loss in permille.
     pub loss_permille: u32,
+    /// Apply `loss_permille` only to the datagrams that carry image-rate data (`hdlc-data` /
+    /// `t4-non-ecm-data` on a V.27ter / V.29 / V.17 data type), caller to engine; everything else
+    /// (indicators, V.21 control frames, the engine's answers) is delivered.
+    pub loss_image_data_only: bool,
     /// PRNG seed for the loss.
     pub seed: u64,
     /// Simulated time limit.
@@ -53,9 +62,12 @@ impl EngineRunConfig {
             modems: None,
             compressions: None,
             iaf: None,
+            ecm: false,
+            drop_frame: None,
             engine,
             recovery: ErrorRecovery::Redundancy { depth: 3 },
             loss_permille: 0,
+            loss_image_data_only: false,
             seed: 1,
             max_sim_ms: 600_000,
             caller_hangup_at_ms: None,
@@ -88,6 +100,52 @@ pub struct EngineRunOutcome {
     pub gaps: (u64, u64),
     /// Engine diagnostic lines.
     pub log: Vec<String>,
+    /// ECM frame transmissions removed by `drop_frame`.
+    pub frames_dropped: u32,
+}
+
+/// Recognises the packets of one ECM frame (`hdlc-data` on an image data type starting
+/// `FF C0 60 <number LSB first>`, up to the packet with the frame's FCS field).
+struct FrameDropper {
+    target: u8,
+    active: bool,
+    frames: u32,
+}
+
+impl FrameDropper {
+    fn check(&mut self, ifp: &Ifp) -> bool {
+        let Ifp::Data { data_type, fields } = ifp else {
+            return false;
+        };
+        if *data_type == DataType::V21 {
+            return false;
+        }
+        let mut drop = false;
+        for f in fields {
+            match f.field_type {
+                FieldType::HdlcData => {
+                    if !self.active
+                        && f.data.len() >= 4
+                        && f.data[..3] == [0xFF, 0xC0, 0x60]
+                        && f.data[3].reverse_bits() == self.target
+                    {
+                        self.active = true;
+                        self.frames += 1;
+                    }
+                    drop |= self.active;
+                }
+                FieldType::HdlcFcsOk
+                | FieldType::HdlcFcsBad
+                | FieldType::HdlcFcsOkSigEnd
+                | FieldType::HdlcFcsBadSigEnd => {
+                    drop |= self.active;
+                    self.active = false;
+                }
+                _ => {}
+            }
+        }
+        drop
+    }
 }
 
 /// Runs one call.
@@ -95,7 +153,7 @@ pub fn run(cfg: &EngineRunConfig) -> EngineRunOutcome {
     let caller_cfg = T30Config {
         tx_file: Some(&cfg.tx_file),
         rx_file: None,
-        ecm: false,
+        ecm: cfg.ecm,
         ident: "0000000001",
         modems: cfg.modems,
         compressions: cfg.compressions,
@@ -117,6 +175,13 @@ pub fn run(cfg: &EngineRunConfig) -> EngineRunOutcome {
     let mut now_ms = 0u64;
     let mut timed_out = false;
     let mut hung_up = false;
+    // FAXSIM_TRACE=1 prints every packet the SpanDSP caller emits (debugging aid).
+    let trace = std::env::var_os("FAXSIM_TRACE").is_some();
+    let mut dropper = cfg.drop_frame.map(|target| FrameDropper {
+        target,
+        active: false,
+        frames: 0,
+    });
 
     eng.start(0);
     loop {
@@ -168,10 +233,26 @@ pub fn run(cfg: &EngineRunConfig) -> EngineRunOutcome {
         eng.advance(now_ms);
         // caller -> engine
         for pkt in caller.take_packets() {
+            if trace {
+                if let Ok((ifp, _)) = Ifp::decode_prefix(&pkt.data, version) {
+                    eprintln!("[{now_ms:>6} ms] caller -> engine x{} {ifp:?}", pkt.count);
+                }
+            }
+            let decoded = Ifp::decode_prefix(&pkt.data, version).ok().map(|(i, _)| i);
+            let targeted = match (dropper.as_mut(), &decoded) {
+                (Some(d), Some(ifp)) => d.check(ifp),
+                _ => false,
+            };
+            let lossy = !cfg.loss_image_data_only
+                || matches!(&decoded, Some(Ifp::Data { data_type, .. }) if *data_type != DataType::V21);
             for _ in 0..pkt.count.max(1) {
                 if let Ok(dg) = caller_tx.build(&pkt.data) {
                     sent += 1;
-                    if cfg.loss_permille > 0 && rng.next_permille() < cfg.loss_permille {
+                    if targeted
+                        || (lossy
+                            && cfg.loss_permille > 0
+                            && rng.next_permille() < cfg.loss_permille)
+                    {
                         dropped += 1;
                     } else {
                         to_engine.push(dg);
@@ -181,8 +262,12 @@ pub fn run(cfg: &EngineRunConfig) -> EngineRunOutcome {
         }
         // engine -> caller
         for d in eng.poll_datagrams() {
+            let lossy = !cfg.loss_image_data_only;
+            if trace {
+                eprintln!("[{now_ms:>6} ms] engine -> caller {} octets", d.bytes.len());
+            }
             sent += 1;
-            if cfg.loss_permille > 0 && rng.next_permille() < cfg.loss_permille {
+            if lossy && cfg.loss_permille > 0 && rng.next_permille() < cfg.loss_permille {
                 dropped += 1;
             } else {
                 to_caller.push(d.bytes);
@@ -206,5 +291,6 @@ pub fn run(cfg: &EngineRunConfig) -> EngineRunOutcome {
         caller_rx: caller_rx.stats(),
         gaps,
         log,
+        frames_dropped: dropper.map_or(0, |d| d.frames),
     }
 }

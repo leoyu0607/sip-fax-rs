@@ -7,7 +7,7 @@ exclude = ["tools", "crates/sip-core/fuzz", "crates/t38/fuzz", "crates/t4/fuzz",
 version = "0.1.1"
 edition = "2024"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.94"
 repository = "https://github.com/leoyu0607/sip-fax-rs"
 
 [workspace.dependencies]
@@ -27,6 +27,16 @@ toml = "0.8"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 sip-core = { path = "crates/sip-core" }
 fax-in = { path = "crates/fax-in" }
+# store (M3a, ADR-003): sqlx for SQLite/PostgreSQL/MySQL, tiberius for MSSQL; rustls only, SQLite bundled.
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "sqlite", "postgres", "mysql", "chrono"] }
+tiberius = { version = "0.13", default-features = false, features = ["rustls", "chrono", "tds73"] }
+bb8 = "0.9"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+url = "2"
+percent-encoding = "2"
+tempfile = "3"
+tokio-util = { version = "0.7", features = ["compat"] }
 
 [profile.release]
 lto = true

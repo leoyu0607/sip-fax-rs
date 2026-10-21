@@ -89,6 +89,9 @@ fn setup(state: State) -> Sim {
             s.send(Event::Abort);
             s
         }
+        State::EcmWaitBlock | State::EcmRxBlock | State::EcmWaitPps => {
+            panic!("the ECM states are covered by the E05 matrix (tests/e05_ecm_table.rs)")
+        }
     }
 }
 

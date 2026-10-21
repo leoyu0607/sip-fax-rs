@@ -245,7 +245,7 @@ fn f04_eol_with_fill_bits_rtc_and_eofb() {
     // Only five EOLs (no RTC) then the end of data: ends as Data with all rows.
     let mut five = plain.clone();
     let cut = positions[positions.len() - 1]; // start of the 6th trailing EOL
-    five.truncate(cut / 8 + usize::from(cut % 8 != 0));
+    five.truncate(cut / 8 + usize::from(!cut.is_multiple_of(8)));
     let page = decode(
         &bits(&{
             let mut s = String::new();

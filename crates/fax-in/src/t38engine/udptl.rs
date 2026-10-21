@@ -82,12 +82,12 @@ impl UdptlEngine {
     /// Advances the engine and gives up on holes that waited too long.
     pub fn advance(&mut self, now_ms: u64) {
         self.engine.advance(now_ms);
-        if let Some(since) = self.held_since {
-            if now_ms.saturating_sub(since) >= self.reorder_wait_ms {
-                let events = self.receiver.flush();
-                self.held_since = None;
-                self.deliver(now_ms, events);
-            }
+        if let Some(since) = self.held_since
+            && now_ms.saturating_sub(since) >= self.reorder_wait_ms
+        {
+            let events = self.receiver.flush();
+            self.held_since = None;
+            self.deliver(now_ms, events);
         }
     }
 

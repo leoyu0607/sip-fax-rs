@@ -32,6 +32,11 @@ pub enum ResultCode {
     Aborted = 11,
     /// The image decoder could not be set up (internal limits).
     DecoderError = 12,
+    /// ECM: the peer kept asking for the same frames (too many PPR) without CTC or EOR.
+    EcmFailed = 13,
+    /// ECM: the procedure ended normally but the sender gave up on some frames (EOR), so at
+    /// least one page has missing data.
+    EcmFramesLost = 14,
 }
 
 impl ResultCode {
@@ -61,6 +66,8 @@ impl ResultCode {
             ResultCode::UnexpectedFrames => "unexpected_frames",
             ResultCode::Aborted => "aborted",
             ResultCode::DecoderError => "decoder_error",
+            ResultCode::EcmFailed => "ecm_failed",
+            ResultCode::EcmFramesLost => "ecm_frames_lost",
         }
     }
 }
@@ -86,6 +93,12 @@ pub struct T30Result {
     pub bad_lines_per_page: Vec<u32>,
     /// Time from `Start` to the end in milliseconds.
     pub duration_ms: u64,
+    /// True if the last DCS selected the error correction mode.
+    pub ecm: bool,
+    /// ECM: PPR frames sent (every request for retransmission, repeats included).
+    pub ecm_ppr_sent: u32,
+    /// ECM: frames the sender abandoned with EOR (their octets are zero filled in the page).
+    pub ecm_frames_lost: u32,
 }
 
 impl T30Result {

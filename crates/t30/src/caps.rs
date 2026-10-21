@@ -3,8 +3,9 @@
 //! Bit numbers are those of Table 2 (see [`crate::frame`] for the octet convention). The bit
 //! positions were cross-checked against SpanDSP 3.1.1 (`t30_dis_dtc_dcs_bits.h`,
 //! `t30_build_dis_or_dtc`, `analyze_rx_dcs`) and against the DIS frames real SpanDSP sessions put
-//! on the wire (`DIS` test `r02_*` in `tests/receiver.rs`). The ITU text itself was not available
-//! offline, which is called out in docs/test-reports/M2c.md.
+//! on the wire (`DIS` test `r02_*` in `tests/receiver.rs`), and in M3d against the text of
+//! ITU-T Rec. T.30 (09/2005) itself (Table 2 and notes; the comparison table is in
+//! docs/test-reports/M3d.md).
 
 use crate::config::{Config, MinScanTime, PaperLength, PaperWidth};
 use crate::frame::{fif_bit, set_fif_bit};
@@ -23,6 +24,8 @@ pub mod bits {
     pub const MODEM_FIRST: usize = 11;
     /// `R8 x 7.7 lines/mm` (fine) or 200 x 200 pels/25.4 mm.
     pub const FINE: usize = 15;
+    /// DIS: `0` = 256 octet ECM frames preferred, `1` = 64 octets (Table 2 bit 7, note 42).
+    pub const FRAME_SIZE_PREF: usize = 7;
     /// Two-dimensional coding (MR).
     pub const TWO_D: usize = 16;
     /// Recording width, first bit (17; 18 is the second).
@@ -41,7 +44,8 @@ pub mod bits {
     pub const UNCOMPRESSED: usize = 26;
     /// Error correction mode.
     pub const ECM: usize = 27;
-    /// DCS: 64 octet ECM frames.
+    /// DCS: ECM frame size, `0` = 256 octets, `1` = 64 octets (valid only with bit 27, note 7).
+    /// In a DIS this bit is "set to 0".
     pub const ECM_64: usize = 28;
     /// T.6 coding (MMR).
     pub const T6: usize = 31;
@@ -64,7 +68,7 @@ pub enum Modem {
     V27ter,
     /// V.29.
     V29,
-    /// V.33 (not offered by this crate, parsed for completeness).
+    /// V.33 (not offered by this crate; accepted from legacy senders, T.30 Table 2 note 31).
     V33,
     /// V.17.
     V17,
@@ -151,8 +155,12 @@ pub fn build_dis_fif(cfg: &Config) -> Vec<u8> {
             set(bits::MIN_SCAN_FIRST + i);
         }
     }
-    if cfg.mmr {
-        set(bits::T6);
+    if cfg.ecm {
+        set(bits::ECM);
+        // Table 2 notes 9 and 17: T.6 is only valid together with ECM.
+        if cfg.mmr {
+            set(bits::T6);
+        }
     }
     // Extend bits (bit 24, 32, ...): the last bit of every octet from the third on that is
     // followed by another octet. The first two octets have no extend bit.
@@ -281,6 +289,8 @@ pub struct Dcs {
     pub min_scan: MinScanTime,
     /// Error correction mode (bit 27).
     pub ecm: bool,
+    /// ECM frame size in octets: 64 if bit 28 is set, else 256 (only meaningful with `ecm`).
+    pub frame_octets: u32,
     /// Uncompressed mode (bit 26).
     pub uncompressed: bool,
     /// Bit 3: sender is Internet-aware.
@@ -309,10 +319,39 @@ impl std::fmt::Display for DcsError {
 
 impl std::error::Error for DcsError {}
 
+/// The data signalling rate selected by bits 11 to 14 of a DCS (or of a CTC, whose two octet
+/// information field is bits 1 to 16 of a DCS).
+///
+/// Table 2 of T.30 (09/2005) lists 2400, 4800, 7200 and 9600 bit/s (V.27ter, V.29) and 7200 to
+/// 14400 (V.17); `0010` and `0110` are "Invalid" in a DCS. Note 31 explains that terminals of the
+/// 1994 edition and older used them for V.33 (14400 / 12000 bit/s) and that a V.17 receiver "may
+/// optionally support" it, so they are accepted here. Everything else is reserved.
+///
+/// # Errors
+/// [`DcsError::ReservedModem`] for a reserved combination.
+pub fn parse_rate(fif: &[u8]) -> Result<(Modem, u32), DcsError> {
+    let sel = (0..4).fold(0u8, |acc, i| {
+        (acc << 1) | u8::from(fif_bit(fif, bits::MODEM_FIRST + i))
+    });
+    Ok(match sel {
+        0b0000 => (Modem::V27ter, 2400),
+        0b0100 => (Modem::V27ter, 4800),
+        0b1000 => (Modem::V29, 9600),
+        0b1100 => (Modem::V29, 7200),
+        0b0010 => (Modem::V33, 14400),
+        0b0110 => (Modem::V33, 12000),
+        0b1001 => (Modem::V17, 9600),
+        0b0001 => (Modem::V17, 14400),
+        0b0101 => (Modem::V17, 12000),
+        0b1101 => (Modem::V17, 7200),
+        other => return Err(DcsError::ReservedModem(other)),
+    })
+}
+
 /// A feature of a valid DCS this receiver cannot handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unsupported {
-    /// Error correction mode is requested (M3).
+    /// Error correction mode is requested but not enabled.
     Ecm,
     /// Uncompressed mode.
     Uncompressed,
@@ -331,22 +370,7 @@ impl Dcs {
             return Err(DcsError::TooShort(fif.len()));
         }
         let b = |n| fif_bit(fif, n);
-        let sel = (0..4).fold(0u8, |acc, i| {
-            (acc << 1) | u8::from(b(bits::MODEM_FIRST + i))
-        });
-        let (modem, bit_rate) = match sel {
-            0b0000 => (Modem::V27ter, 2400),
-            0b0100 => (Modem::V27ter, 4800),
-            0b1000 => (Modem::V29, 9600),
-            0b1100 => (Modem::V29, 7200),
-            0b0010 => (Modem::V33, 14400),
-            0b0110 => (Modem::V33, 12000),
-            0b1001 => (Modem::V17, 9600),
-            0b0001 => (Modem::V17, 14400),
-            0b0101 => (Modem::V17, 12000),
-            0b1101 => (Modem::V17, 7200),
-            other => return Err(DcsError::ReservedModem(other)),
-        };
+        let (modem, bit_rate) = parse_rate(fif)?;
         let resolution = if b(bits::RES_400_400) {
             Resolution::Dpi400
         } else if b(bits::RES_300_300) {
@@ -375,15 +399,22 @@ impl Dcs {
             length: parse_length(b(bits::LENGTH_1), b(bits::LENGTH_2)),
             min_scan: parse_min_scan(fif),
             ecm: b(bits::ECM),
+            frame_octets: if b(bits::ECM_64) { 64 } else { 256 },
             uncompressed: b(bits::UNCOMPRESSED),
             t38_iaf: b(bits::T38),
             receive: b(bits::RECEIVE),
         })
     }
 
-    /// The first feature of this DCS the receiver cannot handle, if any.
+    /// The first feature of this DCS a receiver without ECM cannot handle, if any.
     pub fn unsupported(&self) -> Option<Unsupported> {
-        if self.ecm {
+        self.unsupported_with(false)
+    }
+
+    /// The first feature of this DCS the receiver cannot handle, if any; `ecm_ok` says whether
+    /// the receiver implements the error correction mode.
+    pub fn unsupported_with(&self, ecm_ok: bool) -> Option<Unsupported> {
+        if self.ecm && !ecm_ok {
             Some(Unsupported::Ecm)
         } else if self.uncompressed {
             Some(Unsupported::Uncompressed)

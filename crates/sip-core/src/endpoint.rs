@@ -173,10 +173,10 @@ impl EpInner {
         if !h.contains("Supported") && !self.cfg.supported.is_empty() {
             h.push("Supported", self.cfg.supported.clone());
         }
-        if let Some(ua) = &self.cfg.user_agent {
-            if !h.contains("User-Agent") {
-                h.push("User-Agent", ua.clone());
-            }
+        if let Some(ua) = &self.cfg.user_agent
+            && !h.contains("User-Agent")
+        {
+            h.push("User-Agent", ua.clone());
         }
     }
 
@@ -888,14 +888,14 @@ impl Endpoint {
                 return Ok(spawn_dialog(ep, init, input_tx, ev_rx, remote));
             }
             let code = final_resp.status.code();
-            if attempt == 0 && matches!(code, 401 | 407) {
-                if let Some(a) =
+            if attempt == 0
+                && matches!(code, 401 | 407)
+                && let Some(a) =
                     auth_for(&ep.cfg, &final_resp, "INVITE", &tx.request.uri.to_string())
-                {
-                    auth = Some(a);
-                    seq += 1;
-                    continue;
-                }
+            {
+                auth = Some(a);
+                seq += 1;
+                continue;
             }
             return Err(InviteError::Rejected(final_resp.status));
         }
@@ -919,12 +919,11 @@ async fn run_dispatcher(
         match input {
             TuInput::Request(ir) => on_request(&ep, ir, &calls).await,
             TuInput::Ack(inc) => {
-                if let SipMessage::Request(req) = inc.msg {
-                    if let Some(tx) =
+                if let SipMessage::Request(req) = inc.msg
+                    && let Some(tx) =
                         DialogId::from_peer_request(&req).and_then(|id| ep.lookup(&id))
-                    {
-                        let _ = tx.send(DialogInput::Ack(req));
-                    }
+                {
+                    let _ = tx.send(DialogInput::Ack(req));
                 }
             }
             TuInput::StrayResponse(inc) => {
@@ -934,30 +933,26 @@ async fn run_dispatcher(
                             .headers
                             .cseq()
                             .is_ok_and(|c| c.method == Method::Invite);
-                    if is_invite_2xx {
-                        if let Some(tx) =
+                    if is_invite_2xx
+                        && let Some(tx) =
                             DialogId::from_our_response(&resp).and_then(|id| ep.lookup(&id))
-                        {
-                            let _ = tx.send(DialogInput::StrayOk(resp));
-                        }
+                    {
+                        let _ = tx.send(DialogInput::StrayOk(resp));
                     }
                 }
             }
             TuInput::Stateless(inc) => {
                 // RFC 2543 style branch: no transaction, answer statelessly
-                if let SipMessage::Request(req) = inc.msg {
-                    if req.method != Method::Ack {
-                        let r = Response::for_request(
-                            &req,
-                            StatusCode::BAD_REQUEST,
-                            Some(&random_tag()),
-                        );
-                        let _ = ep
-                            .layer
-                            .transport()
-                            .send_response(r, inc.source, inc.transport)
-                            .await;
-                    }
+                if let SipMessage::Request(req) = inc.msg
+                    && req.method != Method::Ack
+                {
+                    let r =
+                        Response::for_request(&req, StatusCode::BAD_REQUEST, Some(&random_tag()));
+                    let _ = ep
+                        .layer
+                        .transport()
+                        .send_response(r, inc.source, inc.transport)
+                        .await;
                 }
             }
         }

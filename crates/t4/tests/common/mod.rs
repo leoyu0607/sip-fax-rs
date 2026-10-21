@@ -62,7 +62,7 @@ pub fn bitmaps(width: u32, rows: u32) -> Vec<(&'static str, Vec<u8>)> {
         while x + 30 < width.saturating_sub(60) {
             let gw = 3 + (rng.next() % 9) as u32;
             let gh = 6 + (rng.next() % 9) as u32;
-            if rng.next() % 6 != 0 {
+            if !rng.next().is_multiple_of(6) {
                 for dy in 0..gh {
                     for dx in 0..gw {
                         // hollow glyph: only the outline
@@ -81,7 +81,7 @@ pub fn bitmaps(width: u32, rows: u32) -> Vec<(&'static str, Vec<u8>)> {
         *b = (rng.next() >> 24) as u8;
     }
     // clear padding bits
-    if width % 8 != 0 {
+    if !width.is_multiple_of(8) {
         for y in 0..rows as usize {
             noise[y * rb(width) + rb(width) - 1] &= 0xFFu8 << (8 - width % 8);
         }

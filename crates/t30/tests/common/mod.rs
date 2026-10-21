@@ -312,3 +312,142 @@ pub fn to_wait_image(cfg: Config, spec: &DcsSpec) -> Sim {
     assert_eq!(s.state(), State::WaitImage);
     s
 }
+
+// ---- ECM helpers (M3d). Written from T.30 Annex A / T.4 Annex A, independent of the crate. ----
+
+/// FCD frame: `FF C0 60`, the frame number (least significant bit first, so bit reversed in the
+/// octet convention) and the data.
+pub fn fcd(number: u8, data: &[u8]) -> Vec<u8> {
+    let mut fif = vec![number.reverse_bits()];
+    fif.extend_from_slice(data);
+    non_final_frame(0x60, &fif)
+}
+
+/// RCP frame: `FF C0 61`.
+pub fn rcp() -> Vec<u8> {
+    non_final_frame(0x61, &[])
+}
+
+/// PPS with X = 1 (`FD`): FCF2 `q`, page counter, block counter and frame count - 1, all LSB
+/// first.
+pub fn pps(q: u8, page: u8, block: u8, frames: usize) -> Vec<u8> {
+    final_frame(
+        0xFD,
+        &[
+            q,
+            page.reverse_bits(),
+            block.reverse_bits(),
+            ((frames - 1) as u8).reverse_bits(),
+        ],
+    )
+}
+
+pub const Q_NULL: u8 = 0x00;
+pub const Q_EOM: u8 = 0xF1;
+pub const Q_MPS: u8 = 0xF2;
+pub const Q_EOP: u8 = 0xF4;
+
+pub fn eor(q: u8) -> Vec<u8> {
+    final_frame(0xF3, &[q])
+}
+
+pub fn ctc(rate_bits: &[usize]) -> Vec<u8> {
+    // two octets: bits 1..=16 of a DCS, the rate in bits 11..=14
+    final_frame(0xC8, &fif_with_bits(2, rate_bits))
+}
+
+pub fn rr() -> Vec<u8> {
+    final_frame(0xF6, &[])
+}
+
+/// A DCS selecting ECM (bit 27), optionally 64 octet frames (bit 28), with the given coding.
+pub fn ecm_dcs(frame64: bool, mmr: bool, mr: bool) -> DcsSpec {
+    let mut extra = vec![27];
+    if frame64 {
+        extra.push(28);
+    }
+    DcsSpec {
+        mmr,
+        mr,
+        extra,
+        ..DcsSpec::default()
+    }
+}
+
+pub fn ecm_config() -> Config {
+    Config {
+        ecm: true,
+        mmr: true,
+        ..Config::default()
+    }
+}
+
+/// Start, DIS, TSI, ECM DCS, TCF, CFR out and sent: the machine waits for the first FCD frame
+/// (`State::EcmWaitBlock`).
+pub fn to_ecm_wait_block(cfg: Config, spec: &DcsSpec) -> Sim {
+    let mut s = after_dis(cfg);
+    s.send(frame_ev(tsi_frame("12345")));
+    s.send(frame_ev(spec.frame()));
+    assert_eq!(s.state(), State::WaitTcf);
+    s.send(Event::ImageData(vec![0u8; (spec.rate as usize) * 3 / 16]));
+    s.send(Event::DataEnd);
+    assert_eq!(s.state(), State::SendingCfr);
+    s.send(Event::TxComplete);
+    assert_eq!(s.state(), State::EcmWaitBlock);
+    s
+}
+
+/// Splits coded data into `size` octet frames, the last one zero padded as senders do.
+pub fn split_frames(data: &[u8], size: usize) -> Vec<Vec<u8>> {
+    data.chunks(size)
+        .map(|c| {
+            let mut v = c.to_vec();
+            v.resize(size, 0);
+            v
+        })
+        .collect()
+}
+
+/// Sends frames `which` of `frames` (FCD with their own numbers), three RCP and the end of the
+/// signal.
+pub fn send_fcds(s: &mut Sim, frames: &[Vec<u8>], which: &[usize]) {
+    s.send(Event::Signal(t30::RxSignal::Training));
+    for &i in which {
+        s.send(frame_ev(fcd(i as u8, &frames[i])));
+    }
+    for _ in 0..3 {
+        s.send(frame_ev(rcp()));
+    }
+    s.send(Event::Signal(t30::RxSignal::NoSignal));
+}
+
+/// The FIF of the last frame sent by the machine as `[fcf, fif...]`.
+pub fn last_tx(s: &Sim) -> Vec<u8> {
+    for (_, a) in s.trace.iter().rev() {
+        if let Action::SendFrames(fs) = a {
+            return fs.last().map(|f| f[2..].to_vec()).unwrap_or_default();
+        }
+    }
+    panic!("nothing sent")
+}
+
+/// A page of mostly white rows with two short black runs per row: it codes to a few octets per
+/// row, so a hole of one frame still leaves rows before it.
+pub fn sparse_bitmap(rows: usize, seed: u32) -> Vec<u8> {
+    let rb = 216;
+    let mut v = vec![0u8; rb * rows];
+    for y in 0..rows {
+        for (start, len) in [
+            (
+                (y as u32 * 37 + seed * 13) % 1600,
+                5 + (y as u32 + seed) % 30,
+            ),
+            ((y as u32 * 11 + seed * 7) % 1500, 8 + (y as u32 * 3) % 17),
+        ] {
+            for x in start..(start + len).min(1728) {
+                v[y * rb + (x / 8) as usize] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    v
+}

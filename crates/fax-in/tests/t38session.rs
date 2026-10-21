@@ -248,6 +248,7 @@ fn start_with(
         trunk: "t".into(),
         t38: negotiated(port, peer),
         udptl: UdptlSettings::default(),
+        fax: Default::default(),
         report: report.clone(),
         cancel: cancel_rx,
     };
@@ -449,6 +450,7 @@ async fn s06_a_port_that_is_taken_fails_the_session() {
             trunk: "t".into(),
             t38: negotiated(port, "127.0.0.1:9".parse().unwrap()),
             udptl: UdptlSettings::default(),
+            fax: Default::default(),
             report: Arc::default(),
             cancel: cancel_rx,
         };

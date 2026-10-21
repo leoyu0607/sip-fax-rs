@@ -146,9 +146,17 @@ pub struct Config {
     pub fine: bool,
     /// Offer T.4 two-dimensional coding (MR). MH is always offered.
     pub mr: bool,
-    /// Offer T.6 coding (MMR). T.30 only permits T.6 together with ECM, so this is `false` by
-    /// default until ECM exists (M3); a DCS that selects T.6 is decoded either way.
+    /// Offer T.6 coding (MMR). T.30 only permits T.6 together with ECM (Table 2 notes 9 and
+    /// 17), so the DIS carries bit 31 only when [`Config::ecm`] is set as well; a DCS that
+    /// selects T.6 is decoded either way.
     pub mmr: bool,
+    /// Offer and accept the error correction mode (T.30 Annex A, DIS bit 27). Off by default
+    /// in the library (the product configuration `[trunks.fax] ecm` defaults to on).
+    pub ecm: bool,
+    /// PPR responses tolerated for one block (counting from the last CTC) before the call is
+    /// dropped. A sender follows the fourth PPR with CTC or EOR, so this only stops a peer that
+    /// never does.
+    pub ecm_max_ppr: u32,
     /// Widest accepted page.
     pub max_width: PaperWidth,
     /// Longest accepted page.
@@ -196,6 +204,8 @@ impl Default for Config {
             fine: true,
             mr: true,
             mmr: false,
+            ecm: false,
+            ecm_max_ppr: 12,
             max_width: PaperWidth::A4,
             max_length: PaperLength::Unlimited,
             min_scan: MinScanTime::Ms0,

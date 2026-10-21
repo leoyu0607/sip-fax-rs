@@ -7,6 +7,15 @@
 //! the `t30` and `t4` crates take; unlike SpanDSP's internal representation nothing is
 //! bit-reversed here (checked against SpanDSP in the X tests).
 //!
+//! # ECM
+//!
+//! In the error correction mode the image is carried as HDLC frames at the image rate: after the
+//! training indicator come `hdlc-data` fields of a fast data type (`v17-14400` and the like)
+//! closed by `hdlc-fcs-OK` / `hdlc-fcs-BAD`, the last frame (the third RCP) with
+//! `-sig-end`. They are turned into the same [`Event::Frame`]s as V.21 frames; T.30 tells FCD and
+//! RCP frames from the commands by their FCF. A frame hit by a lost packet gets a bad FCS, which
+//! is how the frame ends up in the PPR bitmap.
+//!
 //! Real gateways repeat indicators and `sig-end` fields (the sender's redundancy and the
 //! "x3" rule), so repeats are recognised by context and dropped, the same way SpanDSP's
 //! `t38_terminal` does it.
@@ -53,7 +62,13 @@ impl RxAdapter {
             return;
         }
         self.indicator = Some(ind);
-        let signal = match ind {
+        let signal = Self::signal_of(ind);
+        self.indicator_event(signal, out);
+    }
+
+    /// The T.30 view of an indicator.
+    fn signal_of(ind: Indicator) -> Option<RxSignal> {
+        match ind {
             Indicator::NoSignal => Some(RxSignal::NoSignal),
             Indicator::Cng => Some(RxSignal::Cng),
             Indicator::Ced => Some(RxSignal::Ced),
@@ -77,7 +92,14 @@ impl RxAdapter {
             | Indicator::V34CntlChannel1200
             | Indicator::V34PriChannel
             | Indicator::V34CcRetrain => None,
-        };
+        }
+    }
+
+    fn is_training(ind: Option<Indicator>) -> bool {
+        ind.and_then(Self::signal_of) == Some(RxSignal::Training)
+    }
+
+    fn indicator_event(&mut self, signal: Option<RxSignal>, out: &mut Vec<Event>) {
         // A new signal starts with a clean slate.
         self.hdlc.clear();
         self.missing = false;
@@ -115,7 +137,25 @@ impl RxAdapter {
     }
 
     fn on_hdlc_field(&mut self, ft: FieldType, data: &[u8], out: &mut Vec<Event>) {
+        self.on_hdlc(ft, data, false, out);
+    }
+
+    /// HDLC fields of V.21 (`fast = false`) or of an image modem (ECM, `fast = true`).
+    fn on_hdlc(&mut self, ft: FieldType, data: &[u8], fast: bool, out: &mut Vec<Event>) {
         let (ok, sig_end) = match ft {
+            FieldType::HdlcData if fast => {
+                if !Self::is_training(self.indicator) {
+                    // HDLC data at image rate with no training indicator seen (lost): the
+                    // signal started with this field; a frame not starting with the address
+                    // octet lost its beginning.
+                    self.indicator = Some(Indicator::V17_14400LongTraining);
+                    self.hdlc.clear();
+                    self.missing = data.first() != Some(&0xFF);
+                    out.push(Event::Signal(RxSignal::Training));
+                }
+                self.append(data);
+                return;
+            }
             FieldType::HdlcData => {
                 if self.indicator != Some(Indicator::V21Preamble) {
                     // HDLC can start with no indicator at all; accept it, like SpanDSP, but
@@ -203,7 +243,12 @@ impl RxAdapter {
                 self.indicator = Some(Indicator::NoSignal);
                 out.push(Event::DataEnd);
             }
-            // HDLC on a fast modem is ECM, not part of M2.
+            FieldType::HdlcData
+            | FieldType::HdlcSigEnd
+            | FieldType::HdlcFcsOk
+            | FieldType::HdlcFcsBad
+            | FieldType::HdlcFcsOkSigEnd
+            | FieldType::HdlcFcsBadSigEnd => self.on_hdlc(ft, data, true, out),
             _ => self.ignored += 1,
         }
     }

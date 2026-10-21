@@ -89,12 +89,11 @@ proptest! {
 
     #[test]
     fn udptl_decode_arbitrary_bytes(bytes in prop::collection::vec(any::<u8>(), 0..300)) {
-        if let Ok(pkt) = UdptlPacket::decode(&bytes) {
-            if !pkt.primary.is_empty() {
+        if let Ok(pkt) = UdptlPacket::decode(&bytes)
+            && !pkt.primary.is_empty() {
                 let enc = pkt.encode().unwrap();
                 prop_assert_eq!(UdptlPacket::decode(&enc).unwrap(), pkt);
             }
-        }
         let mut rx = UdptlReceiver::default();
         let _ = rx.on_datagram(&bytes);
         let _ = rx.flush();
@@ -263,7 +262,7 @@ proptest! {
         let mut rx = UdptlReceiver::default();
         let mut events = Vec::new();
         for (i, d) in dg.iter().enumerate() {
-            if i >= offset && (i - offset) % period == 0 && i + 1 < n {
+            if i >= offset && (i - offset).is_multiple_of(period) && i + 1 < n {
                 continue;
             }
             events.extend(rx.on_datagram(d).unwrap());

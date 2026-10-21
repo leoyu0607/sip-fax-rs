@@ -10,7 +10,8 @@ use t30::{
 fn arb_frame() -> impl Strategy<Value = Vec<u8>> {
     let fcf = prop::sample::select(vec![
         0x01u8, 0x02, 0x41, 0xC1, 0x42, 0xC2, 0x21, 0x22, 0x31, 0x32, 0x33, 0x58, 0xD8, 0x5F, 0xDF,
-        0x71, 0xF1, 0x72, 0xF2, 0x74, 0xF4, 0x7D, 0xFD, 0x81, 0x53, 0x00, 0xFF,
+        0x71, 0xF1, 0x72, 0xF2, 0x74, 0xF4, 0x7D, 0xFD, 0x81, 0x53, 0x00, 0xFF, 0x60, 0x61, 0x48,
+        0xC8, 0x73, 0xF3, 0x76, 0xF6,
     ]);
     (
         any::<bool>(),
@@ -116,35 +117,39 @@ fn arb_config() -> impl Strategy<Value = Config> {
         0u8..3,
         0u8..3,
         0u8..8,
-        any::<bool>(),
+        (any::<bool>(), any::<bool>()),
     )
-        .prop_map(|(v27, v29, v17, fine, mr, mmr, w, l, scan, t38)| Config {
-            modems: Modems {
-                v27ter: v27,
-                v29,
-                v17,
+        .prop_map(
+            |(v27, v29, v17, fine, mr, mmr, w, l, scan, (t38, ecm))| Config {
+                ecm,
+                modems: Modems {
+                    v27ter: v27,
+                    v29,
+                    v17,
+                },
+                fine,
+                mr,
+                mmr,
+                max_width: [PaperWidth::A4, PaperWidth::B4, PaperWidth::A3][w as usize],
+                max_length: [PaperLength::A4, PaperLength::B4, PaperLength::Unlimited][l as usize],
+                min_scan: MinScanTime::from_code(scan),
+                t38_iaf: t38,
+                ..Config::default()
             },
-            fine,
-            mr,
-            mmr,
-            max_width: [PaperWidth::A4, PaperWidth::B4, PaperWidth::A3][w as usize],
-            max_length: [PaperLength::A4, PaperLength::B4, PaperLength::Unlimited][l as usize],
-            min_scan: MinScanTime::from_code(scan),
-            t38_iaf: t38,
-            ..Config::default()
-        })
+        )
 }
 
 proptest! {
     #[test]
     fn dis_round_trips_for_any_configuration(cfg in arb_config()) {
         let fif = build_dis_fif(&cfg);
-        prop_assert_eq!(fif.len(), if cfg.mmr { 4 } else { 3 });
+        prop_assert_eq!(fif.len(), if cfg.ecm { 4 } else { 3 });
         let d = Dis::parse(&fif);
-        prop_assert_eq!((d.fine, d.mr, d.mmr, d.t38_iaf), (cfg.fine, cfg.mr, cfg.mmr, cfg.t38_iaf));
+        // T.6 is only offered together with ECM (Table 2 notes 9 and 17)
+        prop_assert_eq!((d.fine, d.mr, d.mmr, d.t38_iaf), (cfg.fine, cfg.mr, cfg.ecm && cfg.mmr, cfg.t38_iaf));
         prop_assert_eq!((d.width, d.length, d.min_scan), (cfg.max_width, cfg.max_length, cfg.min_scan));
         prop_assert!(d.can_receive);
-        prop_assert!(!d.ecm && !d.uncompressed);
+        prop_assert!(d.ecm == cfg.ecm && !d.uncompressed);
         prop_assert_eq!(d.v17(), cfg.modems.v17);
         // V.17 always comes with V.29 and V.27ter
         if d.v17() { prop_assert!(d.v29() && d.v27ter()); }
@@ -152,5 +157,113 @@ proptest! {
         let mut frame = vec![0xFF, 0xC8, 0x01];
         frame.extend(&fif);
         prop_assert!(Frame::parse(&frame).is_ok());
+    }
+}
+
+// ---- ECM (M3d) ---------------------------------------------------------------------------
+
+mod common;
+
+/// ECM aware events: FCD frames with arbitrary numbers and lengths, RCP, PPS / EOR / CTC / RR with
+/// arbitrary FIF, plus the usual signals, timers and tx completions.
+fn arb_ecm_event() -> impl Strategy<Value = Event> {
+    let fcd = (
+        any::<u8>(),
+        prop::collection::vec(any::<u8>(), 0..70),
+        any::<bool>(),
+    )
+        .prop_map(|(n, d, ok)| Event::Frame {
+            data: common::fcd(n, &d),
+            fcs_ok: ok,
+        });
+    let cmd = (
+        prop::sample::select(vec![
+            0xFDu8, 0x7D, 0xF3, 0x73, 0xC8, 0x48, 0xF6, 0x76, 0x61, 0xDF,
+        ]),
+        prop::sample::select(vec![0x00u8, 0xF1, 0xF2, 0xF4, 0xF9, 0xFA, 0xFC, 0x55]),
+        prop::collection::vec(any::<u8>(), 0..5),
+        any::<bool>(),
+    )
+        .prop_map(|(fcf, q, rest, ok)| {
+            let mut fif = vec![q];
+            fif.extend(rest);
+            Event::Frame {
+                data: common::final_frame(fcf, &fif),
+                fcs_ok: ok,
+            }
+        });
+    prop_oneof![
+        10 => fcd,
+        10 => cmd,
+        3 => Just(Event::Frame { data: common::rcp(), fcs_ok: true }),
+        6 => Just(Event::TxComplete),
+        1 => Just(Event::Abort),
+        2 => prop::sample::select(vec![RxSignal::Training, RxSignal::NoSignal, RxSignal::V21Preamble]).prop_map(Event::Signal),
+        4 => prop::sample::select(Timer::ALL.to_vec()).prop_map(Event::Timer),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1500))]
+
+    #[test]
+    fn ecm_receiver_is_total_and_consistent(
+        events in prop::collection::vec(arb_ecm_event(), 0..80),
+        frame64 in any::<bool>(),
+        mmr in any::<bool>(),
+        max_ppr in 1u32..6,
+    ) {
+        let cfg = Config { ecm_max_ppr: max_ppr, max_rows: 300, ..common::ecm_config() };
+        let mut s = common::to_ecm_wait_block(cfg, &common::ecm_dcs(frame64, mmr, false));
+        let idx = |t: Timer| Timer::ALL.iter().position(|x| *x == t).unwrap();
+        let mut armed = [false; 4];
+        for (_, a) in &s.trace {
+            match a {
+                Action::StartTimer { timer, .. } => armed[idx(*timer)] = true,
+                Action::CancelTimer(t) => armed[idx(*t)] = false,
+                _ => {}
+            }
+        }
+        let mut dones = 0;
+        let mut last_page = 0;
+        for ev in events {
+            s.now += 5;
+            let was_done = s.rx.is_done();
+            let out = s.send(ev);
+            if was_done {
+                prop_assert!(out.is_empty(), "actions after Done");
+            }
+            for a in &out {
+                match a {
+                    Action::StartTimer { timer, ms } => { armed[idx(*timer)] = true; prop_assert!(*ms > 0); }
+                    Action::CancelTimer(t) => { prop_assert!(armed[idx(*t)], "cancel of a timer that is not running"); armed[idx(*t)] = false; }
+                    Action::Page(p) => {
+                        prop_assert_eq!(p.number, last_page + 1);
+                        last_page = p.number;
+                        prop_assert_eq!(p.bitmap.len() as u32, p.rows * p.width.div_ceil(8));
+                        prop_assert!(p.rows > 0 && p.rows <= 300);
+                    }
+                    Action::Done(r) => {
+                        dones += 1;
+                        prop_assert_eq!(r.bad_lines_per_page.len() as u32, r.pages);
+                    }
+                    Action::SendFrames(f) => {
+                        prop_assert!(!f.is_empty());
+                        for fr in f {
+                            prop_assert!(Frame::parse(fr).is_ok());
+                            // a PPR is a 256 bit map, ERR / CTR / MCF carry no FIF
+                            match fr[2] {
+                                0x3D => prop_assert_eq!(fr.len(), 3 + 32),
+                                0x38 | 0x23 | 0x31 | 0x5F => prop_assert_eq!(fr.len(), 3),
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            prop_assert_eq!(s.rx.is_done(), s.rx.state() == State::Done);
+        }
+        prop_assert!(dones <= 1);
     }
 }

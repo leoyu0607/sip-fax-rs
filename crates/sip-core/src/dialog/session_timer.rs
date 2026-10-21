@@ -40,14 +40,14 @@ pub fn parse_session_expires(v: &str) -> Option<SessionExpires> {
     let delta = parts.next()?.trim().parse::<u32>().ok()?;
     let mut refresher = None;
     for p in parts {
-        if let Some((n, val)) = p.split_once('=') {
-            if n.trim().eq_ignore_ascii_case("refresher") {
-                refresher = match val.trim().to_ascii_lowercase().as_str() {
-                    "uac" => Some(Refresher::Uac),
-                    "uas" => Some(Refresher::Uas),
-                    _ => None,
-                };
-            }
+        if let Some((n, val)) = p.split_once('=')
+            && n.trim().eq_ignore_ascii_case("refresher")
+        {
+            refresher = match val.trim().to_ascii_lowercase().as_str() {
+                "uac" => Some(Refresher::Uac),
+                "uas" => Some(Refresher::Uas),
+                _ => None,
+            };
         }
     }
     Some(SessionExpires { delta, refresher })

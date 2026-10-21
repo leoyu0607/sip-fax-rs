@@ -19,6 +19,14 @@ fuzz_target!(|data: &[u8]| {
         assert!(d.width.pixels() >= 1728 && d.x_dpi() >= 200 && d.y_dpi() >= 98);
         let _ = d.unsupported();
     }
+    // CTC carries two octets of DCS bits (the rate); any slice must be total
+    if let Ok((_, rate)) = t30::parse_rate(data) {
+        assert!((2400..=14400).contains(&rate));
+    }
+    // ECM: FCD frame number and PPS counters are LSB first
+    if let Some((&n, _)) = data.split_first() {
+        assert_eq!(t30::lsb_first(t30::lsb_first(n)), n);
+    }
     let id = t30::decode_ident(data);
     assert!(id.len() <= 20);
     for n in [0usize, 1, 8, 9, 24, 25, 1000] {

@@ -222,17 +222,17 @@ impl T38Engine {
                 .map(|h| h.deadline_us)
                 .filter(|d| *d <= limit);
             let earliest = [item_at, timer.map(|(d, _)| d)].into_iter().flatten().min();
-            if let Some(d) = held_at {
-                if earliest.is_none_or(|e| d <= e) {
-                    self.clock_us = self.clock_us.max(d);
-                    self.note(format!(
-                        "peer V.21 signal end not seen within {} ms: answering anyway",
-                        self.cfg.pacing.peer_signal_wait_ms
-                    ));
-                    self.peer_v21 = false;
-                    self.release_held(d);
-                    continue;
-                }
+            if let Some(d) = held_at
+                && earliest.is_none_or(|e| d <= e)
+            {
+                self.clock_us = self.clock_us.max(d);
+                self.note(format!(
+                    "peer V.21 signal end not seen within {} ms: answering anyway",
+                    self.cfg.pacing.peer_signal_wait_ms
+                ));
+                self.peer_v21 = false;
+                self.release_held(d);
+                continue;
             }
             match (item_at, timer) {
                 (None, None) => break,

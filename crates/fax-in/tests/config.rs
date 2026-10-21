@@ -345,3 +345,40 @@ fn m2d_bad_udptl_settings_and_unknown_storage_keys_are_rejected() {
             || err("[call]\nfax_session = \"nope\"\n").contains("nope")
     );
 }
+
+#[test]
+fn m3d_fax_section_defaults_and_values() {
+    let c = parse("[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n");
+    let f = &c.trunks[0].fax;
+    assert_eq!(f.resolutions, ["standard", "fine"]);
+    // ECM is off by default until verified against a real gateway (ADR-035).
+    assert!(!f.ecm && f.fine());
+    let c = parse(
+        "[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.fax]\nresolutions = [\"standard\"]\necm = false\n",
+    );
+    let f = &c.trunks[0].fax;
+    assert!(!f.ecm && !f.fine());
+    let c = parse(
+        "[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.fax]\nresolutions = [\"fine\"]\n",
+    );
+    assert!(c.trunks[0].fax.fine() && !c.trunks[0].fax.ecm);
+}
+
+#[test]
+fn m3d_fax_section_rejects_invalid_values() {
+    for (bad, needle) in [
+        ("resolutions = []", "empty"),
+        ("resolutions = [\"superfine\"]", "superfine"),
+        ("resolutions = [\"standard\", \"Fine\"]", "Fine"),
+        ("resolutions = \"fine\"", "resolutions"),
+        ("ecm = \"yes\"", "ecm"),
+        ("mmr = true", "mmr"),
+    ] {
+        let e = err(&format!(
+            "[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.fax]\n{bad}\n"
+        ));
+        assert!(e.contains(needle), "{bad}: {e}");
+    }
+    let e = err("[[trunks]]\nname = \"a\"\npeer = \"1.2.3.4\"\n[trunks.fax]\nresolutions = []\n");
+    assert!(e.contains("[trunks.fax]") && e.contains("\"a\""), "{e}");
+}

@@ -504,7 +504,7 @@ async fn relay(a_real: SocketAddr, b_real: SocketAddr, seed: u64) -> Relay {
                     (ba[..n].to_vec(), b_sock.clone(), a_real)
                 }
             };
-            if splitmix(&mut state) % 10 == 0 {
+            if splitmix(&mut state).is_multiple_of(10) {
                 d2.fetch_add(1, Ordering::SeqCst);
                 continue;
             }

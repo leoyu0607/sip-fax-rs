@@ -1,5 +1,5 @@
 //! `sip-uac --target 127.0.0.1:5060 --mode gateway|server|initial [--transport udp|tcp]
-//!          [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3]]`
+//!          [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]`
 //!
 //! Places one simulated gateway call into a SIP fax server (see `fax_sim::sip_uac`) and prints
 //! what the server answered. With `--fax` the gateway really sends the TIFF over T.38
@@ -14,7 +14,7 @@ use t38::ErrorRecovery;
 fn usage() -> ! {
     eprintln!(
         "usage: sip-uac --target ip:port --mode gateway|server|initial [--transport udp|tcp] \
-         [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3]]"
+         [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]"
     );
     std::process::exit(2);
 }
@@ -26,6 +26,7 @@ async fn main() {
     let mut transport = TransportKind::Udp;
     let mut fax: Option<FaxTx> = None;
     let (mut redundancy, mut loss, mut seed, mut version) = (3u8, 0u32, 1u64, 0u8);
+    let mut ecm = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match (a.as_str(), args.next()) {
@@ -50,6 +51,7 @@ async fn main() {
             ("--loss", Some(v)) => loss = v.parse().unwrap_or_else(|_| usage()),
             ("--seed", Some(v)) => seed = v.parse().unwrap_or_else(|_| usage()),
             ("--version", Some(v)) => version = v.parse().unwrap_or_else(|_| usage()),
+            ("--ecm", Some(v)) => ecm = v == "on",
             _ => usage(),
         }
     }
@@ -61,6 +63,7 @@ async fn main() {
         f.loss_permille = loss;
         f.seed = seed;
         f.version = version;
+        f.ecm = ecm;
         cfg.t38_version = version;
         cfg.fax = Some(f);
     }

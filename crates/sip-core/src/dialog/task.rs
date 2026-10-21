@@ -143,10 +143,10 @@ impl Timers {
         ];
         let mut best: Option<(T, Instant)> = None;
         for (t, at) in all {
-            if let Some(at) = at {
-                if best.is_none_or(|(_, b)| at < b) {
-                    best = Some((t, at));
-                }
+            if let Some(at) = at
+                && best.is_none_or(|(_, b)| at < b)
+            {
+                best = Some((t, at));
             }
         }
         best
@@ -306,23 +306,23 @@ impl DialogTask {
             return;
         }
         self.terminated = true;
-        if let Some(a) = self.active.take() {
-            if let Some(r) = a.job.reply {
-                let _ = r.send(Err(DialogError::Terminated));
-            }
+        if let Some(a) = self.active.take()
+            && let Some(r) = a.job.reply
+        {
+            let _ = r.send(Err(DialogError::Terminated));
         }
-        if let Some(j) = self.retry.take() {
-            if let Some(r) = j.reply {
-                let _ = r.send(Err(DialogError::Terminated));
-            }
+        if let Some(j) = self.retry.take()
+            && let Some(r) = j.reply
+        {
+            let _ = r.send(Err(DialogError::Terminated));
         }
         for (_, r) in self.queue.drain(..) {
             let _ = r.send(Err(DialogError::Terminated));
         }
-        if let Some(b) = self.bye.take() {
-            if let Some(r) = b.reply {
-                let _ = r.send(Err(DialogError::Terminated));
-            }
+        if let Some(b) = self.bye.take()
+            && let Some(r) = b.reply
+        {
+            let _ = r.send(Err(DialogError::Terminated));
         }
         self.pending_2xx = None;
         self.emit(DialogEvent::Terminated(reason));
@@ -393,12 +393,13 @@ impl DialogTask {
                 .push("Contact", self.dialog.local_contact.to_string());
         }
         self.ep.decorate(&mut r.headers);
-        if status.is_success() && req.method == Method::Invite {
-            if let Some(v) = self.session_value(true) {
-                r.headers.push("Session-Expires", v);
-                if !self.we_refresh() {
-                    r.headers.push("Require", "timer");
-                }
+        if status.is_success()
+            && req.method == Method::Invite
+            && let Some(v) = self.session_value(true)
+        {
+            r.headers.push("Session-Expires", v);
+            if !self.we_refresh() {
+                r.headers.push("Require", "timer");
             }
         }
         if let Some(s) = sdp {
@@ -451,10 +452,10 @@ impl DialogTask {
             .transport()
             .stamp_request(&mut req, built.hop.transport);
         self.send_to(req.clone(), dest, built.hop.transport).await;
-        if self.acks.len() >= 8 {
-            if let Some(oldest) = self.acks.keys().min().copied() {
-                self.acks.remove(&oldest);
-            }
+        if self.acks.len() >= 8
+            && let Some(oldest) = self.acks.keys().min().copied()
+        {
+            self.acks.remove(&oldest);
         }
         self.acks.insert(cseq, (req, dest, built.hop.transport));
     }
@@ -568,12 +569,12 @@ impl DialogTask {
             request: req, tx, ..
         } = ir;
         let n = req.headers.cseq().map(|c| c.seq).unwrap_or(0);
-        if let Some(r) = self.dialog.remote_seq {
-            if n < r {
-                let resp = self.response(&req, StatusCode::SERVER_INTERNAL_ERROR, None, false);
-                self.reply(&tx, resp).await;
-                return;
-            }
+        if let Some(r) = self.dialog.remote_seq
+            && n < r
+        {
+            let resp = self.response(&req, StatusCode::SERVER_INTERNAL_ERROR, None, false);
+            self.reply(&tx, resp).await;
+            return;
         }
         self.dialog.remote_seq = Some(n);
         if self.bye.is_some() && req.method != Method::Bye {
@@ -666,18 +667,17 @@ impl DialogTask {
             .headers
             .get("Session-Expires")
             .and_then(session_timer::parse_session_expires)
+            && cfg.enabled
         {
-            if cfg.enabled {
-                let we_refresh = match se.refresher {
-                    Some(Refresher::Uac) => false,
-                    Some(Refresher::Uas) => true,
-                    None => self.we_refresh(),
-                };
-                self.session = Some(Session {
-                    interval: se.delta,
-                    we_refresh,
-                });
-            }
+            let we_refresh = match se.refresher {
+                Some(Refresher::Uac) => false,
+                Some(Refresher::Uas) => true,
+                None => self.we_refresh(),
+            };
+            self.session = Some(Session {
+                interval: se.delta,
+                we_refresh,
+            });
         }
         let id = self.next_responder_id;
         self.next_responder_id += 1;
@@ -889,10 +889,10 @@ impl DialogTask {
             }
             TuEvent::Timeout if self.active.as_ref().is_some_and(|a| a.cseq == cseq) => {
                 self.timers.clear(T::Reinvite);
-                if let Some(a) = self.active.take() {
-                    if !a.cancelled {
-                        Self::outcome(a.job, Ok(ReinviteOutcome::Timeout));
-                    }
+                if let Some(a) = self.active.take()
+                    && !a.cancelled
+                {
+                    Self::outcome(a.job, Ok(ReinviteOutcome::Timeout));
                 }
             }
             TuEvent::TransportError if self.active.as_ref().is_some_and(|a| a.cseq == cseq) => {
@@ -955,13 +955,13 @@ impl DialogTask {
             self.retry = Some(a.job);
             return;
         }
-        if matches!(code, 401 | 407) && !a.job.auth_tried {
-            if let Some(auth) = auth_for(&self.ep.cfg, &resp, "INVITE", &a.request.uri.to_string())
-            {
-                a.job.auth_tried = true;
-                self.launch(a.job, Some(auth)).await;
-                return;
-            }
+        if matches!(code, 401 | 407)
+            && !a.job.auth_tried
+            && let Some(auth) = auth_for(&self.ep.cfg, &resp, "INVITE", &a.request.uri.to_string())
+        {
+            a.job.auth_tried = true;
+            self.launch(a.job, Some(auth)).await;
+            return;
         }
         let refresh_dead = a.job.is_refresh && matches!(code, 408 | 481);
         Self::outcome(a.job, Ok(ReinviteOutcome::Rejected(resp.status)));
@@ -988,10 +988,10 @@ impl DialogTask {
         }
         if let Some(cancel) = cancel {
             let kind = self.dialog.next_hop().transport;
-            if let Some(dest) = self.dialog.next_hop().resolve().await {
-                if let Ok(tx) = self.ep.layer.send_request(cancel, dest, kind) {
-                    self.spawn_forward(tx.events, Purpose::Cancel);
-                }
+            if let Some(dest) = self.dialog.next_hop().resolve().await
+                && let Ok(tx) = self.ep.layer.send_request(cancel, dest, kind)
+            {
+                self.spawn_forward(tx.events, Purpose::Cancel);
             }
             // keep the INVITE transaction tracked until its 487 (or a racing 2xx) arrives
             self.timers.set(
@@ -1063,13 +1063,13 @@ impl DialogTask {
             TuEvent::Response(r) if r.status.is_provisional() => self.bye = Some(b),
             TuEvent::Response(r) => {
                 let code = r.status.code();
-                if matches!(code, 401 | 407) && !b.auth_tried {
-                    if let Some(auth) =
+                if matches!(code, 401 | 407)
+                    && !b.auth_tried
+                    && let Some(auth) =
                         auth_for(&self.ep.cfg, &r, "BYE", &b.request.uri.to_string())
-                    {
-                        self.send_bye(b.reply, b.reason, true, Some(auth)).await;
-                        return;
-                    }
+                {
+                    self.send_bye(b.reply, b.reason, true, Some(auth)).await;
+                    return;
                 }
                 if let Some(rp) = b.reply {
                     let _ = rp.send(Ok(r.status));

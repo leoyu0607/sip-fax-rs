@@ -176,6 +176,14 @@ peer = "203.0.113.10:5060"
 # transcoding_jbig = false
 
 # Tolerance switches for peers without a specification.
+[trunks.fax]
+# What the DIS advertises (ITU-T T.30 Annex A). The sender chooses within it.
+# resolutions = ["standard", "fine"]   # vertical resolutions offered: "standard" (3.85 l/mm) and/or "fine" (7.7 l/mm).
+#                                      # Must not be empty. T.30 cannot say "fine only": standard is the
+#                                      # base resolution of every terminal, so ["fine"] offers fine (bit 15).
+# ecm = false                          # error correction mode (DIS bit 27) and, with it, MMR (T.6, bit 31).
+#                                      # Off by default until verified against a real gateway; set true to test ECM.
+
 [trunks.compat]
 # Accept INVITEs whose Require lists option tags we do not know (default: answer 420 with
 # an Unsupported header).

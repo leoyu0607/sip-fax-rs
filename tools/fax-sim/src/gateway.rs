@@ -60,6 +60,9 @@ pub struct FaxTx {
     pub compressions: Option<i32>,
     /// `T30_IAF_MODE_*` (`None` = default, with TCF).
     pub iaf: Option<i32>,
+    /// Enable ECM on the SpanDSP terminal (`t30_set_ecm_capability`; SpanDSP then uses ECM when
+    /// the server's DIS offers it, with 256 octet frames).
+    pub ecm: bool,
     /// Gateway behaviours on top of SpanDSP's.
     pub quirks: GatewayQuirks,
     /// Wall-clock limit of the whole transfer.
@@ -84,6 +87,7 @@ impl FaxTx {
             modems: None,
             compressions: None,
             iaf: None,
+            ecm: false,
             quirks: GatewayQuirks::default(),
             timeout: Duration::from_secs(120),
             linger: Duration::from_millis(600),
@@ -141,7 +145,7 @@ pub fn run_fax(
     let cfg = T30Config {
         tx_file: Some(&tx.tiff),
         rx_file: None,
-        ecm: false,
+        ecm: tx.ecm,
         ident: &tx.ident,
         modems: tx.modems,
         compressions: tx.compressions,

@@ -439,18 +439,18 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
             .clone()
     });
     // A call that ended "normally" without delivering the fax is a failure.
-    if let (CallOutcome::Completed, Some(f)) = (&outcome, &fax) {
-        if f.code != 0 || f.store_error.is_some() {
-            outcome = failed(FailureReason::Session {
-                detail: match &f.store_error {
-                    Some(e) => format!("fax received but not stored: {e}"),
-                    None => format!(
-                        "T.30 {} ({}) after {} page(s)",
-                        f.code_name, f.code, f.pages
-                    ),
-                },
-            });
-        }
+    if let (CallOutcome::Completed, Some(f)) = (&outcome, &fax)
+        && (f.code != 0 || f.store_error.is_some())
+    {
+        outcome = failed(FailureReason::Session {
+            detail: match &f.store_error {
+                Some(e) => format!("fax received but not stored: {e}"),
+                None => format!(
+                    "T.30 {} ({}) after {} page(s)",
+                    f.code_name, f.code, f.pages
+                ),
+            },
+        });
     }
     let result = CallResult {
         call_id: call_id.clone(),
@@ -693,6 +693,7 @@ impl Live<'_> {
                 fec_span: t38cfg.fec_span,
                 fec_entries: t38cfg.fec_entries,
             },
+            fax: self.trunk.cfg.fax.clone(),
             report,
             cancel: cancel_rx,
         };

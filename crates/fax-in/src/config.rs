@@ -421,6 +421,63 @@ impl Default for T38Section {
     }
 }
 
+/// `[trunks.fax]`: what the DIS offers (docs/design/m3-store.md sections 8 and 10).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FaxSection {
+    /// Vertical resolutions advertised: `"standard"` (3.85 lines/mm) and / or `"fine"`
+    /// (7.7 lines/mm). Default both. T.30 cannot express "fine only": standard is the base
+    /// resolution every terminal supports, so `["fine"]` advertises fine (DIS bit 15) and a
+    /// DCS for standard is still accepted.
+    pub resolutions: Vec<String>,
+    /// Offer the error correction mode (T.30 Annex A, DIS bit 27) and, with it, MMR (T.6, bit
+    /// 31). Default off until ECM has been verified against a real gateway (ADR-035).
+    pub ecm: bool,
+}
+
+impl Default for FaxSection {
+    fn default() -> Self {
+        FaxSection {
+            resolutions: vec!["standard".into(), "fine".into()],
+            ecm: false,
+        }
+    }
+}
+
+impl FaxSection {
+    /// The resolution names this build can advertise.
+    pub const SUPPORTED_RESOLUTIONS: [&'static str; 2] = ["standard", "fine"];
+
+    /// Fine resolution is listed (DIS bit 15).
+    pub fn fine(&self) -> bool {
+        self.resolutions.iter().any(|r| r == "fine")
+    }
+
+    /// Checks the list: not empty, only supported names.
+    ///
+    /// # Errors
+    /// A message naming the offending value.
+    pub fn check(&self) -> Result<(), String> {
+        if self.resolutions.is_empty() {
+            return Err(format!(
+                "resolutions is empty (use any of {:?})",
+                Self::SUPPORTED_RESOLUTIONS
+            ));
+        }
+        if let Some(bad) = self
+            .resolutions
+            .iter()
+            .find(|r| !Self::SUPPORTED_RESOLUTIONS.contains(&r.as_str()))
+        {
+            return Err(format!(
+                "resolutions: unsupported value \"{bad}\" (supported: {:?})",
+                Self::SUPPORTED_RESOLUTIONS
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// `[trunks.compat]`: tolerance switches for peers without a specification.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -507,6 +564,8 @@ pub struct TrunkConfig {
     pub compat: CompatSection,
     /// Registration.
     pub register: RegisterSection,
+    /// Fax capabilities advertised in the DIS.
+    pub fax: FaxSection,
 }
 
 impl Default for TrunkConfig {
@@ -523,6 +582,7 @@ impl Default for TrunkConfig {
             t38: T38Section::default(),
             compat: CompatSection::default(),
             register: RegisterSection::default(),
+            fax: FaxSection::default(),
         }
     }
 }
@@ -709,6 +769,9 @@ impl FaxInConfig {
                     t.name
                 ));
             }
+            if let Err(e) = t.fax.check() {
+                return invalid(format!("trunk \"{}\": [trunks.fax] {e}", t.name));
+            }
         }
         Ok(())
     }
@@ -784,17 +847,16 @@ fn dedup(mut v: Vec<TransportName>) -> Vec<TransportName> {
 
 /// Splits `host`, `host:port`, `[v6]` or `[v6]:port` (the port is `None` when absent).
 pub fn split_host_port(s: &str) -> (&str, Option<u16>) {
-    if let Some(rest) = s.strip_prefix('[') {
-        if let Some((host, tail)) = rest.split_once(']') {
-            return (host, tail.strip_prefix(':').and_then(|p| p.parse().ok()));
-        }
+    if let Some(rest) = s.strip_prefix('[')
+        && let Some((host, tail)) = rest.split_once(']')
+    {
+        return (host, tail.strip_prefix(':').and_then(|p| p.parse().ok()));
     }
-    if s.matches(':').count() == 1 {
-        if let Some((h, p)) = s.split_once(':') {
-            if let Ok(p) = p.parse() {
-                return (h, Some(p));
-            }
-        }
+    if s.matches(':').count() == 1
+        && let Some((h, p)) = s.split_once(':')
+        && let Ok(p) = p.parse()
+    {
+        return (h, Some(p));
     }
     (s, None)
 }

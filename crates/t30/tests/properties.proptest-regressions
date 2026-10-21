@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 540896c3e7dd11167f71a0ee50db0871b5a21c6ab00e9072276929df746f89fb # shrinks to cfg = Config { local_id: "", modems: Modems { v27ter: false, v29: false, v17: false }, fine: false, mr: false, mmr: true, ecm: false, ecm_max_ppr: 12, max_width: A4, max_length: A4, min_scan: Ms20, t38_iaf: false, tcf: Transferred, local_tcf_sends_cfr: false, tcf_min_ms: 1200, tcf_zero_percent: 95, rtn_bad_percent: 10, rtp_bad_percent: 5, max_bad_run_tenth_mm: 25, timers: Timers { t1_ms: 35000, t2_ms: 6000, t4_ms: 3000, data_idle_ms: 15000 }, dis_retries: 3, max_rows: 16384, crp_on_bad_fcs: false, max_unexpected_frames: 3 }
+cc 94daa2ed84c59e1844613d8067e118920d214e2a481eb4b44995f6a830d8ede9 # shrinks to events = [Frame { data: [255, 200, 243, 241], fcs_ok: true }, TxComplete, Frame { data: [255, 200, 223, 0], fcs_ok: true }], frame64 = false, mmr = false, max_ppr = 1

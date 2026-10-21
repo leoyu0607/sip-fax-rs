@@ -1,0 +1,160 @@
+//! Embedded, forward-only migrations (spec section 1.3). One SQL directory per backend:
+//! `crates/store/migrations/<backend>/NNNN_name.sql`, compiled into the binary.
+
+use crate::clock::Clock;
+use crate::db::{Backend, BackendKind, Kind, Val, split_statements};
+use crate::error::{Error, Result};
+
+/// One migration.
+pub struct Migration {
+    /// Version number (the NNNN prefix).
+    pub version: i32,
+    /// Name.
+    pub name: &'static str,
+    /// SQL text.
+    pub sql: &'static str,
+}
+
+// include_str! needs literal file names, so the list is spelled out per backend.
+static SQLITE: &[Migration] = &[Migration {
+    version: 1,
+    name: "init",
+    sql: include_str!("../migrations/sqlite/0001_init.sql"),
+}];
+static POSTGRES: &[Migration] = &[Migration {
+    version: 1,
+    name: "init",
+    sql: include_str!("../migrations/postgres/0001_init.sql"),
+}];
+static MYSQL: &[Migration] = &[Migration {
+    version: 1,
+    name: "init",
+    sql: include_str!("../migrations/mysql/0001_init.sql"),
+}];
+static MSSQL: &[Migration] = &[Migration {
+    version: 1,
+    name: "init",
+    sql: include_str!("../migrations/mssql/0001_init.sql"),
+}];
+
+/// Migrations of a backend, ascending by version.
+pub fn migrations(kind: BackendKind) -> &'static [Migration] {
+    match kind {
+        BackendKind::Sqlite => SQLITE,
+        BackendKind::Postgres => POSTGRES,
+        BackendKind::Mysql => MYSQL,
+        BackendKind::Mssql => MSSQL,
+    }
+}
+
+/// Highest schema version this binary knows.
+pub fn latest_version(kind: BackendKind) -> i32 {
+    migrations(kind).last().map_or(0, |m| m.version)
+}
+
+/// What a migration run did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrateReport {
+    /// Version before (0 = empty database).
+    pub from: i32,
+    /// Version after.
+    pub to: i32,
+    /// Versions applied by this run.
+    pub applied: Vec<i32>,
+}
+
+fn bootstrap_sql(kind: BackendKind) -> &'static str {
+    match kind {
+        BackendKind::Sqlite => {
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
+        }
+        BackendKind::Postgres => {
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER NOT NULL PRIMARY KEY, name VARCHAR(64) NOT NULL, applied_at TIMESTAMPTZ NOT NULL)"
+        }
+        BackendKind::Mysql => {
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INT NOT NULL PRIMARY KEY, name VARCHAR(64) NOT NULL, applied_at DATETIME(3) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        }
+        BackendKind::Mssql => {
+            "IF OBJECT_ID(N'schema_migrations', N'U') IS NULL CREATE TABLE schema_migrations (version INT NOT NULL PRIMARY KEY, name NVARCHAR(64) NOT NULL, applied_at DATETIME2(3) NOT NULL)"
+        }
+    }
+}
+
+fn exists_sql(kind: BackendKind) -> &'static str {
+    match kind {
+        BackendKind::Sqlite => {
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+        }
+        BackendKind::Postgres => {
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'schema_migrations' AND table_schema = current_schema()"
+        }
+        BackendKind::Mysql => {
+            "SELECT table_name FROM information_schema.tables WHERE table_name = 'schema_migrations' AND table_schema = DATABASE()"
+        }
+        BackendKind::Mssql => "SELECT name FROM sys.tables WHERE name = 'schema_migrations'",
+    }
+}
+
+/// Current schema version; 0 when the database has no `schema_migrations` table yet.
+pub async fn current_version(be: &dyn Backend) -> Result<i32> {
+    if be
+        .query(exists_sql(be.kind()), &[], &[Kind::Str])
+        .await?
+        .is_empty()
+    {
+        return Ok(0);
+    }
+    let rows = be
+        .query(
+            "SELECT MAX(version) FROM schema_migrations",
+            &[],
+            &[Kind::Int],
+        )
+        .await?;
+    match rows.first().and_then(|r| r.first()) {
+        Some(Val::I(Some(v))) => Ok(*v as i32),
+        _ => Ok(0),
+    }
+}
+
+/// Refuse a database that is newer than this binary.
+pub async fn check_not_newer(be: &dyn Backend) -> Result<i32> {
+    let db = current_version(be).await?;
+    let supported = latest_version(be.kind());
+    if db > supported {
+        return Err(Error::SchemaTooNew { db, supported });
+    }
+    Ok(db)
+}
+
+/// Apply all pending migrations. Idempotent. Not safe against two processes migrating the same
+/// database at the same instant (the second would fail on the duplicate `schema_migrations` row
+/// or on `CREATE TABLE`); run `sip-faxd db migrate` once, or let a single instance auto-migrate.
+pub async fn migrate(be: &dyn Backend, clock: &dyn Clock) -> Result<MigrateReport> {
+    let kind = be.kind();
+    let from = check_not_newer(be).await?;
+    be.execute(bootstrap_sql(kind), &[]).await?;
+    let mut applied = Vec::new();
+    for m in migrations(kind).iter().filter(|m| m.version > from) {
+        for stmt in split_statements(m.sql) {
+            be.execute(&stmt, &[]).await.map_err(|e| {
+                Error::Backend(format!("migration {:04}_{}: {e}", m.version, m.name))
+            })?;
+        }
+        be.execute(
+            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+            &[
+                Val::from(m.version),
+                Val::from(m.name),
+                Val::from(crate::model::trunc_ms(clock.now())),
+            ],
+        )
+        .await?;
+        applied.push(m.version);
+    }
+    Ok(MigrateReport {
+        from,
+        to: from.max(applied.last().copied().unwrap_or(from)),
+        applied,
+    })
+}
