@@ -76,7 +76,7 @@
 - [x] [Sonnet] 每個 trunk 可以設定 DIS 要宣告哪些解析度（standard/fine；superfine、300/400 dpi 視需求再評估）（2026-10-21 使用者詢問）
 - [ ] [Sonnet] M3b 追加：migration 並行鎖（advisory lock）、MySQL 非交易 DDL 的可重跑性、本機 musl 建置改走 Docker 或固定 zig 0.14（M3a 審核）
 - [ ] [Sonnet] M3b 追加：result.json、DB 和 config check 顯示 ECM 與協商結果（M3d 審核）
-- [ ] [Any] db-matrix 第一次在 GitHub 跑完後，把檢查名稱加進 branch protection
+- [x] [Any] db-matrix 第一次在 GitHub 跑完後，把檢查名稱加進 `scripts/branch-protection.json`（使用者需重新套用）
 - [ ] [Sonnet] 清整排程：檔案（TIFF/PDF/PNG）和紀錄分別設定保留天數，刪檔後紀錄標記「檔案已清除」；測試要涵蓋時間邊界和刪檔失敗的情況
 - [x] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
 - [x] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）

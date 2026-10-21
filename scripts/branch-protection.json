@@ -9,7 +9,11 @@
       "build-musl (aarch64-unknown-linux-musl)",
       "smoke-rhel (rockylinux/rockylinux:9)",
       "smoke-rhel (almalinux:10)",
-      "e2e-spandsp"
+      "e2e-spandsp",
+      "db-matrix (postgres)",
+      "db-matrix (mysql)",
+      "db-matrix (mariadb)",
+      "db-matrix (mssql)"
     ]
   },
   "enforce_admins": false,
