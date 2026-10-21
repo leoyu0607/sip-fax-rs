@@ -12,7 +12,7 @@ rm -rf "$STAGE" && mkdir -p "$STAGE"/{conf,data,logs}
 cp "$ROOT/target/$TARGET/release/sip-faxd" "$STAGE/"
 cp "$ROOT/conf/sip-faxd.toml.example" "$STAGE/conf/"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/README.zh-TW.md" "$ROOT/CHANGELOG.md" "$STAGE/"
-mkdir -p "$STAGE/docs" && cp "$ROOT/docs/field-test.md" "$STAGE/docs/"
+mkdir -p "$STAGE/docs" && cp "$ROOT/docs/field-test.md" "$ROOT/docs/database.md" "$STAGE/docs/"
 export COPYFILE_DISABLE=1   # no macOS ._ AppleDouble files in local builds
 # Store files as root:root so extracting as root never maps them to an unrelated local
 # user (the build machine's uid would otherwise be restored, e.g. showing up as mysql).

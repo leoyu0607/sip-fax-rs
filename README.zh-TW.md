@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3，尚未發佈）：**傳真紀錄存入資料庫**（列表含 ANI/DNIS、掛線原因、接收中狀態與頁數、清整）、ECM 接收（預設關閉）、每個 trunk 的解析度設定；**投遞**到資料夾、Email 或 Webhook（`[[routes]]`，失敗會持久化重試）也已完成；M3 還沒做完的有介面上的 PNG 預覽。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** alpha，現場試接中（最新版：[v0.2.0-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.2.0-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（MH/MR/MMR、最高 14400 bit/s；ECM 已支援但預設關閉），並輸出成 TIFF 與 PDF。每通電話都會**記錄到資料庫**（預設 SQLite；也支援 PostgreSQL、MySQL/MariaDB、MSSQL），包含 ANI/DNIS、掛線原因與狀態；檔案與紀錄依設定的天數自動清整；傳真可以**投遞**到資料夾、Email 或 Webhook，失敗會持久化重試。尚未提供：管理介面（M4）、G.711 passthrough（M5）。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 

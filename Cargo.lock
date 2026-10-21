@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "delivery"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -675,7 +675,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fax-in"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "fax-modem"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "fdeflate"
@@ -2188,7 +2188,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "sip-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "md-5 0.10.6",
@@ -2201,7 +2201,7 @@ dependencies = [
 
 [[package]]
 name = "sip-faxd"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2436,7 +2436,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "store"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bb8",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "t30"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proptest",
  "t4",
@@ -2529,7 +2529,7 @@ dependencies = [
 
 [[package]]
 name = "t38"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proptest",
  "thiserror",
@@ -2537,7 +2537,7 @@ dependencies = [
 
 [[package]]
 name = "t4"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "png",
  "proptest",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "web"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "web-sys"
