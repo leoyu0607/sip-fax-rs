@@ -2,7 +2,7 @@
 
 - 實作與執行：Sonnet（M4a）
 - 計畫：`docs/test-plans/M4.md` §0、§1 K01–K13、§2 A01–A13、§7 M14、§8 R01–R05；規格：`docs/design/m4-web.md` §0、§1、§2、§7.4、§8、§9、§10；ADR-051
-- 狀態：**待 Opus 審核**。在 worktree 分支 `worktree-agent-ab3102522e81d8901` 上 commit，沒有 push。沒有改 `docs/TODO.md`、`docs/ROADMAP.md`、`docs/DECISIONS.md`，也沒有碰 `crates/web`、`web-ui/`、M4d 的控制 socket／start／stop／log 輪替。
+- 狀態：**Opus 審核通過（2026-10-22）**，審核結果與修正見 §10。分支 `m4a-runtime-config`。
 - 重要提醒：本分支從 `a5615a9`（M3f）建立，開始工作時先 fast-forward 到 `main` 的 `e45b246`（取得 M4 設計規格與測試計畫）。
 
 ## 1. 範圍與交付內容
@@ -120,15 +120,15 @@ cargo llvm-cov -p <crate> --summary-only --ignore-filename-regex 'backend[\\/](m
 - **ADR-054：預覽快取的競態與上限**。轉檔後重驗、清整標記後再掃快取、LRU（以檔案修改時間為最後使用時間）、60 秒保護窗、軟性上限。
 
 ## 6. E2E 與 musl
-- `scripts/e2e-docker.sh`（`E2E_NO_BUILD=1`、`E2E_IMAGE=sip-fax-rs-test:rocky9-m3e`）：E2E_RESULT_PLACEHOLDER
-- `scripts/musl-docker.sh`（`E2E_NO_BUILD=1`）：MUSL_RESULT_PLACEHOLDER
+- `scripts/e2e-docker.sh`：審核前 `e2e_m3b::i05` 失敗（仍預期 schema 版本 1，見 §10）；修正後在 Docker 與 GitHub CI 的 `e2e-spandsp` 全部通過。
+- musl：GitHub CI 的 `build-musl`（x86_64、aarch64）與 `smoke-rhel`（Rocky 9、AlmaLinux 10）通過；`scripts/ci-local.sh` 中 `statically linked` 檢查通過。
 
 ## 7. 未解事項（誠實清單）
-1. **Linux 專屬斷言沒有在 Linux 上跑過**：`conf/secret.key`、`initial-admin-password` 的 0600 權限（`#[cfg(unix)]`）只在 Windows 主機上編譯，沒有執行。需要在 Docker 內跑 `cargo test -p accounts -p runtime-config -p sip-faxd`（映像連不上網路取得 crates，這次沒做）。
-2. **R05** 只驗證了注入的 +8 小時偏移；沒有在 `TZ=Asia/Taipei` 的容器裡驗證 `Local::now()` 的偏移讀取（程式碼只有一行 `Local::now().offset()`）。偏移在引擎建立時讀一次，之後夏令時間變動不會更新（台灣沒有夏令時間）。
+1. ~~**Linux 專屬斷言沒有在 Linux 上跑過**~~（已解決：GitHub CI 的 `test` job 在 Linux 上執行並通過）：`conf/secret.key`、`initial-admin-password` 的 0600 權限（`#[cfg(unix)]`）只在 Windows 主機上編譯，沒有執行。需要在 Docker 內跑 `cargo test -p accounts -p runtime-config -p sip-faxd`（映像連不上網路取得 crates，這次沒做）。
+2. ~~**R05** 只驗證了注入的 +8 小時偏移~~（已解決：審核時新增 `delivery_cli.rs::r05_serve_under_tz_asia_taipei_names_files_with_the_local_time`）；沒有在 `TZ=Asia/Taipei` 的容器裡驗證 `Local::now()` 的偏移讀取（程式碼只有一行 `Local::now().offset()`）。偏移在引擎建立時讀一次，之後夏令時間變動不會更新（台灣沒有夏令時間）。
 3. **A08 的 WebSocket、A09、A10、A11 的 HTTP 部分、A06 的 429、A12 的 409** 要等 M4b；M4a 只提供底層與代碼。
-4. **`sip-faxd/src/runtime.rs` 涵蓋率**沒有在補上 `runtime::tests` 後重量（之前量到 6.7% 是因為被 kill 的 `serve` 子行程不寫涵蓋率）。該測試本身通過，覆蓋 `Runtime::start`、`LiveApplier`、`attach/detach`；啟動時 DB 不可達的重試迴圈（每 10 秒）沒有自動化測試（`k12_a_start_without_the_database…` 在 service 層驗證了 `retry_bootstrap`）。
-5. **`config import` 之後執行中的服務要重啟或等 M4d 的 `reload`** 才載入；M4a 提供 `ConfigService::reload()`，沒有接任何觸發點。
+4. ~~**`sip-faxd/src/runtime.rs` 涵蓋率**~~（已重量：81.73%）沒有在補上 `runtime::tests` 後重量（之前量到 6.7% 是因為被 kill 的 `serve` 子行程不寫涵蓋率）。該測試本身通過，覆蓋 `Runtime::start`、`LiveApplier`、`attach/detach`；啟動時 DB 不可達的重試迴圈（每 10 秒）沒有自動化測試（`k12_a_start_without_the_database…` 在 service 層驗證了 `retry_bootstrap`）。
+5. **`config import` 之後執行中的服務要重啟或等 M4d 的 `reload`**（M4d 已把控制 socket 的 `reload` 接到 `ConfigService::reload`） 才載入；M4a 提供 `ConfigService::reload()`，沒有接任何觸發點。
 6. 互動式密碼輸入（無 `--password-stdin`、關閉回顯）沒有測試；只測了 stdin 路徑。Windows 上不會關閉回顯，也沒有 0600。
 7. Webhook URL 本身（含 userinfo 或 query 的 token）沒有加密，只在顯示時遮蔽（`mask_http_url`）；只有 `password`／`secret` 欄位加密。
 8. 預覽快取上限只做在 `Preview`（含 `[storage] preview_cache_mb` 的解析）；`serve` 目前沒有使用 `Preview`（M4b 會），所以還沒有任何地方呼叫 `with_cache_limit_mb`。
@@ -196,3 +196,24 @@ async fn ensure_initial_admin(&self, file: PathBuf);  async fn purge_expired_ses
 - sip-core：`src/transport/{mod,policy,tcp,udp}.rs`、`tests/policy_cell.rs`。
 - sip-faxd：`src/{main,settings,db,commands,delivery_service,admin_cli,runtime}.rs`、`tests/{db_cli,m4a_cli}.rs`、`Cargo.toml`。
 - 根：`Cargo.toml`（workspace 依賴、`profile.dev`）、`Cargo.lock`、`scripts/db-matrix.sh`、`conf/sip-faxd.toml.example`、`README.md`、`README.zh-TW.md`、`docs/database.md`、`docs/field-test.md`、本報告。
+
+## 10. Opus 審核（2026-10-22）
+
+**結論：通過。** 測試涵蓋計畫 §1 K01–K13、§2 A01–A13（HTTP 部分屬於 M4b，已在 §3 標明）、§7 M14、§8 R01–R05；安全案例都有反向斷言；沒有 mock store；獨立對照（`ring` 直接解密、`rust-argon2` 與 OpenSSL 的 argon2id）成立。
+
+**檢查方式**
+- 以腳本找出 M4a 新增或修改的測試中沒有任何 assert 的函式：沒有（唯二命中的是 M3b 既有、斷言放在 helper 的 E2E）。store 的 `db_case!` 案例逐一計數，都有斷言。
+- 抽查 K10、K13、A05 的測試內容，並與規格對照。
+- 重新量測涵蓋率（行）：store 90.99%（排除三個伺服器驅動）、accounts 93.68%、runtime-config 90.18%、sip-faxd 83.22%（`runtime.rs` 81.73%）、fax-in 93.39%；門檻都達到。
+- GitHub CI：審核前只有 `e2e-spandsp` 失敗；`test`（Linux）、`coverage`、`db-matrix`（四種 DB）、`build-musl`、`smoke-rhel` 都通過。
+
+**發現並已修正**（commit `543baf4`）
+1. `e2e_m3b::i05` 仍預期 `schema version 0 -> 1`；migration 0002 之後應為 `0 -> 2 (applied 0001, 0002)`。這就是分支 CI 中 `e2e-spandsp` 失敗的原因；這個測試需要 SpanDSP，只在 Docker 裡跑。
+2. K10 的「同一明文每次加密都不同」比較的是兩個不同的明文，沒有測到 nonce。改為同一明文加密兩次，並都以 `ring` 獨立解密。
+3. R05 沒有在真實時區下驗證。新增以 `TZ=Asia/Taipei` 啟動 `serve` 的測試，也確認 `TZ=UTC` 時這個測試會失敗。
+4. 投遞的 catch-up 要等一個 `poll_interval`（10 秒）才送出，f22 在負載高時會逾時。worker 啟動時先執行一次 `run_due`。
+5. f22 只等 PDF 出現就去讀 TIFF，兩個格式是依序寫入的，偶爾會讀到還不存在的 TIFF。改為兩個檔案都出現後才讀。
+
+**ADR**：§5 擬議的三個 ADR 已寫入 `docs/DECISIONS.md`：ADR-052（新增依賴）、ADR-053（儲存、秘密與熱套用細節，含需要重啟的完整欄位清單與已知取捨）、ADR-054（預覽快取）。
+
+**保留到後續里程碑**：A06 的 429、A08 的 WebSocket、A09、A10、A11 的 HTTP 部分、A12 的 409 屬於 M4b；§7 其餘未解事項（互動式密碼輸入、webhook URL 不加密、`Preview` 尚未接上 `serve`、不含秘密的匯出無法直接還原有註冊的 trunk、K09 未驗 digest、沒有在真實傳真通話中改設定的 E2E）列為已知限制，不影響通過。

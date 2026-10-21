@@ -377,3 +377,30 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 **影響**
 
 `config check` 與 `field-test.md` 的設定說明要改寫；ADR-013 中「設定全部在設定檔」的部分由本 ADR 取代。
+
+## ADR-052：M4a 新增的依賴（2026-10-22，M4a 審核）
+**決策**
+
+- `arc-swap`：執行設定快照，每通來電在 INVITE 時取一次。
+- `argon2` 0.5（RustCrypto，純 Rust）：密碼雜湊，argon2id，`m=19456,t=2,p=1`。
+- `ring` 0.17：AES-256-GCM（秘密欄位）、SHA-256（session token 只存雜湊）、隨機數。原本就在依賴樹裡，現在改為直接依賴。
+- `base64`、`serde_path_to_error`：驗證錯誤帶欄位路徑。
+- 僅測試使用：`rust-argon2`，作為獨立實作互相驗證。
+- `profile.dev` 對 argon2／blake2 設 `opt-level = 3`，否則除錯建置的雜湊要好幾秒。
+
+全部是純 Rust 或只依賴 ring，`cargo deny check` 通過，musl 靜態連結成立。
+
+## ADR-053：執行設定的儲存、秘密與熱套用細節（2026-10-22，M4a 審核）
+**決策**（補充 ADR-051）
+
+- trunk 的比對順序存在 `trunk_order` 區段（名稱陣列）；規格只有 `trunk:<name>`，但順序也是設定的一部分。
+- 秘密欄位以 AES-256-GCM 加密，存成 `enc:v1:<base64>`，AAD 為 `<區段>/<欄位路徑>`，所以密文搬到別的欄位會解不開。API 只回 `{"set": true, "ref": "<路徑>"}`，原樣送回代表保留；`ref` 讓重新排序路由或投遞時，秘密跟著項目走。
+- `conf/secret.key` 遺失或損壞時，解不開的秘密以佔位字串 `***undecryptable-secret***` 代替，對方會因認證失敗而拒絕；其他設定照常可用，不會因為一把金鑰讓整個區段失效。匯出時略過佔位字串。
+- 需要重啟才生效的設定（`fax_in::config::restart_required`）：`[sip]` 的 `bind`、`transports`、`advertised`、`user_agent`、`allow`、`supported`；`[media]` 的 `address`、`audio_port`、`port_range`；整個 `[capture]`；以及 `[call]` 的 `fax_session`、`reinvite_timeout_secs`、`max_491_retries`（端點參數）。其餘設定對下一通來電立即生效；進行中的通話保留原本的快照。transport 的來源過濾器可以替換；投遞引擎在路由或 `[delivery]` 變更時整個換掉。
+- 已知取捨：稽核列與修改是兩個陳述式，當機時可能少一列稽核，但不會少修改；登入鎖定與每 IP 限流的狀態在記憶體，重啟會歸零，多個實例不共用；webhook URL 本身（userinfo、query 中的 token）不加密，只在顯示時遮蔽。
+
+## ADR-054：預覽快取與清整的競態、容量上限（2026-10-22，M4a 審核）
+**決策**
+
+- 轉檔完成後再確認一次紀錄；若這段期間已經清整（`files_purged_at`），就刪掉剛寫的快取並回 `Purged`（HTTP 410）。轉檔因目錄被刪而出現 I/O 錯誤時，也判為 `Purged`。清整標記之後再掃一次快取目錄。
+- `[storage] preview_cache_mb`（預設 2048）：超過時依最後使用時間淘汰（以檔案修改時間代表，快取命中時更新）；60 秒內用過的檔案不刪；上限是軟性的。
