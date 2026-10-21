@@ -567,6 +567,7 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         Duration::from_secs(service_cfg.stop_timeout_secs),
         move || trunk_status(&weak_fax, &regs),
     );
+    hub.set_reloader(Arc::new(runtime::ConfigReloader(rt.config.clone())));
     let control = match service::Control::bind(&service_cfg.socket_path(&base), hub.clone()) {
         Ok(c) => Some(c),
         Err(e) if daemonized => {

@@ -14,8 +14,8 @@ use tokio::sync::{broadcast, watch};
 
 use super::protocol::{CallInfo, Event, Reply, Request, StatusInfo, TrunkStatus};
 
-/// Loads the runtime settings from the database again (`reload`). M4a provides the real one;
-/// until then the control interface answers "not available".
+/// Loads the runtime settings from the database again (`reload`); `serve` connects
+/// [`crate::runtime::ConfigReloader`]. Without one the control interface answers "not available".
 #[async_trait]
 pub trait Reloader: Send + Sync {
     /// Reloads and says what changed.
