@@ -127,6 +127,13 @@ pub struct Decoder {
     /// MR: the row being decoded is one-dimensional.
     tag_1d: bool,
     consec_eols: u32,
+    /// MH / MR: an EOL or a good row has been seen, so what follows is page data. Before that,
+    /// undecodable bits are line-up noise ahead of the first EOL (a gateway's marking idle,
+    /// field case F1) and are skipped without counting a row.
+    synced: bool,
+    /// Noise was skipped before any EOL: if no EOL ever follows, it is counted as a bad row
+    /// after all (data without any EOL is not a clean page).
+    noise_pending: bool,
     bad_run: u32,
     stats: Stats,
     end: Option<EndReason>,
@@ -154,6 +161,8 @@ impl Decoder {
             row_buf: vec![0; rb],
             tag_1d: true,
             consec_eols: 0,
+            synced: false,
+            noise_pending: false,
             bad_run: 0,
             stats: Stats::default(),
             end: None,
@@ -188,6 +197,10 @@ impl Decoder {
         self.run(sink);
         if self.state != State::Done {
             self.stop(EndReason::Data);
+        }
+        if self.noise_pending && !self.synced {
+            self.bad_row();
+            sink(&self.prev_row);
         }
         Summary {
             stats: self.stats,
@@ -259,6 +272,7 @@ impl Decoder {
     fn step_await_eol(&mut self) -> Flow {
         match self.parse_eol() {
             Ok(true) => {
+                self.synced = true;
                 self.consec_eols = self.consec_eols.saturating_add(1);
                 if self.consec_eols >= RTC_EOLS {
                     return self.stop(EndReason::Rtc);
@@ -296,6 +310,14 @@ impl Decoder {
                 if self.cfg.eol_required {
                     match self.verify_eol_follows() {
                         Ok(true) => {}
+                        Ok(false) if !self.synced => {
+                            // Marking idle ahead of the first EOL can decode as a "row" of
+                            // 7-pixel white and 2-pixel black runs (all ones): noise too.
+                            self.noise_pending = true;
+                            self.bits.pos = start;
+                            self.state = State::Resync;
+                            return Flow::Progress;
+                        }
                         Ok(false) => {
                             // The row decoded but is not followed by an EOL: not a real row.
                             self.bad_row();
@@ -317,6 +339,15 @@ impl Decoder {
             Err(Fail::More) => {
                 self.bits.pos = start;
                 Flow::NeedMore
+            }
+            Err(Fail::Bad(_)) if !self.synced => {
+                // Noise before the first EOL is not a row of the page.
+                self.noise_pending = true;
+                // Look for the EOL from where the noise began: the failed attempt may have
+                // read into the zeros of the EOL.
+                self.bits.pos = start;
+                self.state = State::Resync;
+                Flow::Progress
             }
             Err(Fail::Bad(_)) => {
                 self.bad_row();
@@ -429,6 +460,7 @@ impl Decoder {
     // ---- row output ----
 
     fn good_row(&mut self, sink: &mut dyn FnMut(&[u8])) {
+        self.synced = true;
         changes::normalize(&mut self.cur);
         changes::to_packed(&self.cur, self.cfg.width, &mut self.row_buf);
         sink(&self.row_buf);

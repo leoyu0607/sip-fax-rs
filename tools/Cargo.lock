@@ -51,7 +51,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fax-in"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "serde",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "fax-sim"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fax-in",
  "interop",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "interop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "md-5",
  "serde_json",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "sip-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "md-5",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "spandsp-sys"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pkg-config",
 ]
@@ -351,21 +351,21 @@ dependencies = [
 
 [[package]]
 name = "t30"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "t4",
 ]
 
 [[package]]
 name = "t38"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "t4"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "thiserror"

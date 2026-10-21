@@ -1,0 +1,128 @@
+[2026-10-21T03:42:02.267Z] RECV from 192.0.2.10:5060 (UDP, 1094 bytes)
+INVITE sip:0200000002@198.51.100.20;user=phone SIP/2.0
+Via: SIP/2.0/UDP 192.0.2.10:5060;branch=z9hG4bKac719266162
+Max-Forwards: 70
+From: <sip:0200000001@192.0.2.10>;tag=1c718692817
+To: <sip:0200000002@198.51.100.20;user=phone>
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 1 INVITE
+Contact: <sip:0200000001@192.0.2.10:5060>
+Supported: em,100rel,timer,replaces,path,resource-priority,sdp-anat
+Allow: REGISTER,OPTIONS,INVITE,ACK,CANCEL,BYE,NOTIFY,PRACK,REFER,INFO,SUBSCRIBE,UPDATE
+User-Agent: Mediant 1000/v.6.80A.285
+Content-Type: application/sdp
+Content-Length: 502
+
+v=0
+o=AudiocodesGW 717787938 717787893 IN IP4 192.0.2.10
+s=Phone-Call
+c=IN IP4 192.0.2.10
+t=0 0
+m=audio 7190 RTP/AVP 0 8 18 101
+a=ptime:20
+a=sendrecv
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000
+a=fmtp:18 annexb=no
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-15
+m=image 7192 udptl t38
+a=sendrecv
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxMaxBuffer:1024
+a=T38FaxMaxDatagram:238
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxUdpEC:t38UDPRedundancy
+
+[2026-10-21T03:42:02.267Z] SEND to 192.0.2.10:5060 (UDP, 316 bytes)
+SIP/2.0 180 Ringing
+Via: SIP/2.0/UDP 192.0.2.10:5060;branch=z9hG4bKac719266162
+From: <sip:0200000001@192.0.2.10>;tag=1c718692817
+To: <sip:0200000002@198.51.100.20;user=phone>;tag=e08271d9
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 1 INVITE
+Contact: <sip:198.51.100.20:7080>
+Content-Length: 0
+
+
+[2026-10-21T03:42:02.267Z] SEND to 192.0.2.10:5060 (UDP, 920 bytes)
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 192.0.2.10:5060;branch=z9hG4bKac719266162
+From: <sip:0200000001@192.0.2.10>;tag=1c718692817
+To: <sip:0200000002@198.51.100.20;user=phone>;tag=e08271d9
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 1 INVITE
+Contact: <sip:198.51.100.20:7080>
+Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE
+Supported: timer
+User-Agent: sip-faxd/0.1.0
+Content-Type: application/sdp
+Content-Length: 474
+
+v=0
+o=- 1492732820 1626076615 IN IP4 198.51.100.20
+s=-
+c=IN IP4 198.51.100.20
+t=0 0
+m=audio 0 RTP/AVP 0 8 18 101
+a=ptime:20
+a=sendrecv
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:18 G729/8000
+a=fmtp:18 annexb=no
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-15
+m=image 30016 udptl t38
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxMaxBuffer:1800
+a=T38FaxMaxDatagram:260
+a=T38FaxUdpEC:t38UDPRedundancy
+
+[2026-10-21T03:42:02.303Z] RECV from 192.0.2.10:5060 (UDP, 534 bytes)
+ACK sip:198.51.100.20:7080 SIP/2.0
+Via: SIP/2.0/UDP 192.0.2.10:5060;branch=z9hG4bKac737817027
+Max-Forwards: 70
+From: <sip:0200000001@192.0.2.10>;tag=1c718692817
+To: <sip:0200000002@198.51.100.20;user=phone>;tag=e08271d9
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 1 ACK
+Contact: <sip:0200000001@192.0.2.10:5060>
+Supported: em,timer,replaces,path,resource-priority
+Allow: REGISTER,OPTIONS,INVITE,ACK,CANCEL,BYE,NOTIFY,PRACK,REFER,INFO,SUBSCRIBE,UPDATE
+User-Agent: Mediant 1000/v.6.80A.285
+Content-Length: 0
+
+
+[2026-10-21T03:42:34.411Z] SEND to 192.0.2.10:5060 (UDP, 434 bytes)
+BYE sip:0200000001@192.0.2.10:5060 SIP/2.0
+Via: SIP/2.0/UDP 198.51.100.20:7080;branch=z9hG4bK8c6c2d9c7b84073f
+Max-Forwards: 70
+From: <sip:0200000002@198.51.100.20;user=phone>;tag=e08271d9
+To: <sip:0200000001@192.0.2.10>;tag=1c718692817
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 90906950 BYE
+Allow: INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE
+Supported: timer
+User-Agent: sip-faxd/0.1.0
+Content-Length: 0
+
+
+[2026-10-21T03:42:34.426Z] RECV from 192.0.2.10:5060 (UDP, 504 bytes)
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 198.51.100.20:7080;branch=z9hG4bK8c6c2d9c7b84073f
+From: <sip:0200000002@198.51.100.20;user=phone>;tag=e08271d9
+To: <sip:0200000001@192.0.2.10>;tag=1c718692817
+Call-ID: 71865083527201022173@192.0.2.10
+CSeq: 90906950 BYE
+Contact: <sip:0200000001@192.0.2.10:5060>
+Supported: em,timer,replaces,path,resource-priority
+Allow: REGISTER,OPTIONS,INVITE,ACK,CANCEL,BYE,NOTIFY,PRACK,REFER,INFO,SUBSCRIBE,UPDATE
+Server: Mediant 1000/v.6.80A.285
+Content-Length: 0
+
+

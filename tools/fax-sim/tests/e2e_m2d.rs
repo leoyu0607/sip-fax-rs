@@ -17,7 +17,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
-use fax_sim::gateway::FaxTx;
+use fax_sim::gateway::{FaxTx, GatewayQuirks};
 use fax_sim::sip_uac::{ReinviteBy, UacConfig, UacReport, run_call};
 use fax_sim::tiff_writer::{self, PageSpec, render_bitmap};
 use interop::{Faxd, FaxdOptions};
@@ -967,5 +967,48 @@ async fn e07_port_range_exhaustion_503_then_recovery() {
     let fax = assert_success("e07", &rep, &res, 1, "0000000001", "initial_invite");
     let v = verify_files("e07", &fax, &src, &pages);
     eprintln!("{}", summary("e07 (after 503)", &rep, &res, &v));
+    f.stop();
+}
+
+// ------------------------------------------------------------------ F1-05
+
+/// F1-05: the gateway behaves like an AudioCodes Mediant 1000 (field case F1): every V.21
+/// frame that SpanDSP ends with `hdlc-fcs-OK-sig-end` goes out as `hdlc-fcs-OK`, then
+/// `hdlc-sig-end` 140 ms later (the `no-signal` after it 140 ms later too). Eight pages through
+/// the real `sip-faxd`; the TIFF and the PDF are each compared pixel by pixel with the source
+/// (libtiff and poppler, with the negative controls of ADR-025).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn f1_05_eight_pages_from_a_gateway_that_splits_fcs_ok_and_sig_end() {
+    let tag = "f1_05";
+    let f = faxd(tag, 2, "", "");
+    let dir = scratch("src-f1_05");
+    let pages = specs(8, false, 120);
+    let src = source_tiff(&dir, "src.tif", &pages);
+    let mut cfg = uac(&f, ReinviteBy::Gateway, &src, "0000000001");
+    cfg.fax.as_mut().unwrap().quirks = GatewayQuirks {
+        split_fcs_sig_end: Some(Duration::from_millis(140)),
+        half_duplex: true,
+    };
+    let rep = run_call(cfg)
+        .await
+        .unwrap_or_else(|e| panic!("{tag}: {e}\n{}", f.log().join("\n")));
+    let results = f.wait_results(1);
+    let res = result_json(&f, &rep.call_id);
+    assert_eq!(results[0]["call_id"], rep.call_id.as_str());
+    // the quirk really was in effect: the DCS, one command per page (8) and the DCN = 10 frames
+    let splits = rep.fax.as_ref().unwrap().quirk_splits;
+    assert!(splits > 8, "{tag}: only {splits} frames were split");
+    let fax = assert_success(tag, &rep, &res, 8, "0000000001", "peer_reinvite");
+    // (no response was ever talked into the gateway's own signal: nothing was discarded
+    // except what the half duplex model discards by design, which must be nothing here)
+    assert_eq!(
+        rep.fax.as_ref().unwrap().half_duplex_dropped,
+        0,
+        "{tag}: the server talked over the gateway's V.21 signal"
+    );
+    assert_path_layout(tag, &f, &rep.call_id, &fax);
+    let v = verify_files(tag, &fax, &src, &pages);
+    assert_eq!(v.pages, 8);
+    eprintln!("{} | split frames {splits}", summary(tag, &rep, &res, &v));
     f.stop();
 }

@@ -59,6 +59,12 @@
 - [x] [Any] 發佈 v0.1.0-alpha（GitHub Release，prerelease）：https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.0-alpha
 - [ ] [使用者] 對接 CS210 試接，回傳 logs/calls/ 和結果；依結果調整 `cht-cs210` 預設組
 
+## 現場問題
+- [x] [Sonnet] F1：AudioCodes Mediant 1000 v6.80A 以 T.38 送 8 頁只收到 1 頁（`t2_expired_image`）。根因 1：`HdlcFcsOk` 之後對方的 V.21 訊號還沒結束，我方就開始回應（引擎現在等 `hdlc-sig-end`／`no-signal`／新指示，保底 `peer_signal_wait_ms` = 500 ms）；根因 2：重送的 MPS／EOP／EOM 沒有重新啟動 T2（t30 現在重送回應並在送完後重啟 T2）；另查出 `bad_lines=1` 是 t4 把第一個 EOL 之前約 1 s 的 0xFF（marking idle）算成一個壞行（已修）。F1-01～F1-06 見 docs/test-plans/F1-audiocodes-multipage.md 與 docs/test-reports/F1.md；版本 0.1.1（待 Opus 審核，之後發佈 `v0.1.1-alpha`）
+- [ ] [Opus] 審核 docs/test-reports/F1.md，合併報告第 7 節的擬議 ADR 到 docs/DECISIONS.md
+- [ ] [使用者] 以 0.1.1 再對接 AudioCodes 一次，確認 8 頁都收到；同意後才能把 `udptl = "full"` 的擷取（含影像資料）放進 repo
+- [ ] [Any] 發佈 v0.1.1-alpha
+
 ## M3 — Store / Delivery / ECM
 > 使用者需求（2026-10-21，見 GOALS「傳真紀錄、預覽與清整」）已確認。**等使用者說開始再動工。**
 - [ ] [Opus] 依需求定案資料表 schema（`inbound_faxes` 欄位對應 GOALS 的欄位表），並撰寫 M3 設計和測試計畫

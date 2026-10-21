@@ -148,6 +148,18 @@ pub struct T38Engine {
     result: Option<t30::T30Result>,
     log: VecDeque<String>,
     events_in: u64,
+    /// The peer's V.21 signal is (possibly) still on: it sent frames and no end of signal yet.
+    peer_v21: bool,
+    /// A response held back until the peer's V.21 signal ends.
+    held: Option<Held>,
+}
+
+/// A T.30 response waiting for the peer to stop transmitting.
+#[derive(Debug)]
+struct Held {
+    frames: Vec<Vec<u8>>,
+    /// Instant (us) after which it is sent regardless.
+    deadline_us: u64,
 }
 
 fn timer_index(t: Timer) -> usize {
@@ -168,6 +180,8 @@ impl T38Engine {
             result: None,
             log: VecDeque::new(),
             events_in: 0,
+            peer_v21: false,
+            held: None,
             cfg,
         }
     }
@@ -202,6 +216,24 @@ impl T38Engine {
                 .filter_map(|(i, d)| d.map(|d| (d, i)))
                 .filter(|(d, _)| *d <= limit)
                 .min();
+            let held_at = self
+                .held
+                .as_ref()
+                .map(|h| h.deadline_us)
+                .filter(|d| *d <= limit);
+            let earliest = [item_at, timer.map(|(d, _)| d)].into_iter().flatten().min();
+            if let Some(d) = held_at {
+                if earliest.is_none_or(|e| d <= e) {
+                    self.clock_us = self.clock_us.max(d);
+                    self.note(format!(
+                        "peer V.21 signal end not seen within {} ms: answering anyway",
+                        self.cfg.pacing.peer_signal_wait_ms
+                    ));
+                    self.peer_v21 = false;
+                    self.release_held(d);
+                    continue;
+                }
+            }
             match (item_at, timer) {
                 (None, None) => break,
                 (Some(t), tm) if tm.is_none_or(|(d, _)| t <= d) => {
@@ -241,6 +273,7 @@ impl T38Engine {
         let mut events = Vec::new();
         self.rx.on_ifp(ifp, &mut events);
         for ev in events {
+            self.track_peer_signal(&ev);
             if matches!(
                 ev,
                 Event::Frame { .. }
@@ -274,6 +307,28 @@ impl T38Engine {
         }
     }
 
+    /// Keeps track of whether the peer's V.21 signal may still be on, and plans the held
+    /// response the moment it is over. A frame does not end the signal (`hdlc-fcs-OK`); only
+    /// `hdlc-sig-end`, `hdlc-fcs-OK-sig-end`, `no-signal` or another indicator or image data do.
+    fn track_peer_signal(&mut self, ev: &Event) {
+        use t30::RxSignal;
+        match ev {
+            Event::Signal(RxSignal::V21Preamble) | Event::Frame { .. } => self.peer_v21 = true,
+            Event::Signal(_) | Event::ImageData(_) | Event::DataEnd => {
+                self.peer_v21 = false;
+                self.release_held(self.clock_us);
+            }
+            _ => {}
+        }
+    }
+
+    /// Plans the held response (if any) as if T.30 had asked for it at `at_us`.
+    fn release_held(&mut self, at_us: u64) {
+        if let Some(h) = self.held.take() {
+            self.sched.plan_frames(at_us, &h.frames);
+        }
+    }
+
     /// The peer has started its next signal, so it has heard everything we sent: whatever is
     /// left of the burst we were still sending (flags, FCS, the 100 ms hold, trailing
     /// `no-signal` copies) cannot matter any more. A real gateway answers a CFR or MCF as soon as it
@@ -304,6 +359,7 @@ impl T38Engine {
         self.advance(now_ms);
         self.feed(self.clock_us, Event::Abort);
         self.sched.clear();
+        self.held = None;
     }
 
     /// Packets that fell due since the last call, in order.
@@ -320,7 +376,8 @@ impl T38Engine {
     pub fn next_wakeup_ms(&self) -> Option<u64> {
         let item = self.sched.next_at();
         let timer = self.timers.iter().flatten().min().copied();
-        [item, timer]
+        let held = self.held.as_ref().map(|h| h.deadline_us);
+        [item, timer, held]
             .into_iter()
             .flatten()
             .min()
@@ -372,7 +429,23 @@ impl T38Engine {
             match action {
                 Action::SendSignal(t30::TxSignal::Ced) => self.sched.plan_ced(at_us),
                 Action::SendFrames(frames) => {
-                    self.sched.plan_frames(at_us, &frames);
+                    let wait = self.cfg.pacing.peer_signal_wait_ms;
+                    if self.peer_v21 && wait > 0 {
+                        self.note(format!(
+                            "peer V.21 signal still on: response held (at most {wait} ms)"
+                        ));
+                        let dropped = self.held.replace(Held {
+                            frames,
+                            deadline_us: at_us + wait * 1_000,
+                        });
+                        if dropped.is_some() {
+                            // Superseded by a newer response: it will never leave, so its
+                            // completion is reported now.
+                            self.feed(at_us, Event::TxComplete);
+                        }
+                    } else {
+                        self.sched.plan_frames(at_us, &frames);
+                    }
                 }
                 Action::StartTimer { timer, ms } => {
                     if let Some(slot) = self.timers.get_mut(timer_index(timer)) {
@@ -396,6 +469,7 @@ impl T38Engine {
                     self.result = Some(*result);
                     // Nothing more is sent after the end of the call.
                     self.sched.clear();
+                    self.held = None;
                 }
             }
         }

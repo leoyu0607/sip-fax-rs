@@ -255,3 +255,27 @@ M2d 原本的 `udptl.log` 會寫入完整的封包 hex，等同於複製一份�
 
 - 傳真常含個資或機密，log 目錄通常沒有和傳真檔相同的存取控管。
 - T.30 控制 frame 已經足以診斷對接問題。
+
+## ADR-027：T.38 引擎不得在對方 V.21 訊號未結束時開始回應（2026-10-21）
+- 背景：AudioCodes Mediant 1000（6.80A）把 `hdlc-fcs-OK` 與 `hdlc-sig-end` 分成兩個封包（間隔 119–141 ms，之後才是 `no-signal`）。gateway 是半雙工，自己還在調變 V.21 時收到的 preamble 會被丟棄，我方的 CFR／MCF 因而沒有送到傳真機（現場 8 頁只收到 1 頁）。SpanDSP 一律送合併的 `hdlc-fcs-OK-sig-end`，所以 M2 的測試沒有碰到。
+- 規則：對方的 HDLC frame 以不帶 sig-end 的 `hdlc-fcs-OK`（或 `-BAD`）結束時，視為對方的 V.21 訊號仍開著。我方的回應保留到 `hdlc-sig-end`、`hdlc-fcs-OK-sig-end`、`no-signal` 指示、任何新的指示（含非 V.21）或影像資料出現，再套用 turnaround 延遲（`silence_before_burst_ms`，預設 75 ms）後排程。若始終沒有結束事件，`peer_signal_wait_ms`（預設 500 ms，0 = 關閉）後照樣回應，再加 turnaround。被更新的回應取代的保留回應視為已送完。
+- 結果：SpanDSP 的合併 sig-end 行為與時序不變；E 測試時間不變。
+- 測試：F1-01／F1-02（`f1_turnaround.rs`）、F1-04（`f1_trace_replay.rs`）、F1-05（gateway quirk `split_fcs_sig_end` ＋ `half_duplex`）。
+
+## ADR-028：重複的命令重啟等待計時器（2026-10-21）
+- 對方重送 MPS／EOP／EOM（或送 CRP）而我方重送上一個回應時，T2 在回應送出期間停止，`TxComplete` 後重新啟動；若狀態已前進則作廢。重複的 DCS 是新的訓練，照舊重啟 T2。階段 B 的 T4 不變。
+- 理由：T2 若從第一次回應起算，會在對方還在重試時到期（現場：第一次 MCF 後 6 s ≈ 第二次 MPS 結束後數百 ms），以 `t2_expired_image` 結束通話。
+- 測試：F1-03（`f1_repeat_command.rs`）、R01 表格。
+
+## ADR-029：T.4 解碼器忽略第一個 EOL 之前的雜訊（2026-10-21）
+- 頁面資料以 EOL 開始；第一個 EOL（或第一個好行）之前解不出來（或解出來但後面沒有 EOL）的位元不算一行、不計 `bad_lines`、不輸出替代列。AudioCodes 在影像前送約 1 s 的 0xFF（1787 octet），舊解碼器因此每頁多一個壞行與一列空白。整份都沒有 EOL 的資料仍算一個壞行。
+- 限制：恰好 144 octet 的 0xFF 是一整行合法資料。
+
+## ADR-030：發佈壓縮檔的檔案擁有者固定為 root:root（2026-10-21）
+**背景**
+
+使用者用 root 解壓縮 v0.1.0-alpha 後，檔案擁有者顯示為 `mysql:mysql`。原因是 tar 保存了 CI 建置機的 uid/gid，root 解壓縮時會還原這組數字，剛好對應到目標主機上的 mysql 帳號。
+
+**決策**
+
+`scripts/package.sh` 打包時固定寫入 `0/0`（`--owner=0 --group=0 --numeric-owner`），並關閉 macOS 的 AppleDouble 檔。安裝文件建議解壓縮後，用 `chown` 把擁有者改成實際執行服務的帳號。

@@ -20,6 +20,17 @@
 //! | end of frame | `hdlc-fcs-OK`, then wait `stuffed bits + 35` bit times (flags, FCS) | same |
 //! | end of burst | `hdlc-fcs-OK-sig-end` x3, wait the bit times plus 100 ms, then `no-signal` | `sig_end_hold_ms` |
 //! | repetition | indicators x3, data x1, signal end x3 | `indicator_repeat`, `data_end_repeat` |
+//! | turnaround | not in SpanDSP (it answers on the *combined* `hdlc-fcs-OK-sig-end`) | the 75 ms of `silence_before_burst_ms` are counted from the end of the peer's V.21 signal, see `peer_signal_wait_ms` |
+//!
+//! # Never talk over the peer
+//!
+//! A peer frame that ends with a plain `hdlc-fcs-OK` does not say that the peer's V.21 signal
+//! is over: AudioCodes gateways send `hdlc-fcs-OK`, then `hdlc-sig-end` 120-140 ms later, then
+//! `no-signal` (field case F1). A half duplex gateway that is still modulating the peer's
+//! V.21 drops the preamble we send meanwhile, so our response never reaches the fax machine.
+//! The engine therefore holds a response while the peer's V.21 signal is on and plans it (with
+//! the usual turnaround, `silence_before_burst_ms`) when the signal ends, or after
+//! `peer_signal_wait_ms` if no end is ever signalled.
 //!
 //! The task statement's "at least 75 ms between v21-preamble and the first frame" is
 //! satisfied far more than required by the 1 s flag period: T.30 asks for a V.21 preamble of
@@ -51,6 +62,17 @@ pub struct Pacing {
     pub hdlc_chunk_ms: u64,
     /// Extra hold after the final frame before `no-signal` (SpanDSP: 100 ms).
     pub sig_end_hold_ms: u64,
+    /// Longest time a response is held back for the end of the peer's V.21 signal (`hdlc-sig-end`,
+    /// `hdlc-fcs-OK-sig-end`, `no-signal` or any other new indicator) after a peer frame that
+    /// ended with a plain `hdlc-fcs-OK`; when it expires the response is sent anyway so a
+    /// peer (or a lost packet) that never signals the end cannot stall the call. 0 turns the
+    /// wait off (answer at once, the pre-0.1.1 behaviour).
+    ///
+    /// The default of 500 ms is about 3.5 times the 140 ms gap seen between FCS and sig-end in
+    /// the field (and 15 V.21 bit times, 50 ms, are what closing flags and the FCS-to-sig-end
+    /// latency of a gateway need at the very least): long enough for any gateway that splits the
+    /// two, short enough that the peer's own T4 (3 s) and our T2 (6 s) are untouched.
+    pub peer_signal_wait_ms: u64,
 }
 
 impl Pacing {
@@ -64,13 +86,15 @@ impl Pacing {
             v21_preamble_ms: 1_000,
             hdlc_chunk_ms: 30,
             sig_end_hold_ms: 100,
+            peer_signal_wait_ms: 500,
         }
     }
 
-    /// No delays at all.
+    /// No delays at all (also no waiting for the end of the peer's signal).
     pub fn none() -> Self {
         Self {
             enabled: false,
+            peer_signal_wait_ms: 0,
             ..Self::spandsp()
         }
     }

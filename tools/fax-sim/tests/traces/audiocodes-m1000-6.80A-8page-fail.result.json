@@ -1,0 +1,62 @@
+{
+  "call_id": "71865083527201022173@192.0.2.10",
+  "trunk": "audiocode",
+  "peer": "192.0.2.10:5060",
+  "from": "sip:0200000001@192.0.2.10",
+  "to": "sip:0200000002@198.51.100.20;user=phone",
+  "started_at": "2026-10-21T03:42:02.267Z",
+  "answered_at": "2026-10-21T03:42:02.267Z",
+  "t38_established_at": "2026-10-21T03:42:02.267Z",
+  "ended_at": "2026-10-21T03:42:34.426Z",
+  "t38": {
+    "path": "initial_invite",
+    "version": 0,
+    "max_bit_rate": 14400,
+    "rate_management": "transferredTCF",
+    "max_buffer": 1800,
+    "local_max_datagram": 260,
+    "peer_max_datagram": 238,
+    "udp_ec": "t38UDPRedundancy",
+    "fill_bit_removal": false,
+    "transcoding_mmr": false,
+    "transcoding_jbig": false,
+    "peer_media": "192.0.2.10:7192",
+    "local_port": 30016,
+    "warnings": []
+  },
+  "fax": {
+    "code": 4,
+    "code_name": "t2_expired_image",
+    "pages": 1,
+    "bit_rate": 14400,
+    "modem": "v17",
+    "resolution": "standard",
+    "compression": "mr",
+    "remote_ident": null,
+    "bad_lines_per_page": [
+      1
+    ],
+    "duration_ms": 32140,
+    "partial": true,
+    "tiff": "/home/fax/data/faxes/2026/10/21/71865083527201022173@192.0.2.10.tif",
+    "pdf": "/home/fax/data/faxes/2026/10/21/71865083527201022173@192.0.2.10.pdf",
+    "store_error": null,
+    "udptl": {
+      "rx_datagrams": 369,
+      "tx_datagrams": 72,
+      "rx_foreign": 0,
+      "rx_malformed": 0,
+      "rx_duplicates": 44,
+      "recovered_redundancy": 0,
+      "recovered_fec": 0,
+      "lost": 0
+    }
+  },
+  "outcome": {
+    "status": "failed",
+    "reason": {
+      "kind": "session",
+      "detail": "T.30 t2_expired_image (4) after 1 page(s)"
+    }
+  }
+}

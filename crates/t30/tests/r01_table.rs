@@ -269,13 +269,13 @@ const EXPECTED: &[(&str, &str, &str)] = &[
     ("WaitCommand/T1", "SendingDcn", "cancel T4; tx[5F]"),
     ("WaitCommand/T4", "SendingDis", "tx[01]"),
     ("WaitDcn/Abort", "Done", "cancel T2; done aborted"),
-    ("WaitDcn/Frame:CRP", "WaitDcn", "tx[31]"),
+    ("WaitDcn/Frame:CRP", "WaitDcn", "cancel T2; tx[31]"),
     ("WaitDcn/Frame:DCN", "Done", "cancel T2; done ok"),
-    ("WaitDcn/Frame:EOP", "WaitDcn", "tx[31]"),
+    ("WaitDcn/Frame:EOP", "WaitDcn", "cancel T2; tx[31]"),
     ("WaitDcn/T2", "Done", "done ok"),
     ("WaitImage/Abort", "Done", "cancel T2; done aborted"),
     ("WaitImage/DataEnd", "WaitPostPage", "start T2=6000"),
-    ("WaitImage/Frame:CRP", "WaitImage", "tx[21]"),
+    ("WaitImage/Frame:CRP", "WaitImage", "cancel T2; tx[21]"),
     (
         "WaitImage/Frame:DCN",
         "Done",
@@ -290,7 +290,11 @@ const EXPECTED: &[(&str, &str, &str)] = &[
     ),
     ("WaitImage/T2", "SendingDcn", "tx[5F]"),
     ("WaitPostPage/Abort", "Done", "cancel T2; done aborted"),
-    ("WaitPostPage/Frame:CRP", "WaitPostPage", "tx[21]"),
+    (
+        "WaitPostPage/Frame:CRP",
+        "WaitPostPage",
+        "cancel T2; tx[21]",
+    ),
     (
         "WaitPostPage/Frame:DCN",
         "Done",
@@ -319,7 +323,7 @@ const EXPECTED: &[(&str, &str, &str)] = &[
     ),
     ("WaitPostPage/T2", "SendingDcn", "tx[5F]"),
     ("WaitRetrain/Abort", "Done", "cancel T2; done aborted"),
-    ("WaitRetrain/Frame:CRP", "WaitRetrain", "tx[22]"),
+    ("WaitRetrain/Frame:CRP", "WaitRetrain", "cancel T2; tx[22]"),
     (
         "WaitRetrain/Frame:DCN",
         "Done",
@@ -334,7 +338,7 @@ const EXPECTED: &[(&str, &str, &str)] = &[
     ("WaitRetrain/T2", "SendingDcn", "tx[5F]"),
     ("WaitTcf/Abort", "Done", "cancel T2; done aborted"),
     ("WaitTcf/DataEnd", "SendingFtt", "cancel T2; tx[22]"),
-    ("WaitTcf/Frame:CRP", "WaitTcf", "tx[01]"),
+    ("WaitTcf/Frame:CRP", "WaitTcf", "cancel T2; tx[01]"),
     (
         "WaitTcf/Frame:DCN",
         "Done",

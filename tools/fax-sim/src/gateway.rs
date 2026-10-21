@@ -7,6 +7,7 @@
 //! server. The loop is meant to run inside `spawn_blocking` (the SpanDSP terminal is not
 //! `Send` and is created inside the thread).
 
+use std::collections::VecDeque;
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,12 +15,29 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use t38::{
-    ErrorRecovery, Ifp, ReceiverConfig, ReceiverStats, RxEvent, Source, T38Version, UdptlReceiver,
-    UdptlSender,
+    DataType, ErrorRecovery, Field, FieldType, Ifp, ReceiverConfig, ReceiverStats, RxEvent, Source,
+    T38Version, UdptlReceiver, UdptlSender,
 };
 
 use crate::spandsp::{T30Config, T38Terminal, completion_str};
 use crate::{STEP_SAMPLES, SplitMix64};
+
+/// Behaviours of real gateways that SpanDSP does not show (field case F1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GatewayQuirks {
+    /// AudioCodes style: a frame that SpanDSP ends with `hdlc-fcs-OK-sig-end` goes out as
+    /// `hdlc-fcs-OK`, and the `hdlc-sig-end` follows this long after it. Everything SpanDSP
+    /// emits after that (the `no-signal`, up to and including it) is delayed by the same
+    /// amount, so the order and the gaps of the rest of the burst stay as they were.
+    pub split_fcs_sig_end: Option<Duration>,
+    /// Half duplex like the gateway of the field case: while the gateway's own V.21 signal is
+    /// on (from the split `hdlc-fcs-OK` to its `hdlc-sig-end`) everything received from the
+    /// server is discarded, and so is any data that arrives without a signal indicator in front
+    /// of it (a modem that never started modulates nothing). Without this a SpanDSP
+    /// peer would forgive a server that talks over it. Only acts together with
+    /// `split_fcs_sig_end`.
+    pub half_duplex: bool,
+}
 
 /// What the simulated gateway sends and how.
 #[derive(Debug, Clone)]
@@ -42,6 +60,8 @@ pub struct FaxTx {
     pub compressions: Option<i32>,
     /// `T30_IAF_MODE_*` (`None` = default, with TCF).
     pub iaf: Option<i32>,
+    /// Gateway behaviours on top of SpanDSP's.
+    pub quirks: GatewayQuirks,
     /// Wall-clock limit of the whole transfer.
     pub timeout: Duration,
     /// How long to keep running after SpanDSP reported its result (its last packets, the
@@ -64,6 +84,7 @@ impl FaxTx {
             modems: None,
             compressions: None,
             iaf: None,
+            quirks: GatewayQuirks::default(),
             timeout: Duration::from_secs(120),
             linger: Duration::from_millis(600),
             hangup_grace: Duration::from_secs(10),
@@ -90,6 +111,11 @@ pub struct FaxRun {
     pub rx_datagrams: u64,
     /// ... of which dropped by the loss injection (not delivered).
     pub rx_dropped: u64,
+    /// Frames whose `hdlc-fcs-OK-sig-end` was split by [`GatewayQuirks::split_fcs_sig_end`].
+    pub quirk_splits: u64,
+    /// Packets from the server that arrived while the gateway's own V.21 signal was on (and were
+    /// discarded by the half duplex quirk).
+    pub half_duplex_dropped: u64,
     /// Unrecoverable losses reported by our UDPTL receiver.
     pub rx_gaps: u64,
     /// Our UDPTL receiver counters.
@@ -135,6 +161,12 @@ pub fn run_fax(
     let mut finished_at: Option<Instant> = None;
     let mut hangup_at: Option<Instant> = None;
     let mut buf = vec![0u8; 4096];
+    // datagrams waiting for their release time (only ever delayed by the gateway quirks)
+    let mut queue: VecDeque<(Instant, Vec<u8>)> = VecDeque::new();
+    let mut shifting = false;
+    // half duplex quirk: our V.21 is on until then; whether a server signal is "up"
+    let mut v21_busy_until: Option<Instant> = None;
+    let mut rx_signal_up = false;
     loop {
         // 1. everything that arrived
         match sock.recv_from(&mut buf) {
@@ -157,6 +189,24 @@ pub fn run_fax(
                                     } else {
                                         ifp
                                     };
+                                    if tx.quirks.half_duplex
+                                        && tx.quirks.split_fcs_sig_end.is_some()
+                                    {
+                                        let busy =
+                                            v21_busy_until.is_some_and(|t| Instant::now() < t);
+                                        if !half_duplex_accepts(
+                                            &data,
+                                            version,
+                                            busy,
+                                            &mut rx_signal_up,
+                                        ) {
+                                            // only what arrived inside our own signal is a fault of the server
+                                            if busy {
+                                                run.half_duplex_dropped += 1;
+                                            }
+                                            continue;
+                                        }
+                                    }
                                     term.rx_packet(&data, seq);
                                 }
                                 RxEvent::Gap { .. } => run.rx_gaps += 1,
@@ -181,17 +231,38 @@ pub fn run_fax(
             term.advance(STEP_SAMPLES);
             samples_done += STEP_SAMPLES as u64;
             for pkt in term.take_packets() {
-                for _ in 0..pkt.count.max(1) {
-                    let Ok(dg) = sender.build(&pkt.data) else {
-                        continue;
-                    };
-                    run.tx_datagrams += 1;
-                    if tx.loss_permille > 0 && rng_tx.next_permille() < tx.loss_permille {
-                        run.tx_dropped += 1;
-                    } else {
-                        let _ = sock.send_to(&dg, remote);
+                let now = Instant::now();
+                let splits_before = run.quirk_splits;
+                let pieces = match tx.quirks.split_fcs_sig_end {
+                    Some(gap) => quirk_split(&pkt.data, version, gap, &mut shifting, &mut run),
+                    None => vec![(Duration::ZERO, pkt.data.clone())],
+                };
+                if run.quirk_splits > splits_before {
+                    let gap = tx.quirks.split_fcs_sig_end.unwrap_or_default();
+                    v21_busy_until = Some(now + gap);
+                }
+                for (delay, data) in &pieces {
+                    for _ in 0..pkt.count.max(1) {
+                        let release = (now + *delay).max(queue.back().map_or(now, |(t, _)| *t));
+                        queue.push_back((release, data.clone()));
                     }
                 }
+            }
+        }
+        // 2b. send what is due
+        let now = Instant::now();
+        while queue.front().is_some_and(|(t, _)| *t <= now) {
+            let Some((_, data)) = queue.pop_front() else {
+                break;
+            };
+            let Ok(dg) = sender.build(&data) else {
+                continue;
+            };
+            run.tx_datagrams += 1;
+            if tx.loss_permille > 0 && rng_tx.next_permille() < tx.loss_permille {
+                run.tx_dropped += 1;
+            } else {
+                let _ = sock.send_to(&dg, remote);
             }
         }
         // 3. end conditions. The server hangs up as soon as it has the DCN, which can be a
@@ -220,4 +291,73 @@ pub fn run_fax(
     run.caller_text = run.caller_code.map(completion_str).unwrap_or_default();
     run.rx_stats = receiver.stats();
     Ok(run)
+}
+
+/// Applies [`GatewayQuirks::split_fcs_sig_end`] to one IFP packet: the pieces to send, each
+/// with the delay after the instant SpanDSP produced the packet.
+fn quirk_split(
+    data: &[u8],
+    version: T38Version,
+    gap: Duration,
+    shifting: &mut bool,
+    run: &mut FaxRun,
+) -> Vec<(Duration, Vec<u8>)> {
+    let encode = |ifp: &Ifp| ifp.encode(version).ok();
+    let Ok((ifp, used)) = Ifp::decode_prefix(data, version) else {
+        return vec![(Duration::ZERO, data.to_vec())];
+    };
+    if let Ifp::Data {
+        data_type: DataType::V21,
+        fields,
+    } = &ifp
+    {
+        if fields
+            .last()
+            .is_some_and(|f| f.field_type == FieldType::HdlcFcsOkSigEnd)
+        {
+            let mut head = fields.clone();
+            if let Some(last) = head.last_mut() {
+                last.field_type = FieldType::HdlcFcsOk;
+            }
+            let first = Ifp::Data {
+                data_type: DataType::V21,
+                fields: head,
+            };
+            let second = Ifp::Data {
+                data_type: DataType::V21,
+                fields: vec![Field::new(FieldType::HdlcSigEnd, Vec::new())],
+            };
+            if let (Some(a), Some(b)) = (encode(&first), encode(&second)) {
+                *shifting = true;
+                run.quirk_splits += 1;
+                return vec![(Duration::ZERO, a), (gap, b)];
+            }
+        }
+    }
+    let delay = if *shifting { gap } else { Duration::ZERO };
+    if matches!(ifp, Ifp::Indicator(t38::Indicator::NoSignal)) {
+        *shifting = false;
+    }
+    vec![(delay, data[..used].to_vec())]
+}
+
+/// The half duplex quirk: does the gateway act on this packet from the server?
+fn half_duplex_accepts(data: &[u8], version: T38Version, busy: bool, signal_up: &mut bool) -> bool {
+    let Ok((ifp, _)) = Ifp::decode_prefix(data, version) else {
+        return true;
+    };
+    if busy {
+        return false;
+    }
+    match ifp {
+        Ifp::Indicator(t38::Indicator::NoSignal) => {
+            *signal_up = false;
+            true
+        }
+        Ifp::Indicator(_) => {
+            *signal_up = true;
+            true
+        }
+        Ifp::Data { .. } => *signal_up,
+    }
 }

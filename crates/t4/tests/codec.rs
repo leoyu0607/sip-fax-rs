@@ -772,3 +772,52 @@ fn write_fuzz_seeds() {
         }
     }
 }
+
+// ---- F1: marking idle ahead of the first EOL ----
+
+/// Field case F1 (AudioCodes Mediant 1000): the image signal starts with about a second of
+/// 0xFF octets before the first EOL. All ones decode as 7-pixel white / 2-pixel black runs, so
+/// the first 1728-pixel row "decoded" and was then counted as a bad line (every page showed
+/// `bad_lines = 1` and one extra blank row at the top).
+#[test]
+fn f1_marking_idle_before_the_first_eol_is_not_a_row() {
+    for coding in [Coding::Mh, Coding::Mr { k: 2 }] {
+        // (exactly 144 octets of ones is a legal row: 192 x (7 white + 2 black) = 1728 pixels)
+        for idle in [0usize, 1, 3, 143, 145, 1787] {
+            let bm = bitmaps(W, 40).into_iter().next().unwrap().1;
+            let mut data = vec![0xFFu8; idle];
+            data.extend(encode(&bm, W, coding, false));
+            for chunk in [1usize, 72, 100_000] {
+                let (out, s) = decode_chunked(&data, DecoderConfig::new(W, coding), chunk);
+                let ctx = format!("{coding:?} idle {idle} chunk {chunk}");
+                assert_eq!(s.stats.rows, 40, "{ctx}");
+                assert_eq!(s.stats.bad_lines, 0, "{ctx}");
+                assert_eq!(s.end, EndReason::Rtc, "{ctx}");
+                assert_eq!(out, bm, "{ctx}");
+            }
+        }
+    }
+}
+
+#[test]
+fn f1_noise_before_the_first_eol_does_not_hide_later_bad_rows() {
+    let bm = bitmaps(W, 40).into_iter().next().unwrap().1;
+    let mut data = vec![0xFFu8; 300];
+    let mut enc = encode(&bm, W, Coding::Mh, false);
+    // damage a row in the middle
+    let mid = enc.len() / 2;
+    for b in &mut enc[mid..mid + 4] {
+        *b = 0xFF;
+    }
+    data.extend(enc);
+    let p = decode(&data, W, Coding::Mh);
+    assert!(p.summary.stats.bad_lines >= 1);
+    assert!(p.summary.stats.rows >= 38);
+}
+
+#[test]
+fn f1_data_with_no_eol_at_all_is_still_not_clean() {
+    // all ones and nothing else: no page, one bad row (same as before the fix)
+    let p = decode(&[0xFFu8; 400], W, Coding::Mh);
+    assert_eq!(p.summary.stats.bad_lines, 1);
+}

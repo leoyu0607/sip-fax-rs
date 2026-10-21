@@ -13,5 +13,13 @@ cp "$ROOT/target/$TARGET/release/sip-faxd" "$STAGE/"
 cp "$ROOT/conf/sip-faxd.toml.example" "$STAGE/conf/"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/README.zh-TW.md" "$STAGE/"
 mkdir -p "$STAGE/docs" && cp "$ROOT/docs/field-test.md" "$STAGE/docs/"
-tar -C "$ROOT/dist" -czf "$ROOT/dist/$NAME.tar.gz" "$NAME"
+export COPYFILE_DISABLE=1   # no macOS ._ AppleDouble files in local builds
+# Store files as root:root so extracting as root never maps them to an unrelated local
+# user (the build machine's uid would otherwise be restored, e.g. showing up as mysql).
+if tar --version 2>/dev/null | grep -q "GNU tar"; then
+  OWNER_FLAGS=(--owner=0 --group=0 --numeric-owner)
+else
+  OWNER_FLAGS=(--uid 0 --gid 0 --numeric-owner)
+fi
+tar "${OWNER_FLAGS[@]}" -C "$ROOT/dist" -czf "$ROOT/dist/$NAME.tar.gz" "$NAME"
 echo "$ROOT/dist/$NAME.tar.gz"

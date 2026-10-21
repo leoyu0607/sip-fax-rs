@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "delivery"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "digest"
@@ -203,7 +203,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fax-in"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "serde",
@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "fax-modem"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "fnv"
@@ -602,7 +602,7 @@ dependencies = [
 
 [[package]]
 name = "sip-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "md-5",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "sip-faxd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "fax-in",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "store"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "strsim"
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "t30"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "t4",
@@ -679,7 +679,7 @@ dependencies = [
 
 [[package]]
 name = "t38"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "thiserror",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "t4"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
 ]
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "web"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "windows-link"

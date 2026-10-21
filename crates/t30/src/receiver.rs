@@ -122,6 +122,9 @@ pub struct Receiver {
     /// The last accepted page ended the procedure (EOP) but the response asked for a retrain.
     eop_confirmed: bool,
     last_verdict: Option<Verdict>,
+    /// A repeated response is on its way while the machine waits (F1): when it has left, the
+    /// wait timer of the state starts over.
+    rearm_after_tx: bool,
     tcf_bytes: u64,
     tcf_zero_bits: u64,
     decoder: Option<t4::Decoder>,
@@ -152,6 +155,7 @@ impl Receiver {
             post_next: Next::Image,
             eop_confirmed: false,
             last_verdict: None,
+            rearm_after_tx: false,
             tcf_bytes: 0,
             tcf_zero_bits: 0,
             decoder: None,
@@ -268,6 +272,18 @@ impl Receiver {
         self.send_raw(frames, out);
     }
 
+    /// Repeats the last response while waiting: the peer did not hear it. The wait timer
+    /// stops while the response goes out and starts over once it has left.
+    fn resend_last(&mut self, out: &mut Vec<Action>) {
+        let resend = self.last_response.clone();
+        // In phase B the T4 retransmission of the DIS keeps running on its own (pinned by R01).
+        if self.state != State::WaitCommand {
+            self.cancel(Timer::T2, out);
+            self.rearm_after_tx = true;
+        }
+        self.send_raw(resend, out);
+    }
+
     fn send_raw(&mut self, frames: Vec<Vec<u8>>, out: &mut Vec<Action>) {
         self.tx_outstanding += 1;
         out.push(Action::SendFrames(frames));
@@ -326,6 +342,22 @@ impl Receiver {
             return;
         }
         let t2 = self.cfg.timers.t2_ms;
+        if std::mem::take(&mut self.rearm_after_tx) {
+            // A repeated response has left while we were waiting: the wait starts over, as
+            // after the first response (T.30: the timer is restarted whenever a response is
+            // sent). If the machine has moved on meanwhile, the flag is simply void.
+            match self.state {
+                State::WaitTcf
+                | State::WaitRetrain
+                | State::WaitImage
+                | State::WaitPostPage
+                | State::WaitDcn => {
+                    self.arm(Timer::T2, t2, out);
+                    return;
+                }
+                _ => {}
+            }
+        }
         match self.state {
             State::SendingDis => {
                 self.state = State::WaitCommand;
@@ -635,8 +667,7 @@ impl Receiver {
         if !waiting || self.last_response.is_empty() {
             return;
         }
-        let resend = self.last_response.clone();
-        self.send_raw(resend, out);
+        self.resend_last(out);
     }
 
     fn on_dcn(&mut self, out: &mut Vec<Action>) {
@@ -747,8 +778,7 @@ impl Receiver {
             {
                 // The sender repeats its command: our response was lost. Repeat it.
                 Self::log(out, format!("{} repeated: response resent", fcf_name(base)));
-                let resend = self.last_response.clone();
-                self.send_raw(resend, out);
+                self.resend_last(out);
             }
             _ => self.unexpected_frame(base, out),
         }

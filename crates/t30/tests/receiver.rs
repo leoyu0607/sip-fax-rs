@@ -827,13 +827,17 @@ fn r09_crp_repeats_the_dis_burst_in_phase_b() {
 fn r09_crp_repeats_cfr_after_the_dcs_and_mcf_after_a_page() {
     let mut s = to_wait_image(Config::default(), &DcsSpec::default());
     let acts = s.send(simple_cmd(0x58));
-    assert_eq!(summarize(&acts), ["tx[21]"]);
+    assert_eq!(summarize(&acts), ["cancel T2", "tx[21]"]);
     s.send(Event::TxComplete);
     mh_page_events(&mut s, &test_bitmap(20, 1), 20, 100);
     s.send(simple_cmd(MPS));
     s.send(Event::TxComplete);
     let acts = s.send(simple_cmd(0x58 | 0x80));
-    assert_eq!(summarize(&acts), ["tx[31]"], "CRP with the X bit too");
+    assert_eq!(
+        summarize(&acts),
+        ["cancel T2", "tx[31]"],
+        "CRP with the X bit too"
+    );
     assert_eq!(s.state(), State::WaitImage);
 }
 
@@ -855,7 +859,7 @@ fn r09_repeated_post_page_command_resends_the_response_without_a_second_page() {
     s.send(Event::TxComplete);
     // our MCF got lost: the sender repeats MPS
     let acts = s.send(simple_cmd(MPS));
-    assert_eq!(summarize(&acts), ["tx[31]"]);
+    assert_eq!(summarize(&acts), ["cancel T2", "tx[31]"]);
     assert_eq!(s.pages.len(), 1);
     assert_eq!(s.rx.pages(), 1);
     // after real image data a second MPS is no longer a repeat
