@@ -60,6 +60,13 @@
 - [ ] [使用者] 對接 CS210 試接，回傳 logs/calls/ 和結果；依結果調整 `cht-cs210` 預設組
 
 ## M3 — Store / Delivery / ECM
+> 使用者需求（2026-10-21，見 GOALS「傳真紀錄、預覽與清整」）已確認。**等使用者說開始再動工。**
+- [ ] [Opus] 依需求定案資料表 schema（`inbound_faxes` 欄位對應 GOALS 的欄位表），並撰寫 M3 設計和測試計畫
+- [ ] [Sonnet] ANI/DNIS 擷取規則（PAI、From、Request-URI、To、Diversion 的優先順序，可依 trunk 設定）
+- [ ] [Sonnet] 掛線方向和掛線原因的正規化（SIP 加 T.30）
+- [ ] [Sonnet] 已讀/未讀（全體共用，記錄切換者和時間）、備註（記錄修改者和時間）的資料模型和 API
+- [ ] [Sonnet] PNG 預覽：開啟時從 TIFF 轉出每頁 PNG 並快取（純 Rust，新增依賴要寫 ADR）
+- [ ] [Sonnet] 清整排程：檔案（TIFF/PDF/PNG）和紀錄分別設定保留天數，刪檔後紀錄標記「檔案已清除」；測試要涵蓋時間邊界和刪檔失敗的情況
 - [ ] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
 - [ ] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）
 - [ ] [Opus] 撰寫 docs/test-plans/M3.md
@@ -72,6 +79,7 @@
 ## M4 — 介面
 - [ ] [Opus] 撰寫 docs/test-plans/M4.md
 - [ ] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）
+- [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF
 - [ ] [Sonnet] web-ui：Svelte + Vite SPA，以 rust-embed 內嵌
 - [ ] [Sonnet] TUI（ratatui）和 CLI 子命令
 - [ ] [Any] CI 新增 `web-ui` job
