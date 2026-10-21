@@ -15,7 +15,19 @@ cov_lock=target/.llvm-cov.lock
 mkdir -p target
 until mkdir "$cov_lock" 2>/dev/null; do sleep 2; done
 trap 'rmdir "$cov_lock" 2>/dev/null || true' EXIT
-if cargo llvm-cov --version >/dev/null 2>&1; then { cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only && cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only && cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only && cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs' && cargo llvm-cov -p delivery --fail-under-lines 80 --summary-only; }; else echo "warn: cargo-llvm-cov not installed, skipping coverage gate"; fi
+if cargo llvm-cov --version >/dev/null 2>&1; then
+  # One command per line: under `set -e` a failure inside an `a && b && c` chain is ignored unless it
+  # is the last command, which once let a failing coverage run pass silently.
+  cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only
+  cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only
+  cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only
+  cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only
+  cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only
+  cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
+  cargo llvm-cov -p delivery --fail-under-lines 80 --summary-only
+else
+  echo "warn: cargo-llvm-cov not installed, skipping coverage gate"
+fi
 rmdir "$cov_lock" 2>/dev/null || true
 # Static musl build. CI uses zig 0.14.1; the zig of a developer machine is often newer (0.16 cannot
 # build our C dependencies), so unless this is a Linux box that already has zig 0.14.x the build runs

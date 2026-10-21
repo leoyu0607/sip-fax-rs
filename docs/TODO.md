@@ -87,6 +87,7 @@
 - [x] [Sonnet] M3f：delivery 接進 sip-faxd（設定、config check、catch_up、finalize 後通知、E2E、musl 確認）（ADR-050）
 - [x] [Any] 第一次 push 後確認 CI（02618eb 全綠）：db-matrix 的 migration 並行測試、coverage 的 `--ignore-filename-regex`、test／coverage job 的 SMTP services
 - [ ] [Any] 在有 nightly 的環境跑 t4 的 `tiff_read` fuzz 目標
+- [ ] [Sonnet] `crates/fax-in/tests/t38session.rs` 在高 CPU 負載（llvm-cov 加上平行編譯）下有 5 個案例逾時（`timed out waiting for a frame from the server`）；單獨重跑通過。改用注入時鐘或放寬逾時（2026-10-22 發版前發現）
 - [x] [Sonnet] t30 ECM（PPS/PPR、64 frame block）（M3d；預設關閉，ADR-035）
 - [x] [Any] CI 新增 `db-matrix` job（MySQL、MariaDB、PostgreSQL、MSSQL 的 services）
 - [x] [Opus] 審核 docs/test-reports/M3a–M3f.md（全數通過）
