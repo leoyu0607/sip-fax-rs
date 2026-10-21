@@ -538,7 +538,11 @@ mod tests {
         record_final(&rec, finished(&e, "c11@gw", "200", 1, false)).await;
         let st = e.db.store().await.unwrap();
         let row = st.get_by_call_id("c11@gw").await.unwrap().unwrap();
-        let a = attempts_where(&st, row.id, |a| a.len() >= 2).await;
+        // the engine writes the retry row first and closes the failed one after it
+        let a = attempts_where(&st, row.id, |a| {
+            a.len() >= 2 && a[0].status != DeliveryStatus::Pending
+        })
+        .await;
         assert_eq!(a[0].status, DeliveryStatus::Failed, "{a:?}");
         assert!(a[0].last_error.as_deref().is_some_and(|m| !m.is_empty()));
         assert_eq!(a[1].status, DeliveryStatus::Pending, "retry scheduled");
