@@ -106,3 +106,12 @@ E2E_NO_BUILD=1 scripts/musl-docker.sh
 ## 10. 異動檔案
 - 新增：`apps/sip-faxd/src/delivery_service.rs`、`apps/sip-faxd/tests/delivery_cli.rs`、`tools/fax-sim/tests/e2e_m3f.rs`、`docs/test-reports/M3f.md`
 - 修改：`apps/sip-faxd/{Cargo.toml,src/main.rs,src/settings.rs,src/commands.rs}`、`crates/fax-in/{src/recorder.rs,tests/recorder.rs}`、`conf/sip-faxd.toml.example`、`README.md`、`README.zh-TW.md`、`docs/database.md`、`CHANGELOG.md`、`tools/fax-sim/{Cargo.toml,tests/e2e_common/mod.rs}`、`tools/Cargo.lock`、`Cargo.lock`、`scripts/e2e-docker.sh`、`scripts/musl-docker.sh`
+
+## Opus 審核結論（2026-10-21）
+**結論：通過。**
+
+- 抽查 `recorder.rs` 與 `main.rs` 的接線：`on_finalized` 只在最終寫入成功時呼叫，沒有路由就不啟動投遞服務，投遞失敗或 DB 不可用不會影響收傳真的路徑。
+- `db backfill` 不投遞、改由 `catch_up_hours` 控制補送，判斷正確（ADR-050）。`[delivery]` 區段的新增可接受。
+- musl 靜態連結確認，執行檔增加 1.34 MiB（+10.7%），可接受。
+- E2E 在 Docker Hub 無法連線時改用本機映像執行（`E2E_NO_BUILD=1`），這兩個腳本選項保留。
+- 待追蹤：關閉時 15 秒寬限的逾時路徑、執行中 DB 重啟、非 UTC 時區的範本都沒有測試，列入 M4 的服務管理（stop/restart）一併處理。

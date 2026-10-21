@@ -354,3 +354,9 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 - 引入 `png` 0.18（純 Rust，MIT/Apache-2.0），只用在 `t4::png`。正確性由 libpng／libtiff 獨立比對。
 - TIFF 讀取（`t4::TiffReader`）放在 t4，仍然不做 I/O（輸入 `&[u8]`）。
 - 預覽在第一次開啟時才產生並快取在 `data_dir/cache/png/<id>/`，快取不寫入 DB；以快取檔為單位做 single-flight，`.part`＋rename 原子寫入；清整時整個目錄一起刪。快取沒有容量上限（受保留天數約束），M4 若需要再議。
+
+## ADR-050：投遞接進 sip-faxd 的方式（2026-10-21，M3f）
+- 只有設定了 `[[routes]]` 才啟動投遞服務。fax-in 的 recorder 在**最終寫入成功**（包含重試成功）後呼叫 `on_finalized(id)`，投遞服務收到後建立投遞；放棄的寫入不通知。
+- 新增 `[delivery]`：`catch_up_hours`（預設 24，0 表示關閉）與 `max_attempts`（預設 10）。啟動時以 `catch_up` 補送這段時間內已 finalize、但還沒有投遞紀錄的傳真，涵蓋「finalize 後、dispatch 前當機」的情況。
+- `sip-faxd db backfill` **不會投遞**，避免回補舊紀錄時灌爆信箱；回補的紀錄若落在 `catch_up_hours` 內，會在下次 `serve` 啟動時補送。
+- 關閉服務時，已排入的 id 會先 dispatch，進行中的嘗試有 15 秒寬限。

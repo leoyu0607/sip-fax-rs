@@ -66,7 +66,7 @@
 - [ ] [Any] 發佈 v0.1.1-alpha
 
 ## M3 — Store / Delivery / ECM
-> 2026-10-21 恢復開發：M3b（整合）、M3c（delivery）、M3e（PNG 預覽）平行完成並合併到 `m3` 分支；M3f（delivery 接進 sip-faxd）進行中。
+> 2026-10-21 恢復開發：M3b（整合）、M3c（delivery）、M3e（PNG 預覽）、M3f（delivery 接進 sip-faxd）完成，已合併到 main。測試報告 M3a–M3f 全數審核通過。
 - [x] [Opus] 依需求定案資料表 schema（`inbound_faxes` 欄位對應 GOALS 的欄位表），並撰寫 M3 設計和測試計畫
 - [x] [Sonnet] ANI/DNIS 擷取規則（PAI、From、Request-URI、To、Diversion 的優先順序，可依 trunk 設定）
 - [x] [Sonnet] 掛線方向和掛線原因的正規化（SIP 加 T.30）
@@ -83,12 +83,12 @@
 - [x] [Opus] 撰寫 docs/test-plans/M3.md
 - [x] [Sonnet] store：Repository traits、sqlx（SQLite/MySQL/PG）、tiberius（MSSQL）、migrations（M3a）
 - [x] [Sonnet] delivery：folder、email（lettre、rustls）、webhook（reqwest、rustls），含重試佇列（M3c，ADR-047、048）
-- [ ] [Sonnet] M3f：delivery 接進 sip-faxd（設定、config check、catch_up、finalize 後通知、E2E、musl 確認）
-- [ ] [Any] 第一次 push 後確認 CI：db-matrix 的 migration 並行測試、coverage 的 `--ignore-filename-regex`、test／coverage job 的 SMTP services
+- [x] [Sonnet] M3f：delivery 接進 sip-faxd（設定、config check、catch_up、finalize 後通知、E2E、musl 確認）（ADR-050）
+- [x] [Any] 第一次 push 後確認 CI（02618eb 全綠）：db-matrix 的 migration 並行測試、coverage 的 `--ignore-filename-regex`、test／coverage job 的 SMTP services
 - [ ] [Any] 在有 nightly 的環境跑 t4 的 `tiff_read` fuzz 目標
 - [x] [Sonnet] t30 ECM（PPS/PPR、64 frame block）（M3d；預設關閉，ADR-035）
 - [x] [Any] CI 新增 `db-matrix` job（MySQL、MariaDB、PostgreSQL、MSSQL 的 services）
-- [ ] [Opus] 審核 docs/test-reports/M3.md
+- [x] [Opus] 審核 docs/test-reports/M3a–M3f.md（全數通過）
 
 ## M4 — 介面
 - [ ] [Opus] 撰寫 docs/test-plans/M4.md
@@ -105,6 +105,7 @@
   - 用 systemd 管理時仍使用 `serve`（前景）。偵測到服務已經由 systemd 管理時，`start`/`stop` 要提示改用 `systemctl`。
 
 - [ ] [Sonnet] 手動重新投遞（`failed`／`giving_up` 的投遞；Web 按鈕與 CLI）（M3c 審核）
+- [ ] [Sonnet] 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區範本的測試（M3f 審核；與 stop/restart 一起做）
 - [ ] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）
 - [ ] [Any] CI 新增 `web-ui` job
 - [ ] [Opus] 審核 docs/test-reports/M4.md
