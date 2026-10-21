@@ -66,6 +66,28 @@ impl Reconfigurer {
     }
 }
 
+/// Timing and clock parameters of a [`DeliveryService`].
+#[derive(Debug, Clone, Copy)]
+pub struct ServiceOptions {
+    /// Pause between connection attempts while the database is not reachable.
+    pub db_retry: Duration,
+    /// How long `shutdown` waits for attempts that are running.
+    pub grace: Duration,
+    /// Offset from UTC (seconds) for `{date}` / `{time}` in file names; `None` = the time zone of
+    /// the server (read when the engine is built).
+    pub utc_offset_secs: Option<i32>,
+}
+
+impl Default for ServiceOptions {
+    fn default() -> Self {
+        ServiceOptions {
+            db_retry: DB_RETRY,
+            grace: SHUTDOWN_GRACE,
+            utc_offset_secs: None,
+        }
+    }
+}
+
 /// The running delivery engine and the way to feed it.
 pub struct DeliveryService {
     tx: mpsc::UnboundedSender<i64>,
@@ -84,23 +106,40 @@ impl DeliveryService {
         cfg: DeliverySection,
         db_retry: Duration,
     ) -> DeliveryService {
-        Self::start_with_grace(db, routes, data_dir, cfg, db_retry, SHUTDOWN_GRACE)
+        Self::start_with(
+            db,
+            routes,
+            data_dir,
+            cfg,
+            ServiceOptions {
+                db_retry,
+                ..ServiceOptions::default()
+            },
+        )
     }
 
-    /// [`DeliveryService::start`] with the time `shutdown` waits for running attempts.
-    pub fn start_with_grace(
+    /// [`DeliveryService::start`] with every parameter.
+    pub fn start_with(
         db: Arc<Db>,
         routes: Routes,
         data_dir: PathBuf,
         cfg: DeliverySection,
-        db_retry: Duration,
-        grace: Duration,
+        opts: ServiceOptions,
     ) -> DeliveryService {
+        let (db_retry, grace) = (opts.db_retry, opts.grace);
         let (tx, rx) = mpsc::unbounded_channel();
         let stop = Arc::new(Notify::new());
         let (settings, settings_rx) = watch::channel(Arc::new(Settings { routes, cfg }));
         let settings = Reconfigurer(Arc::new(settings));
-        let join = tokio::spawn(run(db, data_dir, db_retry, rx, stop.clone(), settings_rx));
+        let join = tokio::spawn(run(
+            db,
+            data_dir,
+            db_retry,
+            opts.utc_offset_secs,
+            rx,
+            stop.clone(),
+            settings_rx,
+        ));
         DeliveryService {
             tx,
             stop,
@@ -154,6 +193,7 @@ async fn run(
     db: Arc<Db>,
     data_dir: PathBuf,
     db_retry: Duration,
+    utc_offset_secs: Option<i32>,
     mut rx: mpsc::UnboundedReceiver<i64>,
     stop: Arc<Notify>,
     mut settings: watch::Receiver<Arc<Settings>>,
@@ -177,7 +217,8 @@ async fn run(
     let build = |st: &Settings| {
         let opts = EngineOptions {
             max_attempts: st.cfg.max_attempts,
-            utc_offset_secs: Local::now().offset().local_minus_utc(),
+            utc_offset_secs: utc_offset_secs
+                .unwrap_or_else(|| Local::now().offset().local_minus_utc()),
             ..EngineOptions::default()
         };
         DeliveryEngine::new(
@@ -211,7 +252,10 @@ async fn run(
     }
     let mut handle = engine.clone().map(DeliveryEngine::spawn);
     if engine.is_some() {
-        tracing::info!(routes = current.routes.routes.len(), "delivery engine running");
+        tracing::info!(
+            routes = current.routes.routes.len(),
+            "delivery engine running"
+        );
     }
     loop {
         tokio::select! {
@@ -289,6 +333,10 @@ mod tests {
     }
 
     async fn env(routes: &str) -> Env {
+        env_with_url(routes, None).await
+    }
+
+    async fn env_with_url(routes: &str, url: Option<String>) -> Env {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
         let out = dir.path().join("out");
@@ -296,7 +344,8 @@ mod tests {
             "[storage]\ndata_dir = {data:?}\n[database]\nurl = {url:?}\n\
              [[trunks]]\nname = \"t\"\nallowed_sources = [\"10.0.0.0/8\"]\n{routes}",
             data = slashes(&data),
-            url = format!("sqlite://{}", slashes(&dir.path().join("fax.db"))),
+            url =
+                url.unwrap_or_else(|| format!("sqlite://{}", slashes(&dir.path().join("fax.db")))),
             routes = routes.replace("OUT", &slashes(&out)),
         );
         let cfg = AppConfig::parse(&text, Path::new("test.toml")).unwrap();
@@ -615,5 +664,383 @@ mod tests {
             .await
             .expect("shutdown does not wait for a database that is not there");
         assert!(!dir.path().join("out").exists());
+    }
+
+    // ------------------------------------------------------------------ M4a
+
+    /// A reconfigured route set takes effect for the next fax; a broken one is refused.
+    #[tokio::test]
+    async fn k07_new_routes_apply_to_the_next_fax_and_a_broken_set_is_refused() {
+        let route_a = "[[routes]]\ndnis = \"200\"\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"OUT/a\"\nfilename = \"f{id}\"\n";
+        let e = env(route_a).await;
+        let svc = service(&e);
+        let rec = recorder(&e, Some(svc.hook()));
+        let st = e.db.store().await.unwrap();
+        record_final(&rec, finished(&e, "h1@gw", "200", 1, false)).await;
+        let id1 = st.get_by_call_id("h1@gw").await.unwrap().unwrap().id;
+        attempts_where(&st, id1, any_done).await;
+        assert_eq!(files_in(&e.out.join("a")).len(), 2);
+
+        let route_b = format!(
+            "[[routes]]\ndnis = \"200\"\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"{}\"\nfilename = \"f{{id}}\"\n",
+            slashes(&e.out.join("b"))
+        );
+        let routes_b: Routes = {
+            let c = AppConfig::parse(&route_b, Path::new("b.toml")).unwrap();
+            c.routes
+        };
+        svc.reconfigurer()
+            .reconfigure(routes_b.clone(), DeliverySection::default())
+            .unwrap();
+        record_final(&rec, finished(&e, "h2@gw", "200", 1, false)).await;
+        let id2 = st.get_by_call_id("h2@gw").await.unwrap().unwrap().id;
+        attempts_where(&st, id2, any_done).await;
+        assert_eq!(
+            files_in(&e.out.join("b")).len(),
+            2,
+            "the second fax went by the new route"
+        );
+        assert_eq!(
+            files_in(&e.out.join("a")).len(),
+            2,
+            "and nothing more went the old way"
+        );
+
+        // a broken set (default route that is not last) is refused and the engine keeps working
+        let broken: Routes = toml::from_str(
+            "[[routes]]\ndefault = true\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"/x\"\n[[routes]]\ndnis = \"1\"\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"/y\"\n",
+        )
+        .unwrap();
+        let errs = svc
+            .reconfigurer()
+            .reconfigure(broken, DeliverySection::default())
+            .unwrap_err();
+        assert!(errs.iter().any(|m| m.contains("must be last")), "{errs:?}");
+        assert!(
+            svc.reconfigurer()
+                .reconfigure(
+                    routes_b,
+                    DeliverySection {
+                        max_attempts: 0,
+                        ..DeliverySection::default()
+                    }
+                )
+                .is_err()
+        );
+        record_final(&rec, finished(&e, "h3@gw", "200", 1, false)).await;
+        let id3 = st.get_by_call_id("h3@gw").await.unwrap().unwrap().id;
+        attempts_where(&st, id3, any_done).await;
+        assert_eq!(files_in(&e.out.join("b")).len(), 4);
+        rec.shutdown(Duration::from_secs(5)).await;
+        svc.shutdown().await;
+    }
+
+    /// R05: `{date}` / `{time}` of a file name are local time (here UTC+8 as in Taipei).
+    #[tokio::test]
+    async fn r05_file_names_use_the_local_time_of_the_server() {
+        let route = "[[routes]]\ndnis = \"200\"\n[[routes.deliveries]]\nkind = \"folder\"\ndir = \"OUT\"\nfilename = \"{date}_{time}_{id}\"\nformats = [\"pdf\"]\n";
+        let e = env(route).await;
+        let svc = DeliveryService::start_with(
+            e.db.clone(),
+            e.cfg.routes.clone(),
+            e.data.clone(),
+            e.cfg.delivery.clone(),
+            ServiceOptions {
+                db_retry: Duration::from_millis(50),
+                utc_offset_secs: Some(8 * 3600),
+                ..ServiceOptions::default()
+            },
+        );
+        let rec = recorder(&e, Some(svc.hook()));
+        record_final(&rec, finished(&e, "r05@gw", "200", 1, false)).await;
+        let st = e.db.store().await.unwrap();
+        let row = st.get_by_call_id("r05@gw").await.unwrap().unwrap();
+        attempts_where(&st, row.id, any_done).await;
+        let local = (row.started_at + chrono::Duration::hours(8)).format("%Y%m%d_%H%M%S");
+        let utc = row.started_at.format("%Y%m%d_%H%M%S");
+        let names = files_in(&e.out);
+        assert_eq!(names, vec![format!("{local}_{}.pdf", row.id)], "{names:?}");
+        assert_ne!(
+            local.to_string(),
+            utc.to_string(),
+            "the test would prove nothing at UTC+0"
+        );
+        assert!(!names[0].starts_with(&utc.to_string()));
+        rec.shutdown(Duration::from_secs(5)).await;
+        svc.shutdown().await;
+    }
+
+    /// A tiny HTTP server for webhook tests: `answer = false` reads the request and never
+    /// replies; `true` answers 200. Returns the number of requests seen.
+    async fn http_server(
+        listener: tokio::net::TcpListener,
+        answer: bool,
+    ) -> (
+        Arc<std::sync::atomic::AtomicUsize>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let seen = Arc::new(AtomicUsize::new(0));
+        let s2 = seen.clone();
+        let j = tokio::spawn(async move {
+            let mut conns = Vec::new();
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                let s3 = s2.clone();
+                conns.push(tokio::spawn(async move {
+                    let mut buf = vec![0u8; 65536];
+                    let mut have = 0usize;
+                    loop {
+                        let Ok(n) = sock.read(&mut buf[have..]).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            return;
+                        }
+                        have += n;
+                        let text = String::from_utf8_lossy(&buf[..have]).to_string();
+                        if let Some(h) = text.find("\r\n\r\n") {
+                            let len = text
+                                .lines()
+                                .find_map(|l| {
+                                    l.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .and_then(|v| v.trim().parse::<usize>().ok())
+                                })
+                                .unwrap_or(0);
+                            if have >= h + 4 + len {
+                                break;
+                            }
+                        }
+                    }
+                    s3.fetch_add(1, Ordering::SeqCst);
+                    if answer {
+                        let _ = sock
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                            .await;
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(600)).await;
+                    }
+                }));
+            }
+        });
+        (seen, j)
+    }
+
+    /// R03: an attempt that is still running when the grace period ends is abandoned; its row is
+    /// still `pending`, the next start delivers it, once.
+    #[tokio::test]
+    async fn r03_an_attempt_beyond_the_grace_stays_pending_and_the_next_start_finishes_it() {
+        use std::sync::atomic::Ordering;
+        let hang = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = hang.local_addr().unwrap();
+        let (hang_seen, hang_task) = http_server(hang, false).await;
+        let route = format!(
+            "[[routes]]\ndnis = \"200\"\n[[routes.deliveries]]\nkind = \"webhook\"\nurl = \"http://{addr}/hook\"\n"
+        );
+        let e = env(&route).await;
+        let opts = ServiceOptions {
+            db_retry: Duration::from_millis(50),
+            grace: Duration::from_millis(300),
+            utc_offset_secs: Some(0),
+        };
+        let svc = DeliveryService::start_with(
+            e.db.clone(),
+            e.cfg.routes.clone(),
+            e.data.clone(),
+            e.cfg.delivery.clone(),
+            opts,
+        );
+        let rec = recorder(&e, Some(svc.hook()));
+        record_final(&rec, finished(&e, "r03@gw", "200", 1, false)).await;
+        rec.shutdown(Duration::from_secs(5)).await;
+        for _ in 0..500 {
+            if hang_seen.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(
+            hang_seen.load(Ordering::SeqCst),
+            1,
+            "the attempt is in flight"
+        );
+        let started = std::time::Instant::now();
+        svc.shutdown().await;
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "shutdown gave up after the grace period ({:?})",
+            started.elapsed()
+        );
+        let st = e.db.store().await.unwrap();
+        let row = st.get_by_call_id("r03@gw").await.unwrap().unwrap();
+        let a = st.list_deliveries(row.id).await.unwrap();
+        assert_eq!(a.len(), 1, "{a:?}");
+        assert_eq!(
+            (a[0].status, a[0].attempt),
+            (DeliveryStatus::Pending, 1),
+            "the row is still retryable"
+        );
+        // the next start: the same address now answers
+        hang_task.abort();
+        let _ = hang_task.await;
+        let ok = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let (ok_seen, ok_task) = http_server(ok, true).await;
+        let svc = DeliveryService::start_with(
+            e.db.clone(),
+            e.cfg.routes.clone(),
+            e.data.clone(),
+            e.cfg.delivery.clone(),
+            opts,
+        );
+        let a = attempts_where(&st, row.id, any_done).await;
+        assert_eq!(a.len(), 1, "no duplicate row: {a:?}");
+        assert_eq!(a[0].attempt, 1);
+        assert_eq!(ok_seen.load(Ordering::SeqCst), 1, "delivered exactly once");
+        assert_eq!(hang_seen.load(Ordering::SeqCst), 1);
+        svc.shutdown().await;
+        ok_task.abort();
+    }
+
+    /// R04 (needs a database server in Docker: `scripts/db-matrix.sh` sets the variables): the
+    /// database restarts while faxes are being received and delivered; afterwards every fax has
+    /// been delivered once.
+    #[tokio::test]
+    async fn r04_a_database_restart_loses_and_duplicates_nothing() {
+        let (Ok(url), Ok(container)) = (
+            std::env::var("SIP_FAXD_TEST_DB"),
+            std::env::var("SIP_FAXD_TEST_DB_CONTAINER"),
+        ) else {
+            eprintln!(
+                "r04: skipped (set SIP_FAXD_TEST_DB and SIP_FAXD_TEST_DB_CONTAINER; scripts/db-matrix.sh does)"
+            );
+            return;
+        };
+        if url.starts_with("sqlite") {
+            return;
+        }
+        // a database of our own on that server
+        let name = format!("r04_{}", std::process::id());
+        let docker = |args: &[&str]| {
+            std::process::Command::new("docker")
+                .args(args)
+                .output()
+                .expect("docker runs")
+        };
+        let create = if url.starts_with("postgres") {
+            vec![
+                "exec".to_string(),
+                container.clone(),
+                "psql".into(),
+                "-U".into(),
+                "postgres".into(),
+                "-c".into(),
+                format!("CREATE DATABASE {name}"),
+            ]
+        } else if url.starts_with("mssql") {
+            vec![
+                "exec".to_string(),
+                container.clone(),
+                "/opt/mssql-tools18/bin/sqlcmd".into(),
+                "-C".into(),
+                "-S".into(),
+                "localhost".into(),
+                "-U".into(),
+                "sa".into(),
+                "-P".into(),
+                "Sipfax_Test_1".into(),
+                "-Q".into(),
+                format!("CREATE DATABASE {name}"),
+            ]
+        } else {
+            let client = if url.starts_with("mariadb") {
+                "mariadb"
+            } else {
+                "mysql"
+            };
+            vec![
+                "exec".to_string(),
+                container.clone(),
+                client.into(),
+                "-uroot".into(),
+                "-pSipfax_Test_1".into(),
+                "-e".into(),
+                format!("CREATE DATABASE {name} CHARACTER SET utf8mb4"),
+            ]
+        };
+        let refs: Vec<&str> = create.iter().map(String::as_str).collect();
+        let o = docker(&refs);
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let mut u = url::Url::parse(&url.replacen("mariadb:", "mysql:", 1)).unwrap();
+        u.set_path(&format!("/{name}"));
+        let db_url = u.to_string().replacen(
+            "mysql:",
+            if url.starts_with("mariadb") {
+                "mariadb:"
+            } else {
+                "mysql:"
+            },
+            1,
+        );
+
+        let e = env_with_url(ROUTE, Some(db_url)).await;
+        let svc = service(&e);
+        let rec = recorder(&e, Some(svc.hook()));
+        // restart the database while faxes keep coming
+        let c2 = container.clone();
+        let restart = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("docker")
+                .args(["restart", &c2])
+                .output()
+                .unwrap()
+        });
+        for i in 0..6 {
+            let r = finished(&e, &format!("r04-{i}@gw"), "200", 1, false);
+            rec.record(&CallEvent::Started {
+                call_id: r.call_id.clone(),
+                trunk: r.trunk.clone(),
+                peer: r.peer.clone(),
+                numbers: r.numbers.clone(),
+                at: r.started_at,
+            });
+            rec.record(&CallEvent::Finished(Box::new(r)));
+            tokio::time::sleep(Duration::from_millis(700)).await;
+        }
+        assert!(restart.await.unwrap().status.success());
+        // every fax gets recorded (the recorder retries while the database is away) and delivered
+        let st = e.db.store().await.unwrap();
+        let mut ids = Vec::new();
+        for i in 0..6 {
+            let mut found = None;
+            for _ in 0..1500 {
+                if let Ok(Some(r)) = st.get_by_call_id(&format!("r04-{i}@gw")).await {
+                    found = Some(r.id);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            ids.push(found.unwrap_or_else(|| panic!("fax r04-{i} was lost")));
+        }
+        for id in &ids {
+            let a = attempts_where(&st, *id, any_done).await;
+            assert_eq!(
+                a.iter()
+                    .filter(|x| x.status == DeliveryStatus::Done)
+                    .count(),
+                1,
+                "delivered once: {a:?}"
+            );
+        }
+        let names = files_in(&e.out);
+        assert_eq!(
+            names.len(),
+            2 * ids.len(),
+            "a pdf and a tif per fax, no duplicates: {names:?}"
+        );
+        rec.shutdown(Duration::from_secs(10)).await;
+        svc.shutdown().await;
     }
 }

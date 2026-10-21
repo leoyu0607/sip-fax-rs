@@ -13,7 +13,19 @@
 //!   input; a panic inside the conversion is turned into [`PreviewError::Task`].
 //!
 //! [`crate::Purger`] deletes the whole `cache/png/<id>` directory together with the TIFF/PDF.
+//!
+//! M4a (R01, R02):
+//!
+//! * a purge that runs while a page is being converted cannot leave a PNG behind: after the
+//!   conversion the record is looked at again, and when its files were purged meanwhile the new
+//!   PNG is deleted and the request fails with [`PreviewError::Purged`] (the purger also sweeps
+//!   the cache directory once more after it has marked the record, so both orders are covered);
+//! * the cache has a size limit ([`Preview::with_cache_limit`]): after a new PNG is stored the
+//!   least recently used files are deleted until the cache fits again. A file counts as used
+//!   when it is stored or served (the modification time is refreshed on every hit); files used
+//!   within the protection window, and pages that are being converted, are never deleted.
 
+use crate::clock::{Clock, SystemClock};
 use crate::purge::resolve_in_data_dir;
 use crate::store::FaxStore;
 use chrono::{DateTime, Utc};
@@ -98,6 +110,26 @@ pub struct Preview {
     flights: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
     conversions: AtomicU64,
     fault: Option<FaultHook>,
+    clock: Arc<dyn Clock>,
+    limit: Option<CacheLimit>,
+}
+
+/// Size limit of the PNG cache.
+#[derive(Debug, Clone, Copy)]
+struct CacheLimit {
+    bytes: u64,
+    protect: std::time::Duration,
+}
+
+/// What [`Preview::trim_cache`] did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TrimReport {
+    /// Files deleted.
+    pub removed_files: u64,
+    /// Bytes freed.
+    pub removed_bytes: u64,
+    /// Bytes in the cache afterwards.
+    pub kept_bytes: u64,
 }
 
 impl Preview {
@@ -109,7 +141,32 @@ impl Preview {
             flights: Mutex::new(HashMap::new()),
             conversions: AtomicU64::new(0),
             fault: None,
+            clock: Arc::new(SystemClock),
+            limit: None,
         }
+    }
+
+    /// The clock that decides what "used recently" means (default: the system clock).
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// Limits the PNG cache to `bytes`; files used within `protect` are never deleted (so a page
+    /// that was just served is still there when the client fetches it), which means the limit is
+    /// a soft one while many pages are in use.
+    pub fn with_cache_limit(mut self, bytes: u64, protect: std::time::Duration) -> Self {
+        self.limit = Some(CacheLimit { bytes, protect });
+        self
+    }
+
+    /// [`Preview::with_cache_limit`] in megabytes (`[storage] preview_cache_mb`) with a
+    /// 60 second protection window.
+    pub fn with_cache_limit_mb(self, mb: u64) -> Self {
+        self.with_cache_limit(
+            mb.saturating_mul(1024 * 1024),
+            std::time::Duration::from_secs(60),
+        )
     }
 
     /// Test seam: run `hook` on the finished `.part` file just before it is renamed into place.
@@ -163,6 +220,7 @@ impl Preview {
         }
         let out = self.cache_path(id, page, kind);
         if tokio::fs::try_exists(&out).await? {
+            self.touch(&out);
             return Ok(out);
         }
 
@@ -183,7 +241,69 @@ impl Preview {
         }
         .await;
         self.release(&out, flight);
-        result.map(|()| out)
+        if let Err(e) = result {
+            // a purge that deleted the directory under a running conversion shows up as an I/O
+            // error: that is a purged fax (410), not a failure
+            self.ensure_not_purged(id, &out).await?;
+            return Err(e);
+        }
+        // R01: the files may have been purged while the page was converted
+        self.ensure_not_purged(id, &out).await?;
+        if self.limit.is_some()
+            && let Err(e) = self.trim_cache().await
+        {
+            tracing::warn!("preview cache could not be trimmed: {e}");
+        }
+        Ok(out)
+    }
+
+    /// A page that was just converted must not outlive the files of its fax.
+    async fn ensure_not_purged(&self, id: i64, out: &Path) -> Result<(), PreviewError> {
+        let err = match self.store.get(id).await? {
+            Some(r) if r.files_purged_at.is_none() => return Ok(()),
+            Some(r) => PreviewError::Purged {
+                id,
+                at: r.files_purged_at.expect("checked above"),
+            },
+            None => PreviewError::NotFound(id),
+        };
+        let _ = tokio::fs::remove_file(out).await;
+        if let Some(dir) = out.parent() {
+            let _ = tokio::fs::remove_dir(dir).await; // only when empty
+        }
+        Err(err)
+    }
+
+    /// Marks a cached page as used now.
+    fn touch(&self, path: &Path) {
+        let now: std::time::SystemTime = self.clock.now().into();
+        if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
+            let _ = f.set_modified(now);
+        }
+    }
+
+    /// Deletes the least recently used PNGs until the cache fits its limit. Files used within
+    /// the protection window and pages that are being converted stay. Does nothing without a
+    /// limit.
+    ///
+    /// # Errors
+    /// The cache directory cannot be read.
+    pub async fn trim_cache(&self) -> io::Result<TrimReport> {
+        let Some(limit) = self.limit else {
+            return Ok(TrimReport::default());
+        };
+        let busy: Vec<PathBuf> = self
+            .flights
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        let root = self.data_dir.join("cache").join("png");
+        let now = self.clock.now();
+        tokio::task::spawn_blocking(move || trim(&root, limit, now, &busy))
+            .await
+            .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     /// Pages currently being converted or waited for (0 when idle).
@@ -274,4 +394,57 @@ fn convert(
     std::fs::rename(&part, out)?;
     guard.armed = false;
     Ok(())
+}
+
+fn trim(
+    root: &Path,
+    limit: CacheLimit,
+    now: DateTime<Utc>,
+    busy: &[PathBuf],
+) -> io::Result<TrimReport> {
+    let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
+    let dirs = match std::fs::read_dir(root) {
+        Ok(d) => d,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(TrimReport::default()),
+        Err(e) => return Err(e),
+    };
+    for dir in dirs.flatten() {
+        let Ok(inner) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
+        for f in inner.flatten() {
+            let p = f.path();
+            if p.extension().is_none_or(|e| e != "png") {
+                continue; // `.part` files belong to a conversion in progress
+            }
+            if let Ok(m) = f.metadata()
+                && m.is_file()
+            {
+                files.push((m.modified().unwrap_or(std::time::UNIX_EPOCH), p, m.len()));
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.2).sum();
+    let mut rep = TrimReport::default();
+    files.sort();
+    let protect = chrono::Duration::from_std(limit.protect).unwrap_or(chrono::Duration::zero());
+    for (mtime, path, size) in &files {
+        if total <= limit.bytes {
+            break;
+        }
+        let used: DateTime<Utc> = (*mtime).into();
+        if now - used < protect || busy.contains(path) {
+            continue;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total -= size;
+            rep.removed_files += 1;
+            rep.removed_bytes += size;
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::remove_dir(dir); // only when empty
+            }
+        }
+    }
+    rep.kept_bytes = total;
+    Ok(rep)
 }

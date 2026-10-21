@@ -336,15 +336,21 @@ impl FaxIn {
             }
             match registration_config(t, &self.endpoint) {
                 Some(rc) => wanted.push((t.name().to_string(), registration_key(t), rc)),
-                None => tracing::error!(trunk = %t.name(), "registration is configured but could not be set up"),
+                None => {
+                    tracing::error!(trunk = %t.name(), "registration is configured but could not be set up")
+                }
             }
         }
         // stop what is gone or changed (un-REGISTER first, then the new registration starts)
         let mut stopped = Vec::new();
         let mut keep = Vec::new();
-        let current = std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
+        let current =
+            std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
         for item in current {
-            if wanted.iter().any(|(n, k, _)| *n == item.name && *k == item.key) {
+            if wanted
+                .iter()
+                .any(|(n, k, _)| *n == item.name && *k == item.key)
+            {
                 keep.push(item);
             } else {
                 stopped.push(item.name.clone());
@@ -377,7 +383,8 @@ impl FaxIn {
         if let Some(a) = self.acceptor.take() {
             let _ = a.await;
         }
-        let regs = std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
+        let regs =
+            std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
         for item in regs {
             let _ = tokio::time::timeout(Duration::from_secs(5), item.handle.stop()).await;
             item.log.abort();
@@ -414,7 +421,10 @@ fn start_registrations(sh: &Arc<Shared>, endpoint: &Endpoint) -> Vec<RegItem> {
 
 /// Everything a registration is built from; when it differs, the registration is replaced.
 fn registration_key(t: &Trunk) -> String {
-    format!("{:?}|{:?}|{:?}", t.cfg.register, t.cfg.peer, t.cfg.transport)
+    format!(
+        "{:?}|{:?}|{:?}",
+        t.cfg.register, t.cfg.peer, t.cfg.transport
+    )
 }
 
 fn spawn_registration(

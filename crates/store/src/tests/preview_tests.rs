@@ -212,10 +212,8 @@ async fn p03_cache_body(env: &Env) {
         "the second request must not convert again"
     );
     assert_eq!(std::fs::read(&second).unwrap(), bytes);
-    assert_eq!(
-        std::fs::metadata(&second).unwrap().modified().unwrap(),
-        mtime
-    );
+    // a hit only refreshes the modification time (the "last used" mark of the cache limit)
+    assert!(std::fs::metadata(&second).unwrap().modified().unwrap() >= mtime);
 
     // The TIFF is not needed any more for a cached page ...
     std::fs::remove_file(&tiff).unwrap();
@@ -551,4 +549,128 @@ async fn p04_tiff_body(env: &Env) {
         pv.page_png(id, 1, PngKind::Full).await,
         Err(PreviewError::UnsafePath(_))
     ));
+}
+
+// ---------------------------------------------------------------- R01 (M4a)
+db_case!(r01_purge_during_conversion_leaves_no_png, r01_body);
+async fn r01_body(env: &Env) {
+    let now = T0 + 100 * DAY;
+    let (id, tiff) = mk_fax(env, "r01", now - 10 * DAY, &two_pages()).await;
+    let dd = data_dir(env);
+    let (reached_tx, reached_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let go_rx = std::sync::Mutex::new(go_rx);
+    let reached_tx = std::sync::Mutex::new(reached_tx);
+    let pv = Arc::new(
+        Preview::new(env.dyn_store(), &dd).with_fault_hook(move |_p: &Path| {
+            reached_tx.lock().unwrap().send(()).unwrap();
+            go_rx.lock().unwrap().recv().unwrap();
+            Ok(())
+        }),
+    );
+    let pv2 = pv.clone();
+    let req = tokio::spawn(async move { pv2.page_png(id, 1, PngKind::Full).await });
+    tokio::task::spawn_blocking(move || reached_rx.recv().unwrap())
+        .await
+        .unwrap();
+    // the conversion has written its .part file; now the purge runs completely
+    env.clock.set(t(now));
+    let rep = Purger::new(env.dyn_store(), &dd, env.clock.clone())
+        .run(
+            RetentionPolicy {
+                files_days: 7,
+                records_days: 0,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(rep.files_purged, 1);
+    assert!(!tiff.exists());
+    go_tx.send(()).unwrap();
+    let r = req.await.unwrap();
+    assert!(
+        matches!(r, Err(PreviewError::Purged { .. })),
+        "410 for the request: {r:?}"
+    );
+    let dir = dd.join("cache/png").join(id.to_string());
+    assert!(
+        !dir.exists() || names(&dir).is_empty(),
+        "no orphan PNG: {:?}",
+        if dir.exists() { names(&dir) } else { vec![] }
+    );
+    // reverse: without a purge a request succeeds and the PNG stays
+    let (id2, _) = mk_fax(env, "r01b", now, &two_pages()).await;
+    let pv3 = Preview::new(env.dyn_store(), &dd);
+    let p = pv3.page_png(id2, 1, PngKind::Full).await.unwrap();
+    assert!(p.exists());
+}
+
+// ---------------------------------------------------------------- R02 (M4a)
+db_case!(r02_cache_limit_evicts_least_recently_used, r02_body);
+async fn r02_body(env: &Env) {
+    let (id, _) = mk_fax(env, "r02", T0, &two_pages()).await;
+    let dd = data_dir(env);
+    let set_age = |p: &Path, secs_ago: i64| {
+        let f = std::fs::OpenOptions::new().write(true).open(p).unwrap();
+        let when: std::time::SystemTime = (t(T0) - chrono::Duration::seconds(secs_ago)).into();
+        f.set_modified(when).unwrap();
+    };
+    env.clock.set(t(T0));
+    let unlimited = Preview::new(env.dyn_store(), &dd).with_clock(env.clock.clone());
+    let mut paths = Vec::new();
+    for (page, kind) in [
+        (1, PngKind::Full),
+        (1, PngKind::Thumb),
+        (2, PngKind::Full),
+        (2, PngKind::Thumb),
+    ] {
+        paths.push(unlimited.page_png(id, page, kind).await.unwrap());
+    }
+    let sizes: Vec<u64> = paths
+        .iter()
+        .map(|p| std::fs::metadata(p).unwrap().len())
+        .collect();
+    // ages: [0] 1000 s (oldest), [1] 900, [2] 800, [3] 10 s (inside the protection window)
+    for (p, age) in paths.iter().zip([1000, 900, 800, 10]) {
+        set_age(p, age);
+    }
+    let total: u64 = sizes.iter().sum();
+    let limit = total - sizes[1] - sizes[2];
+    let pv = Preview::new(env.dyn_store(), &dd)
+        .with_clock(env.clock.clone())
+        .with_cache_limit(limit, std::time::Duration::from_secs(60));
+    // a hit on the oldest page makes it recently used
+    pv.page_png(id, 1, PngKind::Full).await.unwrap();
+    assert_eq!(pv.conversions(), 0, "served from the cache");
+    let rep = pv.trim_cache().await.unwrap();
+    assert!(rep.kept_bytes <= limit, "{rep:?}");
+    assert!(paths[0].exists(), "the page that was just used stays");
+    assert!(
+        !paths[1].exists() && !paths[2].exists(),
+        "the least recently used go first"
+    );
+    assert!(
+        paths[3].exists(),
+        "a page used within the window is never deleted"
+    );
+    // soft limit: what is left is protected, nothing more is deleted even above the limit
+    let tiny = Preview::new(env.dyn_store(), &dd)
+        .with_clock(env.clock.clone())
+        .with_cache_limit(1, std::time::Duration::from_secs(60));
+    let rep = tiny.trim_cache().await.unwrap();
+    assert_eq!(rep.removed_files, 0, "{rep:?}");
+    assert!(paths[0].exists() && paths[3].exists());
+    // an hour later nothing is protected any more
+    env.clock.advance(chrono::Duration::hours(1));
+    let rep = tiny.trim_cache().await.unwrap();
+    assert_eq!(rep.removed_files, 2);
+    assert!(
+        !dd.join("cache/png").join(id.to_string()).exists(),
+        "the empty directory is removed"
+    );
+    // a trimmed page is converted again on demand
+    let again = pv.page_png(id, 2, PngKind::Full).await.unwrap();
+    assert!(again.exists());
+    assert_eq!(pv.conversions(), 1);
 }

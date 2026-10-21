@@ -218,7 +218,10 @@ pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> Exi
             return ExitCode::SUCCESS;
         }
         Err(e) => {
-            eprintln!("sip-faxd: error: database {}: {e}", mask_url(&cfg.database.url));
+            eprintln!(
+                "sip-faxd: error: database {}: {e}",
+                mask_url(&cfg.database.url)
+            );
             return ExitCode::from(1);
         }
     };
@@ -269,7 +272,11 @@ pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> Exi
                 if rt.trunks.is_empty() {
                     "none".to_string()
                 } else {
-                    rt.trunks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", ")
+                    rt.trunks
+                        .iter()
+                        .map(|t| t.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 }
             );
             for l in routes_summary(&rt.routes) {
@@ -285,13 +292,19 @@ pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> Exi
             }
             for u in &ins.undecryptable {
                 bad = true;
-                eprintln!("error: the secret {u} cannot be decrypted with conf/secret.key: enter it again");
+                eprintln!(
+                    "error: the secret {u} cannot be decrypted with conf/secret.key: enter it again"
+                );
             }
             for p in runtime_config::validate::cross_check(rt) {
                 bad = true;
                 eprintln!("error: {p}");
             }
-            if bad { ExitCode::from(1) } else { ExitCode::SUCCESS }
+            if bad {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
         }
     };
     st.close().await;

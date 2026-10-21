@@ -18,7 +18,8 @@ const AUDIT_COLS: &str = "id, section, action, before_json, after_json, changed_
 const AUDIT_KINDS: &[Kind] = &[I, S, S, S, S, S, T];
 const USER_COLS: &str = "id, username, display_name, role, password_hash, locale, disabled, must_change_password, created_at, updated_at, last_login_at";
 const USER_KINDS: &[Kind] = &[I, S, S, S, S, S, B, B, T, T, T];
-const SESSION_COLS: &str = "id, token_hash, user_id, created_at, last_seen_at, expires_at, ip, user_agent";
+const SESSION_COLS: &str =
+    "id, token_hash, user_id, created_at, last_seen_at, expires_at, ip, user_agent";
 const SESSION_KINDS: &[Kind] = &[I, S, I, T, T, T, S, S];
 
 fn read_config(v: Vec<Val>) -> ConfigRow {
@@ -114,10 +115,7 @@ impl SqlStore {
 impl AdminStore for SqlStore {
     async fn config_get(&self, name: &str) -> Result<Option<ConfigRow>> {
         let sql = format!("SELECT {CONFIG_COLS} FROM config_sections WHERE name = ?");
-        let rows = self
-            .raw()
-            .query(&sql, &[name.into()], CONFIG_KINDS)
-            .await?;
+        let rows = self.raw().query(&sql, &[name.into()], CONFIG_KINDS).await?;
         Ok(rows.into_iter().next().map(read_config))
     }
 
@@ -223,9 +221,8 @@ impl AdminStore for SqlStore {
             Some(id) => ("WHERE id < ?", vec![id.into()]),
             None => ("", vec![]),
         };
-        let sql = format!(
-            "SELECT {top} {AUDIT_COLS} FROM config_audit {cond} ORDER BY id DESC {lim}"
-        );
+        let sql =
+            format!("SELECT {top} {AUDIT_COLS} FROM config_audit {cond} ORDER BY id DESC {lim}");
         let rows = self.raw().query(&sql, &params, AUDIT_KINDS).await?;
         Ok(rows.into_iter().map(read_audit).collect())
     }

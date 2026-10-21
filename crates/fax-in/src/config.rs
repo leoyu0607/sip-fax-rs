@@ -317,12 +317,17 @@ pub struct StorageConfig {
     /// Received faxes are written to `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|.pdf`.
     /// A relative path is relative to the executable directory.
     pub data_dir: PathBuf,
+    /// Size limit of the PNG preview cache in MiB (`cache/png`); the least recently used pages
+    /// are deleted beyond it. Used by the web interface (M4b) through
+    /// `Preview::with_cache_limit_mb`.
+    pub preview_cache_mb: u64,
 }
 
 impl Default for StorageConfig {
     fn default() -> Self {
         StorageConfig {
             data_dir: PathBuf::from("data"),
+            preview_cache_mb: 2048,
         }
     }
 }
@@ -1084,7 +1089,6 @@ impl TrunkConfig {
     }
 }
 
-
 /// A `[[trunks]]` entry given as JSON (the stored form and the REST body): the preset named in
 /// `preset` supplies the defaults of the keys that are absent, exactly as for a TOML entry.
 ///
@@ -1157,15 +1161,47 @@ pub fn restart_required(started: &FaxInConfig, now: &FaxInConfig) -> Vec<String>
         }
     };
     check("sip.bind", j(&started.sip.bind), j(&now.sip.bind));
-    check("sip.transports", j(&started.transports()), j(&now.transports()));
-    check("sip.advertised", j(&started.sip.advertised), j(&now.sip.advertised));
-    check("sip.user_agent", j(&started.sip.user_agent), j(&now.sip.user_agent));
+    check(
+        "sip.transports",
+        j(&started.transports()),
+        j(&now.transports()),
+    );
+    check(
+        "sip.advertised",
+        j(&started.sip.advertised),
+        j(&now.sip.advertised),
+    );
+    check(
+        "sip.user_agent",
+        j(&started.sip.user_agent),
+        j(&now.sip.user_agent),
+    );
     check("sip.allow", j(&started.sip.allow), j(&now.sip.allow));
-    check("sip.supported", j(&started.sip.supported), j(&now.sip.supported));
-    check("media.address", j(&started.media_address()), j(&now.media_address()));
-    check("media.audio_port", j(&started.media.audio_port), j(&now.media.audio_port));
-    check("media.port_range", j(&started.media.port_range), j(&now.media.port_range));
-    check("call.fax_session", j(&started.call.fax_session), j(&now.call.fax_session));
+    check(
+        "sip.supported",
+        j(&started.sip.supported),
+        j(&now.sip.supported),
+    );
+    check(
+        "media.address",
+        j(&started.media_address()),
+        j(&now.media_address()),
+    );
+    check(
+        "media.audio_port",
+        j(&started.media.audio_port),
+        j(&now.media.audio_port),
+    );
+    check(
+        "media.port_range",
+        j(&started.media.port_range),
+        j(&now.media.port_range),
+    );
+    check(
+        "call.fax_session",
+        j(&started.call.fax_session),
+        j(&now.call.fax_session),
+    );
     check(
         "call.reinvite_timeout_secs",
         j(&started.call.reinvite_timeout_secs),

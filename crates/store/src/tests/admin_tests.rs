@@ -75,7 +75,11 @@ async fn k13_retention_settings_move_into_the_section_body(env: &Env) {
         .await
         .unwrap();
     assert_eq!(
-        (s.policy.files_days, s.policy.records_days, s.run_at.as_str()),
+        (
+            s.policy.files_days,
+            s.policy.records_days,
+            s.run_at.as_str()
+        ),
         (30, 400, "01:05"),
         "the values are the ones of the settings table"
     );
@@ -84,7 +88,10 @@ async fn k13_retention_settings_move_into_the_section_body(env: &Env) {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!((row.version, row.updated_by.as_deref()), (1, Some("migration")));
+    assert_eq!(
+        (row.version, row.updated_by.as_deref()),
+        (1, Some("migration"))
+    );
     // the retention keys are gone from `settings`, the others stay
     let names: Vec<String> = st
         .list_settings()
@@ -95,9 +102,14 @@ async fn k13_retention_settings_move_into_the_section_body(env: &Env) {
         .collect();
     assert_eq!(names, ["other.key"]);
     // running the migration statements again changes nothing (MySQL reruns a failed migration)
-    st.set_setting("retention.files_days", "7", None).await.unwrap();
+    st.set_setting("retention.files_days", "7", None)
+        .await
+        .unwrap();
     for stmt in crate::db::split_statements(migrations(st.backend())[1].sql) {
-        if stmt.to_ascii_uppercase().starts_with("INSERT INTO CONFIG_SECTIONS") {
+        if stmt
+            .to_ascii_uppercase()
+            .starts_with("INSERT INTO CONFIG_SECTIONS")
+        {
             st.raw().execute(&stmt, &[]).await.unwrap();
         }
     }
@@ -131,7 +143,11 @@ async fn k13b_partial_and_empty_settings_body(env: &Env) {
         .await
         .unwrap();
     assert_eq!(
-        (s.policy.files_days, s.policy.records_days, s.run_at.as_str()),
+        (
+            s.policy.files_days,
+            s.policy.records_days,
+            s.run_at.as_str()
+        ),
         (10, 365, "03:17")
     );
     // no retention settings at all: no section is invented
@@ -154,25 +170,47 @@ async fn k06_config_put_body(env: &Env) {
     // create
     env.clock.set(t(T0 + 1_000));
     let a = st
-        .config_put("sip", r#"{"a":1}"#, None, "admin", &audit("create", None, Some(r#"{"a":1}"#)))
+        .config_put(
+            "sip",
+            r#"{"a":1}"#,
+            None,
+            "admin",
+            &audit("create", None, Some(r#"{"a":1}"#)),
+        )
         .await
         .unwrap();
-    assert_eq!((a.version, a.updated_by.as_deref(), a.updated_at), (1, Some("admin"), t(T0 + 1_000)));
+    assert_eq!(
+        (a.version, a.updated_by.as_deref(), a.updated_at),
+        (1, Some("admin"), t(T0 + 1_000))
+    );
     // a second create is a conflict
     assert!(matches!(
-        st.config_put("sip", "{}", None, "x", &audit("create", None, None)).await,
+        st.config_put("sip", "{}", None, "x", &audit("create", None, None))
+            .await,
         Err(Error::Conflict(_))
     ));
     // two writers hold version 1: exactly one wins
     let (s1, s2) = (st.clone(), st.clone());
     let (r1, r2) = tokio::join!(
         async move {
-            s1.config_put("sip", r#"{"a":2}"#, Some(1), "alice", &audit("update", None, None))
-                .await
+            s1.config_put(
+                "sip",
+                r#"{"a":2}"#,
+                Some(1),
+                "alice",
+                &audit("update", None, None),
+            )
+            .await
         },
         async move {
-            s2.config_put("sip", r#"{"a":3}"#, Some(1), "bob", &audit("update", None, None))
-                .await
+            s2.config_put(
+                "sip",
+                r#"{"a":3}"#,
+                Some(1),
+                "bob",
+                &audit("update", None, None),
+            )
+            .await
         },
     );
     let wins = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
@@ -186,17 +224,25 @@ async fn k06_config_put_body(env: &Env) {
     assert_eq!(cur.version, 2);
     // a missing section is NotFound, not a conflict
     assert!(matches!(
-        st.config_put("nope", "{}", Some(1), "x", &audit("update", None, None)).await,
+        st.config_put("nope", "{}", Some(1), "x", &audit("update", None, None))
+            .await,
         Err(Error::NotFound(_))
     ));
     // list is ordered by name; delete needs the current version
     st.config_put("media", "{}", None, "admin", &audit("create", None, None))
         .await
         .unwrap();
-    let names: Vec<_> = st.config_list().await.unwrap().into_iter().map(|r| r.name).collect();
+    let names: Vec<_> = st
+        .config_list()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.name)
+        .collect();
     assert_eq!(names, ["media", "sip"]);
     assert!(matches!(
-        st.config_delete("sip", 1, "admin", &audit("delete", None, None)).await,
+        st.config_delete("sip", 1, "admin", &audit("delete", None, None))
+            .await,
         Err(Error::Conflict(_))
     ));
     st.config_delete("sip", 2, "admin", &audit("delete", Some("{}"), None))
@@ -204,12 +250,20 @@ async fn k06_config_put_body(env: &Env) {
         .unwrap();
     assert!(st.config_get("sip").await.unwrap().is_none());
     assert!(matches!(
-        st.config_delete("sip", 2, "admin", &audit("delete", None, None)).await,
+        st.config_delete("sip", 2, "admin", &audit("delete", None, None))
+            .await,
         Err(Error::NotFound(_))
     ));
     // a name that does not fit the column is refused up front
     assert!(matches!(
-        st.config_put(&"x".repeat(65), "{}", None, "a", &audit("create", None, None)).await,
+        st.config_put(
+            &"x".repeat(65),
+            "{}",
+            None,
+            "a",
+            &audit("create", None, None)
+        )
+        .await,
         Err(Error::TooLong { .. })
     ));
 }
@@ -219,13 +273,21 @@ async fn k06b_the_audit_trail_body(env: &Env) {
     let st = &env.store;
     for i in 0..5 {
         env.clock.set(t(T0 + i * 1_000));
-        let (exp, act) = if i == 0 { (None, "create") } else { (Some(i as i32), "update") };
+        let (exp, act) = if i == 0 {
+            (None, "create")
+        } else {
+            (Some(i as i32), "update")
+        };
         st.config_put(
             "call",
             &format!(r#"{{"n":{i}}}"#),
             exp,
             "admin",
-            &audit(act, Some(&format!("before {i}")), Some("after \u{4e2d}\u{6587} '; --")),
+            &audit(
+                act,
+                Some(&format!("before {i}")),
+                Some("after \u{4e2d}\u{6587} '; --"),
+            ),
         )
         .await
         .unwrap();
@@ -236,7 +298,10 @@ async fn k06b_the_audit_trail_body(env: &Env) {
     assert_eq!(all[4].action, "create");
     assert_eq!(all[0].action, "update");
     assert_eq!(all[0].before_json.as_deref(), Some("before 4"));
-    assert_eq!(all[0].after_json.as_deref(), Some("after \u{4e2d}\u{6587} '; --"));
+    assert_eq!(
+        all[0].after_json.as_deref(),
+        Some("after \u{4e2d}\u{6587} '; --")
+    );
     assert_eq!((all[0].by.as_str(), all[0].at), ("admin", t(T0 + 4_000)));
     // paging
     let p1 = st.config_audit_list(2, None).await.unwrap();
@@ -246,7 +311,13 @@ async fn k06b_the_audit_trail_body(env: &Env) {
     assert_eq!(p3[0].id, all[4].id);
     // a failed (conflicting) change leaves no audit row
     let _ = st
-        .config_put("call", "{}", Some(1), "mallory", &audit("update", None, None))
+        .config_put(
+            "call",
+            "{}",
+            Some(1),
+            "mallory",
+            &audit("update", None, None),
+        )
         .await
         .unwrap_err();
     assert_eq!(st.config_audit_list(100, None).await.unwrap().len(), 5);
@@ -281,10 +352,19 @@ async fn a12s_users_store_body(env: &Env) {
     let bob = st.user_create(&new_user("bob", "agent")).await.unwrap();
     assert_eq!(st.user_count().await.unwrap(), 2);
     assert_eq!(st.user_count_active_admins().await.unwrap(), 1);
-    assert_eq!(st.user_get_by_name("bob").await.unwrap().unwrap().id, bob.id);
+    assert_eq!(
+        st.user_get_by_name("bob").await.unwrap().unwrap().id,
+        bob.id
+    );
     assert!(st.user_get_by_name("nobody").await.unwrap().is_none());
     assert!(st.user_get(9_999).await.unwrap().is_none());
-    let names: Vec<_> = st.user_list().await.unwrap().into_iter().map(|u| u.username).collect();
+    let names: Vec<_> = st
+        .user_list()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|u| u.username)
+        .collect();
     assert_eq!(names, ["alice", "bob"]);
 
     env.clock.set(t(T0 + 5_000));
@@ -303,21 +383,51 @@ async fn a12s_users_store_body(env: &Env) {
         .await
         .unwrap();
     assert_eq!(
-        (upd.role.as_str(), upd.disabled, upd.must_change_password, upd.display_name.clone(), upd.locale.as_deref(), upd.password_hash.as_str(), upd.updated_at),
-        ("admin", true, false, None, Some("en"), "$argon2id$new", t(T0 + 5_000))
+        (
+            upd.role.as_str(),
+            upd.disabled,
+            upd.must_change_password,
+            upd.display_name.clone(),
+            upd.locale.as_deref(),
+            upd.password_hash.as_str(),
+            upd.updated_at
+        ),
+        (
+            "admin",
+            true,
+            false,
+            None,
+            Some("en"),
+            "$argon2id$new",
+            t(T0 + 5_000)
+        )
     );
-    assert_eq!(st.user_count_active_admins().await.unwrap(), 1, "the disabled admin does not count");
+    assert_eq!(
+        st.user_count_active_admins().await.unwrap(),
+        1,
+        "the disabled admin does not count"
+    );
     // an empty update only touches updated_at
-    let same = st.user_update(bob.id, &UserUpdate::default()).await.unwrap();
+    let same = st
+        .user_update(bob.id, &UserUpdate::default())
+        .await
+        .unwrap();
     assert_eq!(same.role, "admin");
     assert!(matches!(
         st.user_update(9_999, &UserUpdate::default()).await,
         Err(Error::NotFound(_))
     ));
     st.user_touch_login(alice.id, t(T0 + 9_000)).await.unwrap();
-    assert_eq!(st.user_get(alice.id).await.unwrap().unwrap().last_login_at, Some(t(T0 + 9_000)));
+    assert_eq!(
+        st.user_get(alice.id).await.unwrap().unwrap().last_login_at,
+        Some(t(T0 + 9_000))
+    );
     assert!(matches!(
-        st.user_create(&NewUser { username: "x".repeat(65), ..new_user("x", "agent") }).await,
+        st.user_create(&NewUser {
+            username: "x".repeat(65),
+            ..new_user("x", "agent")
+        })
+        .await,
         Err(Error::TooLong { .. })
     ));
     // delete removes the sessions too
@@ -357,15 +467,37 @@ async fn a07s_sessions_store_body(env: &Env) {
         Err(Error::Duplicate(_))
     ));
     let s = st.session_get(&"a".repeat(64)).await.unwrap().unwrap();
-    assert_eq!((s.id, s.user_id, s.ip.as_deref()), (id1, u.id, Some("203.0.113.9")));
-    assert_eq!((s.created_at, s.last_seen_at, s.expires_at), (t(T0), t(T0), t(T0 + 100_000)));
-    assert!(s.user_agent.unwrap().chars().count() <= 120, "a long user agent is cut");
+    assert_eq!(
+        (s.id, s.user_id, s.ip.as_deref()),
+        (id1, u.id, Some("203.0.113.9"))
+    );
+    assert_eq!(
+        (s.created_at, s.last_seen_at, s.expires_at),
+        (t(T0), t(T0), t(T0 + 100_000))
+    );
+    assert!(
+        s.user_agent.unwrap().chars().count() <= 120,
+        "a long user agent is cut"
+    );
     st.session_touch(id1, t(T0 + 7_000)).await.unwrap();
-    assert_eq!(st.session_get(&"a".repeat(64)).await.unwrap().unwrap().last_seen_at, t(T0 + 7_000));
+    assert_eq!(
+        st.session_get(&"a".repeat(64))
+            .await
+            .unwrap()
+            .unwrap()
+            .last_seen_at,
+        t(T0 + 7_000)
+    );
     assert_eq!(st.session_count_for_user(u.id).await.unwrap(), 2);
     // expired sessions go (strictly before now)
-    assert_eq!(st.sessions_delete_expired(t(T0 + 100_000)).await.unwrap(), 0);
-    assert_eq!(st.sessions_delete_expired(t(T0 + 100_001)).await.unwrap(), 1);
+    assert_eq!(
+        st.sessions_delete_expired(t(T0 + 100_000)).await.unwrap(),
+        0
+    );
+    assert_eq!(
+        st.sessions_delete_expired(t(T0 + 100_001)).await.unwrap(),
+        1
+    );
     assert!(st.session_get(&"a".repeat(64)).await.unwrap().is_none());
     assert!(st.session_delete(&"b".repeat(64)).await.unwrap());
     assert!(!st.session_delete(&"b".repeat(64)).await.unwrap());
@@ -373,7 +505,11 @@ async fn a07s_sessions_store_body(env: &Env) {
     st.session_create(&mk('e', u.id, 100)).await.unwrap();
     assert_eq!(st.sessions_delete_for_user(u.id).await.unwrap(), 2);
     assert_eq!(st.session_count_for_user(u.id).await.unwrap(), 0);
-    assert_eq!(st.session_count_for_user(v.id).await.unwrap(), 1, "the other user is untouched");
+    assert_eq!(
+        st.session_count_for_user(v.id).await.unwrap(),
+        1,
+        "the other user is untouched"
+    );
 }
 
 // ---------------------------------------------------------------- redeliver (M14 store part)
@@ -381,7 +517,10 @@ db_case!(m14_redeliver, m14_redeliver_body);
 async fn m14_redeliver_body(env: &Env) {
     let st = &env.store;
     let id = st
-        .upsert_finished(&nf("call-m14", "t", T0), &ff(T0 + 10_000, FaxStatus::Received, 1))
+        .upsert_finished(
+            &nf("call-m14", "t", T0),
+            &ff(T0 + 10_000, FaxStatus::Received, 1),
+        )
         .await
         .unwrap()
         .0;
@@ -417,7 +556,10 @@ async fn m14_redeliver_body(env: &Env) {
     assert_eq!(all.len(), 9);
     let new: Vec<_> = all.iter().filter(|d| created.contains(&d.id)).collect();
     for d in &new {
-        assert_eq!((d.status, d.next_try_at), (DeliveryStatus::Pending, Some(at)));
+        assert_eq!(
+            (d.status, d.next_try_at),
+            (DeliveryStatus::Pending, Some(at))
+        );
     }
     let a = new.iter().find(|d| d.target == "folder:/a").unwrap();
     let d = new.iter().find(|d| d.target == "folder:/d").unwrap();
@@ -425,6 +567,9 @@ async fn m14_redeliver_body(env: &Env) {
     // asking again finds nothing (the new rows are pending)
     assert!(st.redeliver(id, at).await.unwrap().is_empty());
     assert!(st.redeliver(424_242, at).await.unwrap().is_empty());
-    let due = st.due_deliveries(at + Duration::seconds(1), 50).await.unwrap();
+    let due = st
+        .due_deliveries(at + Duration::seconds(1), 50)
+        .await
+        .unwrap();
     assert!(due.iter().any(|x| x.id == a.id));
 }

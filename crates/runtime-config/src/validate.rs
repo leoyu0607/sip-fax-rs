@@ -7,8 +7,7 @@
 
 use fax_in::FaxInConfig;
 use fax_in::config::{
-    CallConfig, CaptureConfig, MediaConfig, PortRange, SipConfig, TrunkConfig,
-    resolve_peer,
+    CallConfig, CaptureConfig, MediaConfig, PortRange, SipConfig, TrunkConfig, resolve_peer,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -73,8 +72,6 @@ fn serde_error(e: &serde_path_to_error::Error<serde_json::Error>) -> FieldError 
         "required"
     } else if msg.contains("invalid type") {
         "wrong_type"
-    } else if msg.contains("unknown variant") {
-        "invalid"
     } else {
         "invalid"
     };
@@ -251,7 +248,11 @@ fn check_call(c: &CallConfig, errs: &mut Vec<FieldError>) {
             "too_long",
             "station_id is at most 20 characters (T.30 CSI)",
         ));
-    } else if !c.station_id.chars().all(|ch| ch.is_ascii() && !ch.is_ascii_control()) {
+    } else if !c
+        .station_id
+        .chars()
+        .all(|ch| ch.is_ascii() && !ch.is_ascii_control())
+    {
         errs.push(FieldError::new(
             "station_id",
             "invalid",
@@ -322,7 +323,10 @@ fn check_trunk(section_name: &str, t: &TrunkConfig, errs: &mut Vec<FieldError>) 
         errs.push(FieldError::new(
             "name",
             "mismatch",
-            format!("name \"{}\" does not match the section trunk:{section_name}", t.name),
+            format!(
+                "name \"{}\" does not match the section trunk:{section_name}",
+                t.name
+            ),
         ));
     }
     if !valid_trunk_name(&t.name) {
@@ -362,7 +366,11 @@ fn check_trunk(section_name: &str, t: &TrunkConfig, errs: &mut Vec<FieldError>) 
         ("t38.max_bit_rate", n.max_bit_rate),
     ] {
         if v == 0 {
-            errs.push(FieldError::new(f, "out_of_range", format!("{f} must be greater than 0")));
+            errs.push(FieldError::new(
+                f,
+                "out_of_range",
+                format!("{f} must be greater than 0"),
+            ));
         }
     }
     if n.max_version > 3 {
@@ -379,23 +387,42 @@ fn check_trunk(section_name: &str, t: &TrunkConfig, errs: &mut Vec<FieldError>) 
             "redundancy_depth must be 0..=8",
         ));
     }
-    for (f, v) in [("t38.fec_span", n.fec_span), ("t38.fec_entries", n.fec_entries)] {
+    for (f, v) in [
+        ("t38.fec_span", n.fec_span),
+        ("t38.fec_entries", n.fec_entries),
+    ] {
         if !(1..=8).contains(&v) {
-            errs.push(FieldError::new(f, "out_of_range", format!("{f} must be 1..=8")));
+            errs.push(FieldError::new(
+                f,
+                "out_of_range",
+                format!("{f} must be 1..=8"),
+            ));
         }
     }
     if let Err(m) = t.fax.check() {
         errs.push(FieldError::new(
             "fax.resolutions",
-            if t.fax.resolutions.is_empty() { "empty" } else { "invalid" },
+            if t.fax.resolutions.is_empty() {
+                "empty"
+            } else {
+                "invalid"
+            },
             m,
         ));
     }
     if let Err(m) = t.numbers.check() {
-        let key = if m.starts_with("dnis_sources") { "numbers.dnis_sources" } else { "numbers.ani_sources" };
+        let key = if m.starts_with("dnis_sources") {
+            "numbers.dnis_sources"
+        } else {
+            "numbers.ani_sources"
+        };
         errs.push(FieldError::new(
             key,
-            if m.contains("is empty") { "empty" } else { "invalid" },
+            if m.contains("is empty") {
+                "empty"
+            } else {
+                "invalid"
+            },
             m,
         ));
     }
@@ -469,7 +496,11 @@ fn check_trunk(section_name: &str, t: &TrunkConfig, errs: &mut Vec<FieldError>) 
         if let Some(reg) = &r.registrar
             && let Err(e) = resolve_peer(reg)
         {
-            errs.push(FieldError::new("register.registrar", "invalid", e.to_string()));
+            errs.push(FieldError::new(
+                "register.registrar",
+                "invalid",
+                e.to_string(),
+            ));
         }
     }
     if errs.is_empty() {
@@ -503,7 +534,9 @@ pub fn warnings(cfg: &crate::RuntimeConfig) -> Vec<String> {
         if let Some(t) = &r.trunk
             && !cfg.trunks.iter().any(|x| &x.name == t)
         {
-            w.push(format!("routes[{i}] refers to trunk \"{t}\" which is not configured"));
+            w.push(format!(
+                "routes[{i}] refers to trunk \"{t}\" which is not configured"
+            ));
         }
     }
     w

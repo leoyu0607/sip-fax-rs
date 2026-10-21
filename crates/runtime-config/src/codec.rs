@@ -258,7 +258,11 @@ pub fn strip(section: &Section, body: &Value) -> Value {
 /// Decrypts the stored body. A secret that cannot be decrypted becomes an empty string (the
 /// affected registration, e-mail or webhook then fails with an authentication error instead of
 /// the whole configuration being refused) and is reported.
-pub fn decrypt(section: &Section, stored: &Value, secrets: &SecretBox) -> (Value, Vec<SecretIssue>) {
+pub fn decrypt(
+    section: &Section,
+    stored: &Value,
+    secrets: &SecretBox,
+) -> (Value, Vec<SecretIssue>) {
     let mut v = stored.clone();
     let mut issues = Vec::new();
     visit(section, &mut v, &mut |path, obj, key| {

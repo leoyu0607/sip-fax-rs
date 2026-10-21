@@ -56,6 +56,17 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 Besides the SIP settings, the file has `[database]` (`url`, `auto_migrate`, `max_connections`), `[retention]` (`files_days`, `records_days`, `run_at`), `[[routes]]` and `[delivery]` (see [Delivery](#delivery)) and, per trunk, `[trunks.fax]` (`resolutions`, `ecm`) and `[trunks.numbers]` (where the calling and called number come from: `ani_sources`, `dnis_sources`, `strip_plus`, `ani_strip_prefix`, `dnis_strip_prefix`).
 
+**Runtime settings live in the database (M4a, ADR-051).** Only `[log]`, `[database]` and `[storage]` (and later `[web]`, `[service]`) are always read from the file. `[sip]`, `[media]`, `[call]`, `[capture]`, `[[trunks]]`, `[[routes]]`, `[delivery]` and `[retention]` are imported into the database at the first start; after that the database decides (the start logs a warning naming the tables of the file that no longer have an effect). Changes apply to the next call without a restart, except the listen address, the UDPTL port range and `[capture]`. Secrets (registration, e-mail and webhook passwords) are stored encrypted with `conf/secret.key`.
+
+```sh
+./sip-faxd config export [--include-secrets]      # the database's runtime configuration as TOML (a backup)
+./sip-faxd config import [--force] [--file PATH]  # write a file's runtime tables into the database
+./sip-faxd user add alice --role agent            # accounts: add | passwd | disable | enable | list
+./sip-faxd fax list --unread                      # faxes: list | show | read | note | redeliver
+```
+
+The first start creates the administrator `admin` with a random password in `conf/initial-admin-password` (it has to be changed at the first login).
+
 ## Fax records and the database
 
 Every call is a row in the `faxes` table of the database named by `[database] url` (default: SQLite file `data/sip-faxd.db`; `postgres://`, `mysql://` / `mariadb://` and `mssql://` work too, see [docs/database.md](docs/database.md)). The row is created when the call starts (`fax_status = receiving`), its `pages` count goes up with every page the fax machine delivers, and it is completed when the call ends: the status (`received`, `partial`, `failed`, `no_fax`), who hung up and why (`hangup_direction`, `hangup_code`), the calling number (ANI) and called number (DNIS), the file paths and sizes, and the negotiated resolution, rate, coding and ECM. Calls from sources outside every trunk's allow-list are refused and not recorded.

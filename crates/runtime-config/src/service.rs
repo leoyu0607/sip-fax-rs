@@ -156,7 +156,9 @@ pub struct SectionView {
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     /// The database already has runtime configuration and `--force` was not given.
-    #[error("the database already holds runtime configuration ({0} section(s)); use --force to replace it")]
+    #[error(
+        "the database already holds runtime configuration ({0} section(s)); use --force to replace it"
+    )]
     AlreadyConfigured(usize),
     /// The file's configuration is not valid.
     #[error("{0}")]
@@ -285,15 +287,16 @@ impl ConfigService {
 
     /// Settings that differ from what the process started with and need a restart.
     pub fn pending_restart(&self) -> Vec<String> {
-        let started = self.started.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let started = self
+            .started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let Some(started) = started else {
             return Vec::new();
         };
         let st = StorageConfig::default();
-        fax_in::config::restart_required(
-            &started.to_fax_in(&st),
-            &self.current().to_fax_in(&st),
-        )
+        fax_in::config::restart_required(&started.to_fax_in(&st), &self.current().to_fax_in(&st))
     }
 
     // ------------------------------------------------------------------ loading
@@ -343,7 +346,11 @@ impl ConfigService {
                         .map(|e| format!("{}: {}", e.field, e.message))
                         .collect();
                     tracing::error!(section = %row.name, "stored section is not valid, ignored: {}", list.join("; "));
-                    problems.push(format!("section {} is not valid: {}", row.name, list.join("; ")));
+                    problems.push(format!(
+                        "section {} is not valid: {}",
+                        row.name,
+                        list.join("; ")
+                    ));
                 }
             }
         }
@@ -480,7 +487,11 @@ impl ConfigService {
     }
 
     async fn apply(&self, old: &RuntimeConfig, new: &RuntimeConfig) -> ApplyReport {
-        let a = self.applier.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let a = self
+            .applier
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         match a {
             Some(a) => a.apply(old, new).await,
             None => ApplyReport::default(),
@@ -550,8 +561,10 @@ impl ConfigService {
             .find(|r| r.name == TRUNK_ORDER)
             .and_then(|r| serde_json::from_str(&r.body).ok())
             .unwrap_or_default();
-        let mut trunks: Vec<&store::ConfigRow> =
-            rows.iter().filter(|r| r.name.starts_with("trunk:")).collect();
+        let mut trunks: Vec<&store::ConfigRow> = rows
+            .iter()
+            .filter(|r| r.name.starts_with("trunk:"))
+            .collect();
         trunks.sort_by_key(|r| {
             let n = r.name.trim_start_matches("trunk:");
             (
@@ -631,9 +644,15 @@ impl ConfigService {
         if !new_problems.is_empty() {
             return Err(UpdateError::Invalid(new_problems));
         }
-        let body_text = serde_json::to_string(&stored).map_err(|e| UpdateError::Internal(e.to_string()))?;
+        let body_text =
+            serde_json::to_string(&stored).map_err(|e| UpdateError::Internal(e.to_string()))?;
         let audit = ConfigAudit {
-            action: if old_row.is_some() { "update" } else { "create" }.into(),
+            action: if old_row.is_some() {
+                "update"
+            } else {
+                "create"
+            }
+            .into(),
             before: old_stored
                 .as_ref()
                 .map(|o| codec::mask_for_audit(&sec, o).to_string()),
@@ -709,7 +728,8 @@ impl ConfigService {
         if !order.iter().any(|n| n == name) {
             order.push(name.to_string());
         }
-        self.put_order(store, &order, row.map(|r| r.version), by).await
+        self.put_order(store, &order, row.map(|r| r.version), by)
+            .await
     }
 
     async fn put_order(
@@ -719,9 +739,15 @@ impl ConfigService {
         version: Option<i32>,
         by: &str,
     ) -> Result<(), UpdateError> {
-        let body = serde_json::to_string(order).map_err(|e| UpdateError::Internal(e.to_string()))?;
+        let body =
+            serde_json::to_string(order).map_err(|e| UpdateError::Internal(e.to_string()))?;
         let audit = ConfigAudit {
-            action: if version.is_some() { "update" } else { "create" }.into(),
+            action: if version.is_some() {
+                "update"
+            } else {
+                "create"
+            }
+            .into(),
             before: None,
             after: Some(body.clone()),
         };
@@ -761,7 +787,9 @@ impl ConfigService {
             .config_delete(&section, expected_version, by, &audit)
             .await
             .map_err(|e| match e {
-                store::Error::Conflict(_) => UpdateError::Conflict { current: row.version },
+                store::Error::Conflict(_) => UpdateError::Conflict {
+                    current: row.version,
+                },
                 other => map_store(other),
             })?;
         let ord = store.config_get(TRUNK_ORDER).await.map_err(map_store)?;
@@ -808,7 +836,8 @@ impl ConfigService {
             )]));
         }
         let cur = rows.iter().find(|r| r.name == TRUNK_ORDER);
-        self.put_order(&*store, &order, cur.map(|r| r.version), by).await?;
+        self.put_order(&*store, &order, cur.map(|r| r.version), by)
+            .await?;
         let applied = self.refresh(&*store).await?;
         Ok(UpdateOutcome {
             section: TRUNK_ORDER.into(),
@@ -1023,7 +1052,10 @@ pub struct ConfigStatus {
 /// The version named in a store conflict message (`... is at version N (expected M)`).
 fn version_in(msg: &str) -> Option<i32> {
     let rest = msg.split("at version ").nth(1)?;
-    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    rest.split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 fn place(cfg: &mut RuntimeConfig, v: SectionValue) {

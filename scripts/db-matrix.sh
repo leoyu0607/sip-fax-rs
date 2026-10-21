@@ -54,6 +54,13 @@ for be in "${BACKENDS[@]}"; do
   else
     echo "FAILED: $be"; FAIL=1
   fi
+  # M4a R04: the database restarts while faxes are received and delivered
+  echo "=== R04 (database restart during delivery) on $be ==="
+  if SIP_FAXD_TEST_DB="$url" SIP_FAXD_TEST_DB_CONTAINER="$name" cargo test -p sip-faxd --bin sip-faxd r04 -- --nocapture 2>&1 | tee "target/db-matrix-$be-r04.log" | tail -n 6; then
+    grep -q "test result: ok. 1 passed" "target/db-matrix-$be-r04.log" && echo "PASSED: $be r04" || { echo "FAILED: $be r04"; FAIL=1; }
+  else
+    echo "FAILED: $be r04"; FAIL=1
+  fi
 done
 if [ -z "${KEEP:-}" ]; then for n in "${STARTED[@]}"; do docker rm -f "$n" >/dev/null 2>&1; done; fi
 exit $FAIL

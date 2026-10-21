@@ -14,9 +14,7 @@ use tokio::sync::{mpsc, watch};
 
 use super::framing::take_frame;
 use super::tap::{self, MessageTap, TapDirection};
-use super::{
-    Gate, Incoming, PolicyCell, Tasks, TransportKind, admit_request, lock, wait_shutdown,
-};
+use super::{Gate, Incoming, PolicyCell, Tasks, TransportKind, admit_request, lock, wait_shutdown};
 use crate::message::{ParseError, SipMessage, parse_message};
 
 /// What the stream decoder found in the byte stream.

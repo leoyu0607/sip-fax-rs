@@ -129,7 +129,8 @@ impl LoginGuard {
         let now = self.clock.now();
         let mut g = self.lock();
         if g.users.len() > MAX_TRACKED {
-            g.users.retain(|_, u| u.locked_until.is_some_and(|t| t > now));
+            g.users
+                .retain(|_, u| u.locked_until.is_some_and(|t| t > now));
         }
         let u = g.users.entry(username.to_string()).or_default();
         u.failures += 1;

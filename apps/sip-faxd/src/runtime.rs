@@ -70,7 +70,8 @@ impl ConfigApplier for LiveApplier {
                 }
                 Err(e) => {
                     tracing::error!("the new configuration was saved but fax-in refused it: {e}");
-                    rep.notes.push(format!("fax-in refused the configuration: {e}"));
+                    rep.notes
+                        .push(format!("fax-in refused the configuration: {e}"));
                 }
             }
         }
@@ -78,11 +79,16 @@ impl ConfigApplier for LiveApplier {
             != serde_json::to_value(&new.routes).ok()
             || old.delivery != new.delivery;
         if delivery_changed
-            && let Some(d) = self.delivery.lock().unwrap_or_else(|e| e.into_inner()).clone()
+            && let Some(d) = self
+                .delivery
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
             && let Err(errs) = d.reconfigure(new.routes.clone(), new.delivery.clone())
         {
             tracing::error!("delivery refused the new routes: {}", errs.join("; "));
-            rep.notes.push(format!("delivery refused the routes: {}", errs.join("; ")));
+            rep.notes
+                .push(format!("delivery refused the routes: {}", errs.join("; ")));
         }
         rep
     }
@@ -187,14 +193,22 @@ impl Runtime {
     /// From now on configuration changes are applied to `fax` and `delivery`.
     pub fn attach(&self, fax: Arc<FaxIn>, delivery: Reconfigurer) {
         *self.applier.fax.lock().unwrap_or_else(|e| e.into_inner()) = Some(fax);
-        *self.applier.delivery.lock().unwrap_or_else(|e| e.into_inner()) = Some(delivery);
+        *self
+            .applier
+            .delivery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(delivery);
     }
 
     /// Stops applying changes (shutdown) and the housekeeping tasks.
     pub fn detach(&self) {
         self.config.clear_applier();
         *self.applier.fax.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        *self.applier.delivery.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .applier
+            .delivery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         for t in &self.tasks {
             t.abort();
         }

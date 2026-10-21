@@ -50,15 +50,18 @@ async fn k07_a_change_applies_to_the_next_call_and_not_to_the_call_in_progress()
         .await;
     w.at(10_000).await;
     // the administrator changes the trunk (ANI only from `From`) and the call limit (5 s)
-    let out = w
-        .fx
-        .as_ref()
-        .unwrap()
-        .apply_config(cfg(5, "[\"from\"]"))
-        .await
-        .unwrap();
+    let out =
+        w.fx.as_ref()
+            .unwrap()
+            .apply_config(cfg(5, "[\"from\"]"))
+            .await
+            .unwrap();
     assert_eq!(out.trunks_changed, ["gw"]);
-    assert!(out.restart_required.is_empty(), "{:?}", out.restart_required);
+    assert!(
+        out.restart_required.is_empty(),
+        "{:?}",
+        out.restart_required
+    );
     assert!(out.registrations_restarted.is_empty());
     // call B arrives after the change
     w.feed(
@@ -99,11 +102,19 @@ async fn k07_a_change_applies_to_the_next_call_and_not_to_the_call_in_progress()
     w.at(14_999).await;
     assert_eq!(first_bye(&w, "b@gw"), None);
     w.at(15_000).await;
-    assert_eq!(first_bye(&w, "b@gw"), Some(15_000), "B ends at 10 s + the new 5 s limit");
+    assert_eq!(
+        first_bye(&w, "b@gw"),
+        Some(15_000),
+        "B ends at 10 s + the new 5 s limit"
+    );
     w.at(29_999).await;
     assert_eq!(first_bye(&w, "a@gw"), None, "A is untouched by the change");
     w.at(30_000).await;
-    assert_eq!(first_bye(&w, "a@gw"), Some(30_000), "A ended exactly at its own, old limit");
+    assert_eq!(
+        first_bye(&w, "a@gw"),
+        Some(30_000),
+        "A ended exactly at its own, old limit"
+    );
     w.shutdown().await;
 }
 
@@ -114,7 +125,10 @@ async fn k07_an_invalid_configuration_is_refused_and_the_old_one_stays() {
     bad.trunks.push(bad.trunks[0].clone()); // the same trunk name twice
     let err = w.fx.as_ref().unwrap().apply_config(bad).await.unwrap_err();
     assert!(err.to_string().contains("duplicate trunk name"), "{err}");
-    assert_eq!(w.fx.as_ref().unwrap().snapshot().cfg.call.max_duration_secs, 30);
+    assert_eq!(
+        w.fx.as_ref().unwrap().snapshot().cfg.call.max_duration_secs,
+        30
+    );
     assert_eq!(w.fx.as_ref().unwrap().snapshot().table.trunks().len(), 1);
     w.shutdown().await;
 }
@@ -131,9 +145,17 @@ async fn k08_settings_fixed_at_start_are_reported_as_pending_and_not_applied() {
     let out = w.fx.as_ref().unwrap().apply_config(c).await.unwrap();
     assert_eq!(
         out.restart_required,
-        ["sip.bind", "media.port_range", "call.max_491_retries", "capture"]
+        [
+            "sip.bind",
+            "media.port_range",
+            "call.max_491_retries",
+            "capture"
+        ]
     );
-    assert_eq!(w.fx.as_ref().unwrap().pending_restart(), out.restart_required);
+    assert_eq!(
+        w.fx.as_ref().unwrap().pending_restart(),
+        out.restart_required
+    );
     // calls keep being accepted on what is running
     w.feed(Req::invite("x@gw", T38_SDP).build()).await;
     assert_eq!(w.responses(200, "INVITE").len(), 1);
@@ -144,11 +166,28 @@ async fn k08_settings_fixed_at_start_are_reported_as_pending_and_not_applied() {
 async fn k07_the_source_filter_follows_the_trunks() {
     let mut w = W::from_config(cfg(30, "[\"pai\"]")).await;
     let ip: std::net::IpAddr = "172.16.0.9".parse().unwrap();
-    let t = w.fx.as_ref().unwrap().endpoint().transactions().transport().clone();
+    let t =
+        w.fx.as_ref()
+            .unwrap()
+            .endpoint()
+            .transactions()
+            .transport()
+            .clone();
     // the detached transport starts with an allow-all policy; applying installs the trunks'
-    w.fx.as_ref().unwrap().apply_config(cfg(30, "[\"pai\"]")).await.unwrap();
-    assert_eq!(t.source_policy().decide("10.0.0.9".parse().unwrap()), Decision::Allow);
-    assert_ne!(t.source_policy().decide(ip), Decision::Allow, "outside every trunk");
+    w.fx.as_ref()
+        .unwrap()
+        .apply_config(cfg(30, "[\"pai\"]"))
+        .await
+        .unwrap();
+    assert_eq!(
+        t.source_policy().decide("10.0.0.9".parse().unwrap()),
+        Decision::Allow
+    );
+    assert_ne!(
+        t.source_policy().decide(ip),
+        Decision::Allow,
+        "outside every trunk"
+    );
     // a second trunk opens another network
     let mut c = FaxInConfig::parse(&format!(
         "{}\n[[trunks]]\nname = \"new\"\nallowed_sources = [\"172.16.0.0/16\"]\n",
@@ -163,7 +202,11 @@ async fn k07_the_source_filter_follows_the_trunks() {
 
 // ---------------------------------------------------------------- K09 (real sockets)
 
-async fn registrar() -> (SocketAddr, mpsc::UnboundedReceiver<String>, tokio::task::JoinHandle<()>) {
+async fn registrar() -> (
+    SocketAddr,
+    mpsc::UnboundedReceiver<String>,
+    tokio::task::JoinHandle<()>,
+) {
     let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let addr = sock.local_addr().unwrap();
     let (tx, rx) = mpsc::unbounded_channel();
@@ -196,7 +239,11 @@ async fn registrar() -> (SocketAddr, mpsc::UnboundedReceiver<String>, tokio::tas
 }
 
 fn free_port() -> u16 {
-    std::net::UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    std::net::UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 fn reg_cfg(registrar: SocketAddr, port: u16, user: &str, extra: &str) -> FaxInConfig {
@@ -235,7 +282,9 @@ async fn k09_changing_the_registration_deregisters_the_old_one_and_registers_the
         .unwrap();
     assert!(out.registrations_restarted.is_empty(), "{out:?}");
     assert!(
-        tokio::time::timeout(Duration::from_millis(400), rx.recv()).await.is_err(),
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
         "no REGISTER for an unchanged registration"
     );
     // a new account: first the old binding is removed, then the new one is made
@@ -246,7 +295,10 @@ async fn k09_changing_the_registration_deregisters_the_old_one_and_registers_the
     assert_eq!(out.registrations_restarted, ["reg"]);
     let dereg = next(&mut rx).await;
     assert!(dereg.contains("\r\nTo: <sip:fax1@example.test>"), "{dereg}");
-    assert!(dereg.contains("\r\nExpires: 0"), "un-REGISTER of the old one first: {dereg}");
+    assert!(
+        dereg.contains("\r\nExpires: 0"),
+        "un-REGISTER of the old one first: {dereg}"
+    );
     let again = next(&mut rx).await;
     assert!(again.contains("\r\nTo: <sip:fax2@example.test>"), "{again}");
     assert!(again.contains("\r\nExpires: 600"), "{again}");
@@ -254,7 +306,10 @@ async fn k09_changing_the_registration_deregisters_the_old_one_and_registers_the
     for _ in 0..50 {
         let st = fx.registrations();
         assert_eq!(st.len(), 1);
-        if matches!(st[0].1, sip_core::registration::RegistrationState::Registered { .. }) {
+        if matches!(
+            st[0].1,
+            sip_core::registration::RegistrationState::Registered { .. }
+        ) {
             registered = true;
             break;
         }
@@ -267,7 +322,10 @@ async fn k09_changing_the_registration_deregisters_the_old_one_and_registers_the
     let out = fx.apply_config(off).await.unwrap();
     assert_eq!(out.registrations_restarted, ["reg"]);
     let dereg = next(&mut rx).await;
-    assert!(dereg.contains("\r\nTo: <sip:fax2@example.test>") && dereg.contains("\r\nExpires: 0"), "{dereg}");
+    assert!(
+        dereg.contains("\r\nTo: <sip:fax2@example.test>") && dereg.contains("\r\nExpires: 0"),
+        "{dereg}"
+    );
     assert!(fx.registrations().is_empty());
     fx.shutdown().await;
     task.abort();

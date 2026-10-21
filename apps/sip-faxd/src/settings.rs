@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use fax_in::FaxInConfig;
-use serde::Deserialize;
 use runtime_config::{RuntimeConfig, RuntimeFile};
+use serde::Deserialize;
 
 /// `[log]`
 #[derive(Deserialize, Default)]
@@ -87,7 +87,8 @@ impl AppConfig {
         })?;
         let log = section(&mut table, "log", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
-        let file = RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
+        let file =
+            RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
         let conf_dir = match path.parent() {
             Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
             _ => PathBuf::from("."),

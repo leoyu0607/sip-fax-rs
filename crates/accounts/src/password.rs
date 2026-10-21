@@ -96,7 +96,8 @@ pub fn random_password(len: usize) -> String {
     let mut out = String::with_capacity(len);
     let mut buf = [0u8; 1];
     while out.len() < len {
-        rng.fill(&mut buf).expect("the system random generator works");
+        rng.fill(&mut buf)
+            .expect("the system random generator works");
         // reject values that would bias the choice (256 is not a multiple of the alphabet size)
         let limit = 256 - (256 % ALPHABET.len());
         if (buf[0] as usize) < limit {

@@ -215,7 +215,10 @@ async fn run_user(cfg: &AppConfig, db: &Arc<Db>, action: UserAction) -> ExitCode
             }
         }
         UserAction::Disable { name, .. } => {
-            match auth.update_user(&name, None, Some(true), None, None, &by).await {
+            match auth
+                .update_user(&name, None, Some(true), None, None, &by)
+                .await
+            {
                 Ok(_) => {
                     println!("user {name} disabled; its sessions were ended");
                     ExitCode::SUCCESS
@@ -224,7 +227,10 @@ async fn run_user(cfg: &AppConfig, db: &Arc<Db>, action: UserAction) -> ExitCode
             }
         }
         UserAction::Enable { name, .. } => {
-            match auth.update_user(&name, None, Some(false), None, None, &by).await {
+            match auth
+                .update_user(&name, None, Some(false), None, None, &by)
+                .await
+            {
                 Ok(_) => {
                     println!("user {name} enabled");
                     ExitCode::SUCCESS
@@ -405,10 +411,16 @@ async fn run_fax(st: &dyn FaxStore, action: FaxAction, by: &str) -> ExitCode {
             kv("call id", r.call_id.clone());
             kv("trunk", r.trunk.clone());
             kv("ani", format!("{} ({})", opt(&r.ani), opt(&r.ani_source)));
-            kv("dnis", format!("{} ({})", opt(&r.dnis), opt(&r.dnis_source)));
+            kv(
+                "dnis",
+                format!("{} ({})", opt(&r.dnis), opt(&r.dnis_source)),
+            );
             kv("started", ts(r.started_at));
             kv("ended", r.ended_at.map_or("-".into(), ts));
-            kv("duration", r.duration_sec.map_or("-".into(), |d| format!("{d} s")));
+            kv(
+                "duration",
+                r.duration_sec.map_or("-".into(), |d| format!("{d} s")),
+            );
             kv("status", r.fax_status.to_string());
             kv("pages", r.pages.to_string());
             kv(
@@ -416,16 +428,14 @@ async fn run_fax(st: &dyn FaxStore, action: FaxAction, by: &str) -> ExitCode {
                 format!(
                     "{} ({})",
                     r.hangup_code.as_deref().unwrap_or("-"),
-                    r.hangup_direction.map_or("-".to_string(), |d| d.to_string())
+                    r.hangup_direction
+                        .map_or("-".to_string(), |d| d.to_string())
                 ),
             );
             kv("remote ident", opt(&r.remote_ident).to_string());
             kv("tiff", opt(&r.tiff_path).to_string());
             kv("pdf", opt(&r.pdf_path).to_string());
-            kv(
-                "files purged",
-                r.files_purged_at.map_or("no".into(), ts),
-            );
+            kv("files purged", r.files_purged_at.map_or("no".into(), ts));
             kv(
                 "read",
                 match (r.is_read, &r.read_changed_by) {
@@ -482,10 +492,7 @@ async fn run_fax(st: &dyn FaxStore, action: FaxAction, by: &str) -> ExitCode {
                 Ok(None) => return fail(format!("no fax with id {id}")),
                 Err(e) => return fail(e),
             };
-            match st
-                .set_note(id, &text, by, cur.note_updated_at)
-                .await
-            {
+            match st.set_note(id, &text, by, cur.note_updated_at).await {
                 Ok(_) => {
                     println!("note of fax {id} saved by {by}");
                     ExitCode::SUCCESS
@@ -521,7 +528,11 @@ async fn run_fax(st: &dyn FaxStore, action: FaxAction, by: &str) -> ExitCode {
 
 // ------------------------------------------------------------------------ config import / export
 
-fn config_service(cfg: &AppConfig, db: &Arc<Db>, file: runtime_config::RuntimeConfig) -> ConfigService {
+fn config_service(
+    cfg: &AppConfig,
+    db: &Arc<Db>,
+    file: runtime_config::RuntimeConfig,
+) -> ConfigService {
     let src: Arc<dyn StoreSource> = db.clone();
     let secrets = Arc::new(SecretBox::load_or_create(&cfg.conf_dir.join("secret.key")));
     ConfigService::new(src, secrets, file, Vec::new())

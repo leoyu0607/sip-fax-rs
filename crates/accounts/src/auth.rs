@@ -24,9 +24,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
 use chrono::{DateTime, Duration, Utc};
 use ring::digest;
 use ring::rand::{SecureRandom, SystemRandom};
-use store::{
-    Clock, ConfigAudit, FaxStore, NewSession, NewUser, StoreSource, UserRow, UserUpdate,
-};
+use store::{Clock, ConfigAudit, FaxStore, NewSession, NewUser, StoreSource, UserRow, UserUpdate};
 
 use crate::password::{self, PasswordError};
 use crate::role::{Capability, Role};
@@ -515,8 +513,11 @@ impl AuthService {
         )
         .await
         .map_err(store_err)?;
-        st.sessions_delete_for_user(user_id).await.map_err(store_err)?;
-        self.audit(&*st, &row.username, "password_change", &row.username).await;
+        st.sessions_delete_for_user(user_id)
+            .await
+            .map_err(store_err)?;
+        self.audit(&*st, &row.username, "password_change", &row.username)
+            .await;
         self.remove_initial_file_for(&row.username);
         let now = self.clock.now();
         let token = new_token();
@@ -571,7 +572,9 @@ impl AuthService {
         )
         .await
         .map_err(store_err)?;
-        st.sessions_delete_for_user(row.id).await.map_err(store_err)?;
+        st.sessions_delete_for_user(row.id)
+            .await
+            .map_err(store_err)?;
         self.guard.reset(&row.username);
         self.audit(&*st, &row.username, "password_reset", by).await;
         Ok(())
@@ -585,7 +588,10 @@ impl AuthService {
             before: None,
             after: None,
         };
-        if let Err(e) = st.config_audit_add(&format!("user:{user}"), by, &audit).await {
+        if let Err(e) = st
+            .config_audit_add(&format!("user:{user}"), by, &audit)
+            .await
+        {
             tracing::warn!("audit row for {action} of {user} not written: {e}");
         }
     }
@@ -617,7 +623,11 @@ impl AuthService {
     ///
     /// # Errors
     /// See [`AccountError`].
-    pub async fn create_user(&self, a: &NewAccount<'_>, by: &str) -> Result<UserInfo, AccountError> {
+    pub async fn create_user(
+        &self,
+        a: &NewAccount<'_>,
+        by: &str,
+    ) -> Result<UserInfo, AccountError> {
         if !valid_username(a.username) {
             return Err(AccountError::BadUsername);
         }
@@ -694,7 +704,9 @@ impl AuthService {
             .map_err(store_err)?;
         if disabled == Some(true) || (role.is_some() && role != Role::parse(&row.role)) {
             // sessions carry no role, but a disabled or demoted account must not keep any
-            st.sessions_delete_for_user(row.id).await.map_err(store_err)?;
+            st.sessions_delete_for_user(row.id)
+                .await
+                .map_err(store_err)?;
         }
         let action = match disabled {
             Some(true) => "user_disable",
@@ -729,7 +741,10 @@ impl AuthService {
     /// When there is no account at all, creates `admin` with a random password that has to be
     /// changed at the first login, and writes the password to `file` (mode 0600). The password
     /// never goes to the log. Returns the path when an account was created.
-    pub async fn ensure_initial_admin(&self, file: PathBuf) -> Result<Option<PathBuf>, AccountError> {
+    pub async fn ensure_initial_admin(
+        &self,
+        file: PathBuf,
+    ) -> Result<Option<PathBuf>, AccountError> {
         let st = self.store().await.map_err(store_err)?;
         if st.user_count().await.map_err(store_err)? > 0 {
             return Ok(None);
@@ -772,7 +787,11 @@ impl AuthService {
         if username != "admin" {
             return;
         }
-        let f = self.initial_file.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let f = self
+            .initial_file
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(f) = f {
             let _ = std::fs::remove_file(f);
         }

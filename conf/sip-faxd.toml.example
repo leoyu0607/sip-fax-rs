@@ -6,6 +6,24 @@
 #
 # Every section rejects unknown keys, so a misspelled option is reported as an error.
 # Relative paths are relative to the directory of the sip-faxd executable.
+#
+# WHERE THE SETTINGS LIVE (ADR-051)
+#   Startup settings, always read from this file:
+#     [log]  [database]  [storage]            (and [web] / [service] from M4b / M4d)
+#   Runtime settings, kept in the DATABASE:
+#     [sip] [media] [call] [capture] [delivery] [retention] [[routes]] [[trunks]]
+#   The tables of the runtime settings below are only a starting point: at the FIRST start,
+#   when the database has no runtime configuration yet, they are imported into it. After that
+#   the database decides: changing them here has no effect (the start logs a warning that
+#   names the tables), change them in the web interface, or replace the database's copy with
+#   `sip-faxd config import --force`. `sip-faxd config export` prints what the database holds
+#   (add --include-secrets for passwords and HMAC keys, which are otherwise left out).
+#   Secrets (trunk registration passwords, e-mail passwords, webhook HMAC keys) are stored
+#   encrypted with conf/secret.key (created at the first start; keep a backup of it together
+#   with the database: without it the secrets must be entered again).
+#   [sip] bind / transports / advertised and [media] port_range / address / audio_port,
+#   [call] fax_session, and all of [capture] only take effect after a restart; everything
+#   else applies to the next call (the next fax, the next purge) without one.
 
 # ---------------------------------------------------------------------------------------
 # [log]  application logging (written to stderr)
@@ -93,6 +111,9 @@ max_491_retries = 3
 # pages is still written and flagged "partial": true in result.json. A relative path is
 # relative to the directory of the sip-faxd executable.
 data_dir = "data"
+# Size limit of the PNG preview cache (cache/png under data_dir) in MiB; the least recently
+# used pages are deleted beyond it (used by the web interface).
+# preview_cache_mb = 2048
 
 # ---------------------------------------------------------------------------------------
 # [database]  where the fax records (list, status, pages, ANI / DNIS ...) are kept

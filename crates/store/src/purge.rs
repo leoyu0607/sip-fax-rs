@@ -146,13 +146,7 @@ pub async fn save_retention(store: &dyn FaxStore, s: &RetentionSettings, by: &st
         after: Some(body.clone()),
     };
     store
-        .config_put(
-            RETENTION_SECTION,
-            &body,
-            cur.map(|r| r.version),
-            by,
-            &audit,
-        )
+        .config_put(RETENTION_SECTION, &body, cur.map(|r| r.version), by, &audit)
         .await
         .map(|_| ())
 }
@@ -362,6 +356,12 @@ impl Purger {
                     }
                 }
                 rep.files_purged += self.store.mark_files_purged(&done, now).await?;
+                // a preview that was being converted while the files were deleted may have
+                // written its PNG after that; the record is marked now, so a conversion that
+                // ends from here on removes its own PNG, and this sweep takes what is there
+                for id in &done {
+                    let _ = self.files.remove_dir_all(&self.png_cache_dir(*id));
+                }
             }
         }
 
