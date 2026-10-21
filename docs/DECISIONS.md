@@ -360,3 +360,20 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 - 新增 `[delivery]`：`catch_up_hours`（預設 24，0 表示關閉）與 `max_attempts`（預設 10）。啟動時以 `catch_up` 補送這段時間內已 finalize、但還沒有投遞紀錄的傳真，涵蓋「finalize 後、dispatch 前當機」的情況。
 - `sip-faxd db backfill` **不會投遞**，避免回補舊紀錄時灌爆信箱；回補的紀錄若落在 `catch_up_hours` 內，會在下次 `serve` 啟動時補送。
 - 關閉服務時，已排入的 id 會先 dispatch，進行中的嘗試有 15 秒寬限。
+
+## ADR-051：執行設定改存 DB，設定檔只留啟動設定（2026-10-21，M4 設計）
+**背景**
+
+使用者希望清整、帳號、trunk／SIP、投遞路由等設定都能在 Web 上修改，不必改設定檔再重啟。
+
+**決策**
+
+- 設定檔只保留啟動必需的 `[log]`、`[database]`、`[storage]`、`[web]`、`[service]`。其餘（`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`、`[[routes]]`、`[delivery]`、`[retention]`）存在 DB 的 `config_sections`，以 JSON 表示、由 Rust 型別驗證、樂觀鎖、每次修改寫入 `config_audit`。
+- 第一次啟動時從設定檔匯入；之後以 DB 為準，設定檔中的這些區段只會產生 warning。`config import/export` 供備份與還原。
+- 執行設定以整份快照熱替換，每通來電在 INVITE 時取一次快照；`[sip]` 的 bind／transport 與 `[media]` 的 port_range 需要重啟。
+- 秘密欄位以 `conf/secret.key` 做 AES-256-GCM 加密後存入 DB，API 只寫不讀。
+- 帳號分 `admin`／`agent`，argon2id，session 存 DB。Web 可選 HTTP 或 HTTPS；HTTPS 沒有提供憑證時以 rcgen 產生 10 年自簽憑證。介面提供繁中與英文。
+
+**影響**
+
+`config check` 與 `field-test.md` 的設定說明要改寫；ADR-013 中「設定全部在設定檔」的部分由本 ADR 取代。

@@ -63,7 +63,8 @@
 - [x] [Sonnet] F1：AudioCodes Mediant 1000 v6.80A 以 T.38 送 8 頁只收到 1 頁（`t2_expired_image`）。根因 1：`HdlcFcsOk` 之後對方的 V.21 訊號還沒結束，我方就開始回應（引擎現在等 `hdlc-sig-end`／`no-signal`／新指示，保底 `peer_signal_wait_ms` = 500 ms）；根因 2：重送的 MPS／EOP／EOM 沒有重新啟動 T2（t30 現在重送回應並在送完後重啟 T2）；另查出 `bad_lines=1` 是 t4 把第一個 EOL 之前約 1 s 的 0xFF（marking idle）算成一個壞行（已修）。F1-01～F1-06 見 docs/test-plans/F1-audiocodes-multipage.md 與 docs/test-reports/F1.md；版本 0.1.1（待 Opus 審核，之後發佈 `v0.1.1-alpha`）
 - [ ] [Opus] 審核 docs/test-reports/F1.md，合併報告第 7 節的擬議 ADR 到 docs/DECISIONS.md
 - [ ] [使用者] 以 0.1.1 再對接 AudioCodes 一次，確認 8 頁都收到；同意後才能把 `udptl = "full"` 的擷取（含影像資料）放進 repo
-- [ ] [Any] 發佈 v0.1.1-alpha
+- [x] [Any] 發佈 v0.1.1-alpha
+- [x] [Any] 發佈 v0.2.0-alpha（M3）
 
 ## M3 — Store / Delivery / ECM
 > 2026-10-21 恢復開發：M3b（整合）、M3c（delivery）、M3e（PNG 預覽）、M3f（delivery 接進 sip-faxd）完成，已合併到 main。測試報告 M3a–M3f 全數審核通過。
@@ -91,7 +92,12 @@
 - [x] [Opus] 審核 docs/test-reports/M3a–M3f.md（全數通過）
 
 ## M4 — 介面
-- [ ] [Opus] 撰寫 docs/test-plans/M4.md
+> 2026-10-21 使用者決定：帳號分管理員／座席；Web 可選 HTTP 或 HTTPS（HTTPS 沒有憑證時自動產生 10 年自簽憑證）；介面繁中＋英文；除了啟動必需的設定，其餘設定改存 DB、可在 Web 修改（ADR-051）。設計見 `docs/design/m4-web.md`，分期 M4a–M4d。
+- [x] [Opus] 撰寫 docs/design/m4-web.md 與 docs/test-plans/M4.md
+- [ ] [Sonnet] M4a：執行設定入 DB（匯入／匯出、驗證、秘密加密、熱套用）、帳號與 session、CLI（config、user、fax）
+- [ ] [Sonnet] M4b：web crate（REST、WebSocket、HTTP/HTTPS 與自簽憑證、安全 header）
+- [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
+- [ ] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
 - [ ] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）
 - [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）
 - [ ] [Sonnet] web-ui：Svelte + Vite SPA，以 rust-embed 內嵌
