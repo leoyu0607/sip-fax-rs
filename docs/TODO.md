@@ -66,6 +66,8 @@
 - [ ] [Sonnet] 掛線方向和掛線原因的正規化（SIP 加 T.30）
 - [ ] [Sonnet] 已讀/未讀（全體共用，記錄切換者和時間）、備註（記錄修改者和時間）的資料模型和 API
 - [ ] [Sonnet] PNG 預覽：開啟時從 TIFF 轉出每頁 PNG 並快取（純 Rust，新增依賴要寫 ADR）
+- [ ] [Sonnet] 接收中狀態與即時頁數：INVITE 接通時就建立紀錄（狀態 `receiving`），每收完一頁就更新已收頁數，通話結束時再寫入最終狀態；正式的 TIFF/PDF 仍然在整通結束後才寫出（2026-10-21 使用者需求）
+- [ ] [Sonnet] 每個 trunk 可以設定 DIS 要宣告哪些解析度（standard/fine；superfine、300/400 dpi 視需求再評估）（2026-10-21 使用者詢問）
 - [ ] [Sonnet] 清整排程：檔案（TIFF/PDF/PNG）和紀錄分別設定保留天數，刪檔後紀錄標記「檔案已清除」；測試要涵蓋時間邊界和刪檔失敗的情況
 - [ ] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
 - [ ] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）
@@ -79,7 +81,7 @@
 ## M4 — 介面
 - [ ] [Opus] 撰寫 docs/test-plans/M4.md
 - [ ] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）
-- [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF
+- [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）
 - [ ] [Sonnet] web-ui：Svelte + Vite SPA，以 rust-embed 內嵌
 - [ ] [Sonnet] TUI（ratatui）和 CLI 子命令
 - [ ] [Any] CI 新增 `web-ui` job
