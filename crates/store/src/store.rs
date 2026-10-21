@@ -103,3 +103,19 @@ pub trait FaxStore: crate::admin::AdminStore + Send + Sync {
         next_try_at: Option<DateTime<Utc>>,
     ) -> Result<bool>;
 }
+
+/// Where a long-lived component gets its store from. The daemon's database handle connects
+/// lazily (a database that is down at start must not stop the server), so components ask for the
+/// store when they need it; tests and one-shot commands pass an already open store.
+#[async_trait]
+pub trait StoreSource: Send + Sync {
+    /// The store, connecting first when necessary.
+    async fn store(&self) -> Result<std::sync::Arc<dyn FaxStore>>;
+}
+
+#[async_trait]
+impl StoreSource for std::sync::Arc<dyn FaxStore> {
+    async fn store(&self) -> Result<std::sync::Arc<dyn FaxStore>> {
+        Ok(self.clone())
+    }
+}

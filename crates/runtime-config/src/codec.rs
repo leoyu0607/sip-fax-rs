@@ -15,6 +15,11 @@ use crate::model::Section;
 use crate::secret::{PREFIX, SecretBox, SecretError};
 use crate::validate::FieldError;
 
+/// What stands in for a secret that cannot be decrypted. It is not empty, so the configuration
+/// stays valid and everything else works; the registration, e-mail or webhook that uses it is
+/// refused by its peer (wrong password / signature) until the secret is entered again.
+pub const UNDECRYPTABLE: &str = "***undecryptable-secret***";
+
 /// A secret that could not be decrypted when the configuration was loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretIssue {
@@ -230,6 +235,17 @@ pub fn mask_for_audit(section: &Section, stored: &Value) -> Value {
     v
 }
 
+/// Removes the placeholders of secrets that could not be decrypted (they are not values).
+pub fn strip_placeholders(section: &Section, body: &Value) -> Value {
+    let mut v = body.clone();
+    visit(section, &mut v, &mut |_, obj, key| {
+        if matches!(obj.get(key), Some(Value::String(s)) if s == UNDECRYPTABLE) {
+            obj.remove(key);
+        }
+    });
+    v
+}
+
 /// Removes every secret (the default export).
 pub fn strip(section: &Section, body: &Value) -> Value {
     let mut v = body.clone();
@@ -257,7 +273,7 @@ pub fn decrypt(section: &Section, stored: &Value, secrets: &SecretBox) -> (Value
                 obj.insert(key.into(), Value::String(plain));
             }
             Err(error) => {
-                obj.insert(key.into(), Value::String(String::new()));
+                obj.insert(key.into(), Value::String(UNDECRYPTABLE.into()));
                 issues.push(SecretIssue {
                     section: section.name(),
                     field: path.to_string(),

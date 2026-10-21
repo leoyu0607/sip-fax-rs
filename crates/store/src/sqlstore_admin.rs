@@ -207,6 +207,12 @@ impl AdminStore for SqlStore {
         self.audit(name, by, audit).await
     }
 
+    async fn config_audit_add(&self, section: &str, by: &str, audit: &ConfigAudit) -> Result<()> {
+        check_len("section", section, 64)?;
+        check_len("by", by, 64)?;
+        self.audit(section, by, audit).await
+    }
+
     async fn config_audit_list(
         &self,
         limit: u32,

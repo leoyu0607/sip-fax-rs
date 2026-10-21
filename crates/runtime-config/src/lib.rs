@@ -10,12 +10,14 @@
 #![deny(missing_docs)]
 
 pub mod codec;
+pub mod file;
 pub mod model;
 pub mod secret;
 pub mod service;
 pub mod validate;
 
-pub use codec::SecretIssue;
+pub use codec::{SecretIssue, UNDECRYPTABLE};
+pub use file::RuntimeFile;
 pub use model::{DeliverySection, RetentionSection, RuntimeConfig, Section, TRUNK_ORDER};
 pub use secret::{KeyStatus, SecretBox, SecretError};
 pub use service::{

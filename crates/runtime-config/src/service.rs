@@ -27,20 +27,7 @@ use crate::model::{FIXED_SECTIONS, RuntimeConfig, Section, TRUNK_ORDER};
 use crate::secret::{KeyStatus, SecretBox};
 use crate::validate::{self, FieldError, SectionValue};
 
-/// Where the service gets its store from (the daemon's [`Db`] reconnects lazily; tests pass a
-/// store directly).
-#[async_trait]
-pub trait StoreSource: Send + Sync {
-    /// The store, connecting first when necessary.
-    async fn store(&self) -> store::Result<Arc<dyn FaxStore>>;
-}
-
-#[async_trait]
-impl StoreSource for Arc<dyn FaxStore> {
-    async fn store(&self) -> store::Result<Arc<dyn FaxStore>> {
-        Ok(self.clone())
-    }
-}
+pub use store::StoreSource;
 
 /// Applies a new configuration to the running server (the daemon implements this with
 /// `FaxIn::apply_config` and the delivery service).
@@ -376,7 +363,7 @@ impl ConfigService {
             if !old.same_as(&new) {
                 self.apply(&old, &new).await;
             }
-            let _ = self.tx.send(new);
+            let _ = self.tx.send_replace(new);
         }
         boot
     }
@@ -413,7 +400,7 @@ impl ConfigService {
             Ok(st) => {
                 let cfg = st.config.clone();
                 self.state.store(Arc::new(st));
-                let _ = self.tx.send(cfg);
+                let _ = self.tx.send_replace(cfg);
                 boot
             }
             Err(e) => Boot::Unreachable(e.to_string()),
@@ -434,7 +421,7 @@ impl ConfigService {
         self.state.store(Arc::new(st));
         let applied = if changed {
             let r = self.apply(&old, &new).await;
-            let _ = self.tx.send(new);
+            let _ = self.tx.send_replace(new);
             r
         } else {
             ApplyReport::default()
@@ -658,7 +645,7 @@ impl ConfigService {
         let new = st.config.clone();
         self.state.store(Arc::new(st));
         let applied = self.apply(&old, &new).await;
-        let _ = self.tx.send(new);
+        let _ = self.tx.send_replace(new);
         Ok(applied)
     }
 
@@ -1034,7 +1021,11 @@ pub fn to_toml(cfg: &RuntimeConfig, include_secrets: bool) -> String {
     let mut trunks = Vec::new();
     let mut routes = Vec::new();
     for (sec, v) in ConfigService::plain_sections(cfg) {
-        let v = if include_secrets { v } else { codec::strip(&sec, &v) };
+        let v = if include_secrets {
+            codec::strip_placeholders(&sec, &v)
+        } else {
+            codec::strip(&sec, &v)
+        };
         let Some(t) = json_to_toml(&v) else { continue };
         match sec {
             Section::Trunk(_) => trunks.push(t),

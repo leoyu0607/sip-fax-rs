@@ -35,7 +35,7 @@ pub use model::*;
 pub use preview::{PngKind, Preview, PreviewError};
 pub use purge::{FileOps, PurgeReport, Purger, RetentionSettings, StdFileOps};
 pub use sqlstore::SqlStore;
-pub use store::FaxStore;
+pub use store::{FaxStore, StoreSource};
 
 use std::sync::Arc;
 

@@ -181,6 +181,9 @@ pub trait AdminStore: Send + Sync {
         by: &str,
         audit: &ConfigAudit,
     ) -> Result<()>;
+    /// Writes an audit row that is not tied to a section change (user management, for example
+    /// `section = "user:alice"`, `action = "user_add"`).
+    async fn config_audit_add(&self, section: &str, by: &str, audit: &ConfigAudit) -> Result<()>;
     /// The audit trail, newest first; `before_id` pages (exclusive).
     async fn config_audit_list(
         &self,
