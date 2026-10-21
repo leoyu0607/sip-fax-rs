@@ -11,6 +11,9 @@ rust-version = "1.94"
 repository = "https://github.com/leoyu0607/sip-fax-rs"
 
 [workspace.dependencies]
+# TUI (M4d, ADR pending): pure Rust terminal UI
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
 # sip-core (ADR-008). tokio / tracing are declared now and first used by the transport phase (M1b).
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }

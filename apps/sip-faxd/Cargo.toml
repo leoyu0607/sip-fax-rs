@@ -22,6 +22,8 @@ toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 flate2 = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }

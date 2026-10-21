@@ -444,7 +444,7 @@ async fn send<W: AsyncWrite + Unpin>(w: &mut W, r: &Reply) -> std::io::Result<()
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use fax_in::Numbers;
     use fax_in::event::{CallOutcome, CallResult, FailureReason, FaxReport, UdptlCounters};
@@ -509,7 +509,7 @@ mod tests {
         }
     }
 
-    fn started(id: &str) -> CallEvent {
+    pub(crate) fn started(id: &str) -> CallEvent {
         CallEvent::Started {
             call_id: id.into(),
             trunk: "gw".into(),
@@ -523,7 +523,7 @@ mod tests {
         }
     }
 
-    fn finished(id: &str, pages: u32, shutdown: bool) -> CallEvent {
+    pub(crate) fn finished(id: &str, pages: u32, shutdown: bool) -> CallEvent {
         let fax = FaxReport {
             code: if shutdown { 11 } else { 0 },
             code_name: if shutdown { "aborted" } else { "ok" }.into(),

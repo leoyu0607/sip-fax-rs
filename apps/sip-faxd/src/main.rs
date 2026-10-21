@@ -5,6 +5,7 @@
 //! sip-faxd start [-d] [--config PATH]          start it in the background, then show its log
 //! sip-faxd stop [--force] [--timeout SECS]     stop it, after the running calls (Linux)
 //! sip-faxd restart | status | logs [-f] [-n N] ...
+//! sip-faxd tui [--config PATH]                 terminal screen: faxes, calls, status
 //! sip-faxd config check [--config PATH]        validate a configuration file
 //! sip-faxd db migrate [--config PATH]          create / upgrade the database schema
 //! sip-faxd db backfill [--config PATH]         restore calls from logs/calls/*/result.json
@@ -28,6 +29,8 @@ mod runtime;
 mod schedule;
 mod service;
 mod settings;
+#[cfg(unix)]
+mod tui;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -153,6 +156,8 @@ enum Command {
         #[command(subcommand)]
         action: admin_cli::FaxAction,
     },
+    /// Terminal screen: faxes, calls in progress, status (needs the running service for live data).
+    Tui(ConfigArg),
     /// Delete expired files and records now (what the daily job does).
     Purge {
         /// Only count what would be deleted.
@@ -276,6 +281,7 @@ fn main() -> ExitCode {
             timeout,
             ignore_systemd,
         ),
+        Some(Command::Tui(arg)) => service_cmd::tui(&config_path(&arg)),
         Some(Command::Status { json, config }) => service_cmd::status(&config_path(&config), json),
         Some(Command::Logs {
             follow,
@@ -374,6 +380,15 @@ mod service_cmd {
     #[cfg(unix)]
     pub fn logs(cfg: &Path, follow: bool, lines: usize) -> ExitCode {
         service::cli::logs(cfg, &exe_dir(), follow, lines)
+    }
+
+    #[cfg(unix)]
+    pub fn tui(cfg: &Path) -> ExitCode {
+        tui::run(cfg)
+    }
+    #[cfg(not(unix))]
+    pub fn tui(_: &Path) -> ExitCode {
+        service::unsupported("tui")
     }
 
     #[cfg(not(unix))]
