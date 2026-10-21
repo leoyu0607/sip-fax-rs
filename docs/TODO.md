@@ -56,7 +56,7 @@
 
 ## 現場試接
 - [x] [Opus] 現場試接指南 docs/field-test.md，打包進 tarball
-- [ ] [Any] 發佈 v0.1.0-alpha（GitHub Release，prerelease）
+- [x] [Any] 發佈 v0.1.0-alpha（GitHub Release，prerelease）：https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.0-alpha
 - [ ] [使用者] 對接 CS210 試接，回傳 logs/calls/ 和結果；依結果調整 `cht-cs210` 預設組
 
 ## M3 — Store / Delivery / ECM
