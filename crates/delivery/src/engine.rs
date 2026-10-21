@@ -251,6 +251,10 @@ impl DeliveryEngine {
         let stop2 = stop.clone();
         let poll = self.inner.opts.poll_interval;
         let join = tokio::spawn(async move {
+            // what a catch-up queued (or an earlier run left due) goes out now, not one poll later
+            if let Err(e) = self.run_due().await {
+                tracing::error!("delivery run failed: {e}");
+            }
             loop {
                 tokio::select! {
                     _ = stop2.notified() => break,

@@ -675,8 +675,21 @@ async fn k10_secrets_are_encrypted_in_the_database_and_never_shown() {
         moved.is_err(),
         "moving a ciphertext to another field must fail"
     );
-    // the same plain text encrypts differently every time
-    assert_ne!(mail, hook);
+    // the same plain text encrypts differently every time (a fresh nonce), and both decrypt
+    let sb = f.svc.secrets();
+    let (a, b) = (
+        sb.encrypt("trunk:zeta/register.password", "same text")
+            .unwrap(),
+        sb.encrypt("trunk:zeta/register.password", "same text")
+            .unwrap(),
+    );
+    assert_ne!(a, b, "a nonce is never reused");
+    for c in [&a, &b] {
+        assert_eq!(
+            independent_decrypt(&key, "trunk:zeta/register.password", c),
+            "same text"
+        );
+    }
     // the API view: set / not set, never the value
     let v = f.svc.get_section("trunk:zeta").await.unwrap();
     assert_eq!(v.body["register"]["password"]["set"], json!(true));

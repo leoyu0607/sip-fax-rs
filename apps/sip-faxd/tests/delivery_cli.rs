@@ -226,17 +226,16 @@ async fn f22_serve_delivers_a_fax_an_earlier_run_stored_and_ignores_one_older_th
     let (mut child, rx) = start_serve(&cfg);
     wait_for(&rx, "delivery engine running");
     let want = dir.join("out").join(format!("f{recent}.pdf"));
+    let tif = dir.join("out").join(format!("f{recent}.tif"));
+    // the two formats are written one after the other: wait for both
     for _ in 0..500 {
-        if want.is_file() {
+        if want.is_file() && tif.is_file() {
             break;
         }
         std::thread::sleep(Duration::from_millis(20));
     }
     assert_eq!(std::fs::read(&want).unwrap(), b"%PDF-1.4 stored earlier");
-    assert_eq!(
-        std::fs::read(dir.join("out").join(format!("f{recent}.tif"))).unwrap(),
-        b"II*\0 stored earlier"
-    );
+    assert_eq!(std::fs::read(&tif).unwrap(), b"II*\0 stored earlier");
     // the attempt row says done (written after the file; poll briefly)
     let st = store::connect(&url_of(&dir)).await.unwrap();
     let mut done = false;
@@ -256,4 +255,61 @@ async fn f22_serve_delivers_a_fax_an_earlier_run_stored_and_ignores_one_older_th
         "started 48 h ago: outside the 24 h catch-up window"
     );
     assert!(!dir.join("out").join(format!("f{old}.pdf")).exists());
+}
+
+/// R05 with a real time zone: `serve` under `TZ=Asia/Taipei` names the file with the local time
+/// of the server (UTC+8), not with UTC.
+#[tokio::test]
+async fn r05_serve_under_tz_asia_taipei_names_files_with_the_local_time() {
+    let dir = scratch("tz");
+    let cfg = config(
+        &dir,
+        "[delivery]\ncatch_up_hours = 24\n[[routes]]\ndnis_prefix = \"2557\"\n\
+         [[routes.deliveries]]\nkind = \"folder\"\ndir = \"OUT\"\nformats = [\"pdf\"]\nfilename = \"{date}_{time}\"\n",
+    );
+    assert!(run(&["db", "migrate"], &cfg).status.success());
+    let id = stored_fax(&dir, "tz@gw", 2).await;
+    let st = store::connect(&url_of(&dir)).await.unwrap();
+    let started = st.get(id).await.unwrap().unwrap().started_at;
+    let taipei = started + CDuration::hours(8);
+    let want = dir
+        .join("out")
+        .join(format!("{}.pdf", taipei.format("%Y%m%d_%H%M%S")));
+    let utc_name = dir
+        .join("out")
+        .join(format!("{}.pdf", started.format("%Y%m%d_%H%M%S")));
+
+    let mut child = bin()
+        .arg("serve")
+        .arg("--config")
+        .arg(&cfg)
+        .env("TZ", "Asia/Taipei")
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    for _ in 0..500 {
+        if want.is_file() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child.kill().unwrap();
+    let _ = child.wait();
+    let names: Vec<String> = std::fs::read_dir(dir.join("out"))
+        .map(|d| {
+            d.filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        want.is_file(),
+        "expected {want:?}, the folder has {names:?}"
+    );
+    assert!(
+        !utc_name.exists(),
+        "the UTC name must not be used: {names:?}"
+    );
+    st.close().await;
 }
