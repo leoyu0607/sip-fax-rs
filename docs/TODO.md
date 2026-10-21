@@ -66,6 +66,7 @@
 - [ ] [Any] 發佈 v0.1.1-alpha
 
 ## M3 — Store / Delivery / ECM
+> **2026-10-21 使用者指示暫停開發，等通知再繼續。** 暫停時 M3a、M3d 已完成；M3b 剛開始就停止，沒有留下任何未 commit 的變更；M3c 尚未開始。恢復時從 M3b 重新派工（派工內容見對話紀錄或 M3a/M3d 審核的待辦）。
 > 使用者需求（2026-10-21，見 GOALS「傳真紀錄、預覽與清整」）已確認。**等使用者說開始再動工。**
 - [x] [Opus] 依需求定案資料表 schema（`inbound_faxes` 欄位對應 GOALS 的欄位表），並撰寫 M3 設計和測試計畫
 - [ ] [Sonnet] ANI/DNIS 擷取規則（PAI、From、Request-URI、To、Diversion 的優先順序，可依 trunk 設定）
