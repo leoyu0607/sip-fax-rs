@@ -1,8 +1,8 @@
 # M4d 測試報告：服務管理、控制 socket、log 輪替、TUI
 
 - 實作與執行：Sonnet（服務管理的初版與 TUI）、Opus（接手整合、修正、E2E 與報告）
-- 計畫：`docs/test-plans/M4.md` §0、§7 M01–M14；規格：`docs/design/m4-web.md` §7；ADR-052
-- 分支：`m4d-service-management`，建立在 M4a（`m4a-runtime-config`）之上；M4a 合併進 `main` 後要 rebase。
+- 計畫：`docs/test-plans/M4.md` §0、§7 M01–M14；規格：`docs/design/m4-web.md` §7；ADR-055
+- 分支：`m4d-service-management`，建立在 M4a 之上；M4a 合併進 `main`（`24f5470`）後已 rebase 到 main。
 - 狀態：**待 Opus 審核**
 
 ## 1. 範圍與交付內容
@@ -18,9 +18,8 @@
 | log 檔：依大小或日期輪替、gzip、保留份數、注入時鐘；`logs -f` 輪替後繼續跟隨 | `apps/sip-faxd/src/service/logfile.rs` |
 | TUI `sip-faxd tui`（ratatui＋crossterm）：傳真列表（未讀篩選）、詳細資料與投遞紀錄、切換已讀、編輯備註（樂觀鎖）、通話與狀態、繁中／英文 | `apps/sip-faxd/src/tui/` |
 | 與 M4a 整合：`status` 的 trunk 清單取自執行中的設定；`RegistrationView` 會跟著熱套用更新；`FaxIn` 改為 `Arc`，供 M4a 的 applier 使用 | `apps/sip-faxd/src/main.rs`、`crates/fax-in/src/controller.rs` |
-| 投遞修正：worker 啟動時先執行一次 `run_due`，catch-up 排入的投遞會立即送出（原本要等 `poll_interval` 10 秒，f22 在負載高時會逾時） | `crates/delivery/src/engine.rs` |
-| 測試環境修正：E2E 把 PID 檔與 SQLite 檔放在容器內的暫存目錄（Docker Desktop 的 bind mount 上檔案鎖不會互斥）；`e2e_m3b::i05` 的 schema 版本改為 2 | `tools/interop/src/lib.rs`、`tools/fax-sim/tests/e2e_m3b.rs` |
-| 文件 | `README.md`、`README.zh-TW.md`、`conf/sip-faxd.toml.example`、`docs/field-test.md`、ADR-052 |
+| 測試環境修正：E2E 把 PID 檔與 SQLite 檔放在容器內的暫存目錄（Docker Desktop 的 bind mount 上檔案鎖不會互斥） | `tools/interop/src/lib.rs` |
+| 文件 | `README.md`、`README.zh-TW.md`、`conf/sip-faxd.toml.example`、`docs/field-test.md`、ADR-055 |
 
 ## 2. 案例對照表
 
@@ -47,14 +46,14 @@ E2E 是指 `tools/fax-sim/tests/e2e_m4d.rs`，在 Docker（Rocky 9）裡以 Span
 
 ## 3. 審核時發現並修正的問題
 
-1. **Docker E2E 11 個失敗 → 測試環境的問題。** 第一輪 `e2e_m4d` 是 4 過 11 敗，症狀是 `start` 成功後 `status` 卻說沒有在執行，第二次 `start` 也能啟動。在 rocky9 映像裡實測：bind mount（`/work`）上，另一個程序可以拿到同一個檔案的 `flock`；容器內的 `/tmp` 則正確拒絕。所以把 E2E 的 PID 檔改放在容器內的暫存目錄（和 socket、log 一樣）。修正後 15 個全部通過。產品文件也寫明 `run/` 必須放在本機檔案系統（README、ADR-052）。
+1. **Docker E2E 11 個失敗 → 測試環境的問題。** 第一輪 `e2e_m4d` 是 4 過 11 敗，症狀是 `start` 成功後 `status` 卻說沒有在執行，第二次 `start` 也能啟動。在 rocky9 映像裡實測：bind mount（`/work`）上，另一個程序可以拿到同一個檔案的 `flock`；容器內的 `/tmp` 則正確拒絕。所以把 E2E 的 PID 檔改放在容器內的暫存目錄（和 socket、log 一樣）。修正後 15 個全部通過。產品文件也寫明 `run/` 必須放在本機檔案系統（README、ADR-055）。
 2. **M4a 的 `m4a_cli` 測試共用預設的 `run/`。** 加入 PID 鎖之後，同時啟動 `serve` 的測試會互相擋住（「already running」）。改成每個測試使用自己的 PID 檔與 socket。
-3. **投遞 catch-up 要等 10 秒才送出。** `DeliveryEngine::spawn` 第一次 `run_due` 要等一個 `poll_interval`，所以 f22 會在負載高時逾時。worker 啟動時先執行一次 `run_due`，`delivery_cli` 從 10.9 秒降到 1.1 秒。
+3. **投遞 catch-up 要等 10 秒才送出。**（這項修正在 M4a 審核時一併放進 M4a，見 `docs/test-reports/M4a.md` §10。） `DeliveryEngine::spawn` 第一次 `run_due` 要等一個 `poll_interval`，所以 f22 會在負載高時逾時。worker 啟動時先執行一次 `run_due`，`delivery_cli` 從 10.9 秒降到 1.1 秒。
 4. **f11 的競態（M3f 就有）。** 投遞失敗時，引擎刻意先寫重試的那一列，再把原本的那一列標成 `failed`；測試只等「有兩列」，在 `llvm-cov` 較慢的環境下會看到 `pending`。改成等到第一列已經結束。
 5. **`reload` 沒有接上。** 初版的控制 socket 回「not available」；現在接到 `ConfigService::reload`，回覆會說明哪些 trunk 變更、哪些註冊重啟、哪些設定要等重啟。
 6. **M06 沒有檢查設定與 session。** 原本只比對監聽位址，已補上 §2 所述的斷言。
 7. **E2E 的 SQLite 檔也要離開 bind mount。** 補上 M06 的斷言後（測試程序也寫入 DB），重啟後那通傳真的列偶爾看不到：新程序確實寫入了，測試的連線卻讀不到。SQLite 判斷「最後一條連線」與 WAL 的共用也依賴檔案鎖，而 bind mount 上的鎖無效（同第 1 點）。把 interop 預設的 `fax.db` 移到容器內的暫存目錄後，連續執行都通過。GitHub CI 在原生 Linux 上執行，沒有這個問題。
-8. **M4a 留下的 E2E 失敗。** `e2e_m3b::i05` 仍預期 schema 版本 1；M4a 新增 migration 0002 後應為 `0 -> 2 (applied 0001, 0002)`。這個測試只在 Docker 裡跑，M4a 的 CI（`6e676d1`）同樣是失敗的。
+8. **M4a 留下的 E2E 失敗。**（這項修正在 M4a 審核時一併放進 M4a。） `e2e_m3b::i05` 仍預期 schema 版本 1；M4a 新增 migration 0002 後應為 `0 -> 2 (applied 0001, 0002)`。這個測試只在 Docker 裡跑，M4a 的 CI（`6e676d1`）同樣是失敗的。
 
 ## 4. 執行指令與結果
 
@@ -100,7 +99,7 @@ E2E_ONLY="--test e2e_m4d" scripts/e2e-docker.sh           test result: ok. 15 pa
 - **TUI 沒有測試終端機本身**（raw mode、按鍵執行緒）；畫面與狀態以 `TestBackend` 測試。
 - **中文寬字元**：`TestBackend` 會在寬字元後留空白格，所以中文標籤的測試是去掉所有空白後比對文字。
 - **服務指令與 TUI 只支援 unix。** 本機的 macOS 可以執行，但 macOS 的 unix socket 路徑上限是 104 bytes，過長時會清楚報錯（M03 有測試）。
-- **`flock` 的檔案系統限制**：見 §3 第 1 點；已寫入 README 與 ADR-052。
+- **`flock` 的檔案系統限制**：見 §3 第 1 點；已寫入 README 與 ADR-055。
 
 ## 7. `scripts/ci-local.sh` 與 GitHub CI
 
@@ -109,4 +108,4 @@ E2E_ONLY="--test e2e_m4d" scripts/e2e-docker.sh           test result: ok. 15 pa
 
 ## 8. 新增依賴
 
-`rustix` 1（`fs`、`process`）、`flate2` 1（`rust_backend`）、`ratatui` 0.30（`default-features = false`，只開 `crossterm`）、`crossterm` 0.29；全部是純 Rust，`cargo deny` 通過。ADR-052。
+`rustix` 1（`fs`、`process`）、`flate2` 1（`rust_backend`）、`ratatui` 0.30（`default-features = false`，只開 `crossterm`）、`crossterm` 0.29；全部是純 Rust，`cargo deny` 通過。ADR-055。
