@@ -38,11 +38,16 @@ fn config(dir: &Path, routes: &str) -> PathBuf {
          [storage]\ndata_dir = {data:?}\n\
          [capture]\ndir = {calls:?}\n\
          [database]\nurl = {url:?}\n\
+         [log]\nfile = \"\"\n\
+         [service]\npid_file = {pid:?}\nsocket = {sock:?}\n\
          [[trunks]]\nname = \"local\"\nallowed_sources = [\"127.0.0.0/8\"]\n\
          {routes}",
         data = slashes(&dir.join("data")),
         calls = slashes(&dir.join("calls")),
         url = url_of(dir),
+        // the run state belongs to the test, not to the default `run/` next to the executable
+        pid = slashes(&dir.join("sip-faxd.pid")),
+        sock = slashes(&dir.join("sip-faxd.sock")),
         routes = routes.replace("OUT", &slashes(&dir.join("out"))),
     );
     let p = dir.join("sip-faxd.toml");

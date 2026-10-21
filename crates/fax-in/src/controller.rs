@@ -83,6 +83,66 @@ struct Shared {
     stop: watch::Receiver<bool>,
     /// The configuration the process started with (what the fixed parts were built from).
     started: FaxInConfig,
+    /// `true` while the server drains: new INVITEs are answered 503.
+    drain: watch::Receiver<bool>,
+    /// Calls that are being handled (INVITE accepted by the controller, result not yet sent).
+    active: watch::Sender<usize>,
+}
+
+/// Counts one call as active for as long as it lives (also when its task is cancelled).
+struct ActiveCall(Arc<Shared>);
+
+impl ActiveCall {
+    fn new(sh: &Arc<Shared>) -> ActiveCall {
+        sh.active.send_modify(|n| *n += 1);
+        ActiveCall(sh.clone())
+    }
+}
+
+impl Drop for ActiveCall {
+    fn drop(&mut self) {
+        self.0.active.send_modify(|n| *n = n.saturating_sub(1));
+    }
+}
+
+/// The registration states of the trunks, readable from anywhere (see
+/// [`FaxIn::registration_view`]).
+#[derive(Clone)]
+pub struct RegistrationView(Arc<std::sync::Mutex<Vec<RegItem>>>);
+
+impl RegistrationView {
+    /// `(trunk, state)` for each trunk that registers now (the list follows
+    /// [`FaxIn::apply_config`]); the state is one line of text: `registering`, `registered`,
+    /// `failed: why (attempt n)`, ...
+    pub fn snapshot(&self) -> Vec<(String, String)> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|r| (r.name.clone(), registration_text(&r.handle.state())))
+            .collect()
+    }
+}
+
+fn registration_text(s: &RegistrationState) -> String {
+    match s {
+        RegistrationState::Unregistered => "not started".into(),
+        RegistrationState::Registering => "registering".into(),
+        RegistrationState::Registered { .. } => "registered".into(),
+        RegistrationState::Failed {
+            reason, attempts, ..
+        } => format!("failed: {reason} (attempt {attempts})"),
+        RegistrationState::Stopped => "stopped".into(),
+    }
+}
+
+/// What [`FaxIn::drain`] reports while it waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrainProgress {
+    /// Calls still in progress.
+    pub active: usize,
+    /// Time left until the calls are ended.
+    pub remaining: Duration,
 }
 
 impl Shared {
@@ -95,8 +155,10 @@ impl Shared {
 pub struct FaxIn {
     endpoint: Endpoint,
     stop: watch::Sender<bool>,
+    drain: watch::Sender<bool>,
+    active: watch::Receiver<usize>,
     acceptor: Option<JoinHandle<()>>,
-    registrations: std::sync::Mutex<Vec<RegItem>>,
+    registrations: Arc<std::sync::Mutex<Vec<RegItem>>>,
     capture: Option<Arc<Capture>>,
     shared: Arc<Shared>,
 }
@@ -194,6 +256,8 @@ impl FaxIn {
     ) -> (FaxIn, mpsc::UnboundedReceiver<CallEvent>) {
         let (ev_tx, ev_rx) = mpsc::unbounded_channel();
         let (stop_tx, stop_rx) = watch::channel(false);
+        let (drain_tx, drain_rx) = watch::channel(false);
+        let (active_tx, active_rx) = watch::channel(0usize);
         let max_duration = Duration::from_secs(cfg.call.max_duration_secs);
         let factory: Arc<dyn FaxSessionFactory> = match opts.session_factory {
             Some(f) => f,
@@ -236,6 +300,8 @@ impl FaxIn {
             capture: capture.clone(),
             factory,
             stop: stop_rx.clone(),
+            drain: drain_rx,
+            active: active_tx,
         });
         let registrations = start_registrations(&shared, &endpoint);
         let acceptor = tokio::spawn(accept_loop(shared.clone(), incoming, stop_rx));
@@ -243,8 +309,10 @@ impl FaxIn {
             FaxIn {
                 endpoint,
                 stop: stop_tx,
+                drain: drain_tx,
+                active: active_rx,
                 acceptor: Some(acceptor),
-                registrations: std::sync::Mutex::new(registrations),
+                registrations: Arc::new(std::sync::Mutex::new(registrations)),
                 capture,
                 shared,
             },
@@ -375,6 +443,61 @@ impl FaxIn {
             }
         }
         all
+    }
+
+    /// A handle that reports the registration state of every trunk that registers, for as long
+    /// as it is kept (also while the controller shuts down).
+    pub fn registration_view(&self) -> RegistrationView {
+        RegistrationView(self.registrations.clone())
+    }
+
+    /// Calls in progress right now.
+    pub fn active_calls(&self) -> usize {
+        *self.active.borrow()
+    }
+
+    /// Whether [`drain`](Self::drain) has been called: new INVITEs get 503.
+    pub fn is_draining(&self) -> bool {
+        *self.drain.borrow()
+    }
+
+    /// Stops taking new calls (every new INVITE is answered 503) and waits for the calls in
+    /// progress to end, at most `timeout`; `force` (set to `true` at any time) ends the wait at
+    /// once. `progress` is called every `every` while calls remain. Returns the number of calls
+    /// still in progress, which [`shutdown`](Self::shutdown) then ends (the pages received so
+    /// far are written and the result is `shutdown`). Uses the tokio clock, so tests pause it.
+    pub async fn drain(
+        &self,
+        timeout: Duration,
+        mut force: watch::Receiver<bool>,
+        every: Duration,
+        mut progress: impl FnMut(DrainProgress),
+    ) -> usize {
+        self.drain.send_replace(true);
+        let deadline = Instant::now() + timeout;
+        let mut active = self.active.clone();
+        let every = every.max(Duration::from_millis(1));
+        let mut tick = tokio::time::interval_at(Instant::now() + every, every);
+        loop {
+            let n = *active.borrow_and_update();
+            if n == 0 || *force.borrow() {
+                return n;
+            }
+            tokio::select! {
+                _ = active.changed() => {}
+                r = force.changed() => {
+                    // a dropped sender can never force: keep waiting for the calls
+                    if r.is_err() {
+                        let _ = active.changed().await;
+                    }
+                }
+                () = tokio::time::sleep_until(deadline) => return *active.borrow(),
+                _ = tick.tick() => progress(DrainProgress {
+                    active: n,
+                    remaining: deadline.saturating_duration_since(Instant::now()),
+                }),
+            }
+        }
     }
 
     /// Ends all calls (BYE, bounded), de-registers, stops the endpoint and flushes capture.
@@ -509,7 +632,13 @@ async fn accept_loop(
             biased;
             () = stopped(&mut stop) => break,
             c = incoming.recv() => match c {
-                Some(c) => { calls.spawn(run_call(sh.clone(), c)); }
+                Some(c) if *sh.drain.borrow() => {
+                    calls.spawn(refuse_draining(c));
+                }
+                Some(c) => {
+                    let guard = ActiveCall::new(&sh);
+                    calls.spawn(run_call(sh.clone(), c, guard));
+                }
                 None => break,
             },
             Some(_) = calls.join_next(), if !calls.is_empty() => {}
@@ -517,6 +646,12 @@ async fn accept_loop(
     }
     // the calls watch the same stop signal and hang up themselves
     while calls.join_next().await.is_some() {}
+}
+
+/// A new INVITE while the server drains for a stop: 503 (the peer may try another gateway).
+async fn refuse_draining(call: IncomingCall) {
+    tracing::info!(source = %call.source(), "call refused (503): the service is stopping");
+    let _ = call.reject(StatusCode::SERVICE_UNAVAILABLE).await;
 }
 
 // ------------------------------------------------------------------------ one call
@@ -531,7 +666,7 @@ struct Rec {
     bye_by: Option<ByeBy>,
 }
 
-async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
+async fn run_call(sh: Arc<Shared>, call: IncomingCall, _active: ActiveCall) {
     let started_at = SystemTime::now();
     let call_id = call
         .request()

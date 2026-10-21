@@ -5,6 +5,11 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Added
+- **Service management** (M4d, Linux): `sip-faxd start [-d]`, `stop [--force] [--timeout SECS]`, `restart`, `status [--json]` (exit code 3 when not running) and `logs [-f] [-n N]`. `start` runs the service in the background (own session, PID file locked with `flock`, ready when the control socket answers) and shows the log; Ctrl+C only stops the display. systemd-managed services are detected and `start`/`stop`/`restart` point to `systemctl` (`--ignore-systemd` overrides). Use `serve` in a systemd unit.
+- **Graceful stop**: `stop` and `SIGTERM` answer new INVITEs with 503, wait for the faxes in progress (`[service] stop_timeout_secs`, default 300) and only then end the rest; their pages are kept (`partial`, `hangup_code = shutdown`).
+- Control socket `run/sip-faxd.sock` (mode 0600, one JSON object per line: `status`, `calls`, `stop`, `reload`, `subscribe`).
+- Log file `logs/sip-faxd.log` with rotation by size or day, `[log] keep` files kept, gzip-compressed (`[log]`, `[service]` in the configuration).
 
 ## [0.2.0-alpha] - 2026-10-21
 ### Added
@@ -36,6 +41,11 @@ All notable changes to this project are documented here. Versions follow [Semant
 ## 繁體中文
 
 ### [Unreleased]
+#### 新增
+- **服務管理**（M4d，Linux）：`sip-faxd start [-d]`、`stop [--force] [--timeout 秒數]`、`restart`、`status [--json]`（沒有在執行時回傳 3）、`logs [-f] [-n N]`。`start` 在背景啟動服務（獨立 session、以 `flock` 鎖定的 PID 檔、控制 socket 有回應才算就緒）並顯示 log；Ctrl+C 只停止顯示。偵測到由 systemd 管理時，`start`／`stop`／`restart` 提示改用 `systemctl`（`--ignore-systemd` 可略過）。systemd unit 請使用 `serve`。
+- **優雅停止**：`stop` 與 `SIGTERM` 對新的 INVITE 回 503，等進行中的傳真收完（`[service] stop_timeout_secs`，預設 300 秒）才結束剩下的通話；已收到的頁面照樣保留（`partial`、`hangup_code = shutdown`）。
+- 控制 socket `run/sip-faxd.sock`（權限 0600，一行一個 JSON：`status`、`calls`、`stop`、`reload`、`subscribe`）。
+- Log 檔 `logs/sip-faxd.log`，依大小或每天輪替，保留 `[log] keep` 份並以 gzip 壓縮（設定檔新增 `[log]`、`[service]` 選項）。
 
 ### [0.2.0-alpha] - 2026-10-21
 **新增**

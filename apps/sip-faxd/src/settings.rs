@@ -9,13 +9,8 @@ use fax_in::FaxInConfig;
 use runtime_config::{RuntimeConfig, RuntimeFile};
 use serde::Deserialize;
 
-/// `[log]`
-#[derive(Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct LogSection {
-    /// Default log filter (overridden by `RUST_LOG`).
-    pub level: String,
-}
+// `[log]` and `[service]` live with the service management code (M4d).
+pub use crate::service::config::{LogSection, ServiceSection};
 
 /// `[database]`
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -47,6 +42,8 @@ pub use runtime_config::{DeliverySection, RetentionSection};
 pub struct AppConfig {
     /// `[log]`
     pub log: LogSection,
+    /// `[service]`
+    pub service: ServiceSection,
     /// `[database]`
     pub database: DatabaseSection,
     /// `[retention]` (runtime section: the file's copy, used for the first import)
@@ -86,6 +83,7 @@ impl AppConfig {
             format!("{}: invalid TOML: {}", path.display(), e.message())
         })?;
         let log = section(&mut table, "log", path)?;
+        let service = section(&mut table, "service", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
         let file =
             RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -95,6 +93,7 @@ impl AppConfig {
         };
         let cfg = AppConfig {
             log,
+            service,
             database,
             retention: file.runtime.retention.clone(),
             delivery: file.runtime.delivery.clone(),
@@ -117,6 +116,8 @@ impl AppConfig {
     }
 
     fn validate(&self) -> Result<(), String> {
+        self.log.validate()?;
+        self.service.validate()?;
         store::backend_for_url(&self.database.url).map_err(|e| format!("[database] {e}"))?;
         if self.database.max_connections == 0 {
             return Err("[database] max_connections must be at least 1".into());
@@ -301,6 +302,15 @@ mod tests {
             "[trunks.fax]",
             "resolutions",
             "ecm",
+            "[service]",
+            "pid_file",
+            "socket",
+            "stop_timeout_secs",
+            "start_timeout_secs",
+            "max_size_mb",
+            "keep",
+            "compress",
+            "daily",
         ] {
             assert!(text.contains(key), "the example does not mention {key}");
         }

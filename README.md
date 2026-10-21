@@ -67,6 +67,27 @@ Besides the SIP settings, the file has `[database]` (`url`, `auto_migrate`, `max
 
 The first start creates the administrator `admin` with a random password in `conf/initial-admin-password` (it has to be changed at the first login).
 
+## Running it as a service (Linux)
+
+```sh
+./sip-faxd start              # start in the background, wait until it is ready, then show the log
+./sip-faxd start -d           # start only
+./sip-faxd status             # pid, version, uptime, listeners, calls in progress, trunk registrations
+./sip-faxd logs -f -n 100     # the last 100 log lines, then follow (also across log rotation)
+./sip-faxd stop               # wait for the faxes in progress, then stop
+./sip-faxd stop --force       # end the calls now
+./sip-faxd restart            # stop (waits for the calls), then start
+```
+
+- **`start`** runs `sip-faxd serve --daemonized` in a session of its own (`setsid`), writes `run/sip-faxd.pid` (locked with `flock`, so a second start is refused and says which pid runs) and waits until the control socket `run/sip-faxd.sock` answers. Ctrl+C only stops the log display ("the service is still running"); it never stops the service. If the service does not become ready within `[service] start_timeout_secs` (30), or exits during the start, `start` prints the last 50 log lines, exits non-zero and leaves no PID file.
+- **`stop`** is graceful: new INVITEs are answered **503 at once**, the faxes in progress are **waited for** (at most `[service] stop_timeout_secs`, default 300; a progress line every 5 s), then what is left is ended. The pages received so far are written and the record is `partial` with `hangup_code = shutdown`. `--force` skips the wait, `--timeout SECS` overrides the configured one. Then the delivery service is closed as usual (see [Delivery](#delivery)). `SIGTERM` to `serve` is the same stop; a second `SIGTERM` or Ctrl+C forces it.
+- **`status`** exits with `0` when the service runs and `3` when it does not.
+- **systemd:** use the foreground `serve` in the unit (`ExecStart=/opt/sip-faxd/sip-faxd serve`, `TimeoutStopSec=` above `stop_timeout_secs`). When systemd manages the service (`INVOCATION_ID` is set, or the PID file's process is a child of PID 1 with a `NOTIFY_SOCKET`), `start`, `stop` and `restart` say "use `systemctl ...`" and exit non-zero; `--ignore-systemd` overrides that.
+- **Log file:** `logs/sip-faxd.log`, rotated by size (`[log] max_size_mb`, default 50) or every day, `[log] keep` (14) old files are kept and gzip-compressed. A foreground `serve` writes the file and stderr.
+- **Control socket:** one JSON object per line (`status`, `calls`, `stop`, `reload`, `subscribe`), mode 0600; whoever can open it is an administrator. The TUI and the `reload` after a settings change use it.
+
+These commands need Linux (flock, setsid, unix socket). On other systems only `serve` is available.
+
 ## Fax records and the database
 
 Every call is a row in the `faxes` table of the database named by `[database] url` (default: SQLite file `data/sip-faxd.db`; `postgres://`, `mysql://` / `mariadb://` and `mssql://` work too, see [docs/database.md](docs/database.md)). The row is created when the call starts (`fax_status = receiving`), its `pages` count goes up with every page the fax machine delivers, and it is completed when the call ends: the status (`received`, `partial`, `failed`, `no_fax`), who hung up and why (`hangup_direction`, `hangup_code`), the calling number (ANI) and called number (DNIS), the file paths and sizes, and the negotiated resolution, rate, coding and ECM. Calls from sources outside every trunk's allow-list are refused and not recorded.

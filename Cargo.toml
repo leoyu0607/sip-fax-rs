@@ -52,6 +52,11 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "j
 hmac = "0.13"
 sha2 = "0.11"
 
+# sip-faxd service management (M4d, proposed ADR): flock / setsid / kill without unsafe code,
+# gzip of rotated log files. Both were already in the lock file through tempfile and png.
+rustix = { version = "1", default-features = false, features = ["std", "fs", "process"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
 [profile.release]
 lto = true
 codegen-units = 1
