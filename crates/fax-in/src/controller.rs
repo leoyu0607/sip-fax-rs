@@ -6,6 +6,7 @@
 //! the call is handed to a [`FaxSession`](crate::session::FaxSession). When T.38 cannot be
 //! established the call ends with a BYE and a failure reason (G.711 passthrough is M5).
 
+use arc_swap::ArcSwap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -60,9 +61,19 @@ pub struct StartOptions {
     pub base_dir: Option<PathBuf>,
 }
 
+/// The part of the configuration that can change while the server runs: every call takes one
+/// snapshot when its INVITE arrives and keeps it until it ends, so a change never reaches a call
+/// that is in progress. Everything else (the sockets, the UDPTL port pool, the capture writer) is
+/// fixed at start and needs a restart to change.
+pub struct Snapshot {
+    /// The configuration.
+    pub cfg: FaxInConfig,
+    /// Its trunks, resolved.
+    pub table: TrunkTable,
+}
+
 struct Shared {
-    cfg: FaxInConfig,
-    table: TrunkTable,
+    live: ArcSwap<Snapshot>,
     /// Shared media settings; `t38_port` is 0 here and set per call.
     media: MediaCtx,
     ports: PortPool,
@@ -70,6 +81,8 @@ struct Shared {
     capture: Option<Arc<Capture>>,
     factory: Arc<dyn FaxSessionFactory>,
     stop: watch::Receiver<bool>,
+    /// The configuration the process started with (what the fixed parts were built from).
+    started: FaxInConfig,
 }
 
 impl Shared {
@@ -83,9 +96,30 @@ pub struct FaxIn {
     endpoint: Endpoint,
     stop: watch::Sender<bool>,
     acceptor: Option<JoinHandle<()>>,
-    registrations: Vec<(String, RegistrationHandle)>,
-    reg_logs: Vec<JoinHandle<()>>,
+    registrations: std::sync::Mutex<Vec<RegItem>>,
     capture: Option<Arc<Capture>>,
+    shared: Arc<Shared>,
+}
+
+/// One running registration and the inputs it was started from.
+struct RegItem {
+    name: String,
+    /// What the registration depends on; a different key means a new registration.
+    key: String,
+    handle: RegistrationHandle,
+    log: JoinHandle<()>,
+}
+
+/// What [`FaxIn::apply_config`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApplyOutcome {
+    /// Settings that differ from what the process started with and only take effect after a
+    /// restart (`sip.bind`, `media.port_range`, ...). Empty when nothing is pending.
+    pub restart_required: Vec<String>,
+    /// Trunks whose registration was stopped (un-REGISTER) and, when still enabled, started again.
+    pub registrations_restarted: Vec<String>,
+    /// Trunks added, changed or removed.
+    pub trunks_changed: Vec<String>,
 }
 
 impl FaxIn {
@@ -194,8 +228,8 @@ impl FaxIn {
             high: 30000,
         }));
         let shared = Arc::new(Shared {
-            cfg,
-            table,
+            started: cfg.clone(),
+            live: ArcSwap::from_pointee(Snapshot { cfg, table }),
             media,
             ports,
             events: ev_tx,
@@ -203,16 +237,16 @@ impl FaxIn {
             factory,
             stop: stop_rx.clone(),
         });
-        let (registrations, reg_logs) = start_registrations(&shared, &endpoint);
-        let acceptor = tokio::spawn(accept_loop(shared, incoming, stop_rx));
+        let registrations = start_registrations(&shared, &endpoint);
+        let acceptor = tokio::spawn(accept_loop(shared.clone(), incoming, stop_rx));
         (
             FaxIn {
                 endpoint,
                 stop: stop_tx,
                 acceptor: Some(acceptor),
-                registrations,
-                reg_logs,
+                registrations: std::sync::Mutex::new(registrations),
                 capture,
+                shared,
             },
             ev_rx,
         )
@@ -236,9 +270,111 @@ impl FaxIn {
     /// The registration state of every trunk that registers.
     pub fn registrations(&self) -> Vec<(String, RegistrationState)> {
         self.registrations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .map(|(n, h)| (n.clone(), h.state()))
+            .map(|r| (r.name.clone(), r.handle.state()))
             .collect()
+    }
+
+    /// The configuration calls that arrive now will work with.
+    pub fn snapshot(&self) -> Arc<Snapshot> {
+        self.shared.live.load_full()
+    }
+
+    /// Settings of the running configuration that differ from what the process started with and
+    /// need a restart to take effect.
+    pub fn pending_restart(&self) -> Vec<String> {
+        crate::config::restart_required(&self.shared.started, &self.shared.live.load().cfg)
+    }
+
+    /// Replaces the configuration for every call that arrives from now on (calls in progress keep
+    /// the snapshot they started with): the trunk table and everything per-call, the transport's
+    /// source filter, and the registrations (a trunk whose registration settings changed is
+    /// de-registered and registered again with the new ones; removed trunks are de-registered).
+    ///
+    /// Settings that are fixed at start (listen address, UDPTL port range, capture, ...) are not
+    /// applied; they are listed in [`ApplyOutcome::restart_required`].
+    ///
+    /// # Errors
+    /// The new configuration does not validate; nothing was changed.
+    pub async fn apply_config(&self, cfg: FaxInConfig) -> Result<ApplyOutcome, ConfigError> {
+        let table = TrunkTable::build(&cfg)?;
+        let old = self.shared.live.load_full();
+        let mut trunks_changed = Vec::new();
+        for t in table.trunks() {
+            match old.table.trunks().iter().find(|o| o.name() == t.name()) {
+                Some(o) if format!("{:?}", o.cfg) == format!("{:?}", t.cfg) => {}
+                _ => trunks_changed.push(t.name().to_string()),
+            }
+        }
+        for o in old.table.trunks() {
+            if !table.trunks().iter().any(|t| t.name() == o.name()) {
+                trunks_changed.push(o.name().to_string());
+            }
+        }
+        let restart_required = crate::config::restart_required(&self.shared.started, &cfg);
+        self.endpoint
+            .transactions()
+            .transport()
+            .set_source_policy(table.source_policy());
+        self.shared.live.store(Arc::new(Snapshot { cfg, table }));
+        let registrations_restarted = self.reconcile_registrations().await;
+        Ok(ApplyOutcome {
+            restart_required,
+            registrations_restarted,
+            trunks_changed,
+        })
+    }
+
+    async fn reconcile_registrations(&self) -> Vec<String> {
+        let snap = self.shared.live.load_full();
+        let mut wanted: Vec<(String, String, RegistrationConfig)> = Vec::new();
+        for t in snap.table.trunks() {
+            if !t.cfg.register.enabled {
+                continue;
+            }
+            match registration_config(t, &self.endpoint) {
+                Some(rc) => wanted.push((t.name().to_string(), registration_key(t), rc)),
+                None => {
+                    tracing::error!(trunk = %t.name(), "registration is configured but could not be set up")
+                }
+            }
+        }
+        // stop what is gone or changed (un-REGISTER first, then the new registration starts)
+        let mut stopped = Vec::new();
+        let mut keep = Vec::new();
+        let current =
+            std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
+        for item in current {
+            if wanted
+                .iter()
+                .any(|(n, k, _)| *n == item.name && *k == item.key)
+            {
+                keep.push(item);
+            } else {
+                stopped.push(item.name.clone());
+                let _ = tokio::time::timeout(Duration::from_secs(5), item.handle.stop()).await;
+                item.log.abort();
+            }
+        }
+        let mut restarted = Vec::new();
+        for (name, key, rc) in wanted {
+            if keep.iter().any(|i| i.name == name) {
+                continue;
+            }
+            tracing::info!(trunk = %name, "registration (re)started with the new configuration");
+            restarted.push(name.clone());
+            keep.push(spawn_registration(&self.endpoint, name, key, rc));
+        }
+        *self.registrations.lock().unwrap_or_else(|e| e.into_inner()) = keep;
+        let mut all = stopped;
+        for r in restarted {
+            if !all.contains(&r) {
+                all.push(r);
+            }
+        }
+        all
     }
 
     /// Ends all calls (BYE, bounded), de-registers, stops the endpoint and flushes capture.
@@ -247,11 +383,11 @@ impl FaxIn {
         if let Some(a) = self.acceptor.take() {
             let _ = a.await;
         }
-        for (_, h) in std::mem::take(&mut self.registrations) {
-            let _ = tokio::time::timeout(Duration::from_secs(5), h.stop()).await;
-        }
-        for j in self.reg_logs.drain(..) {
-            j.abort();
+        let regs =
+            std::mem::take(&mut *self.registrations.lock().unwrap_or_else(|e| e.into_inner()));
+        for item in regs {
+            let _ = tokio::time::timeout(Duration::from_secs(5), item.handle.stop()).await;
+            item.log.abort();
         }
         self.endpoint.shutdown().await;
         if let Some(c) = &self.capture {
@@ -262,39 +398,61 @@ impl FaxIn {
 
 // ------------------------------------------------------------------------ registrations
 
-fn start_registrations(
-    sh: &Arc<Shared>,
-    endpoint: &Endpoint,
-) -> (Vec<(String, RegistrationHandle)>, Vec<JoinHandle<()>>) {
-    let mut handles = Vec::new();
-    let mut logs = Vec::new();
-    for t in sh.table.trunks() {
-        let r = &t.cfg.register;
-        if !r.enabled {
+fn start_registrations(sh: &Arc<Shared>, endpoint: &Endpoint) -> Vec<RegItem> {
+    let mut items = Vec::new();
+    let snap = sh.live.load_full();
+    for t in snap.table.trunks() {
+        if !t.cfg.register.enabled {
             continue;
         }
         let Some(cfg) = registration_config(t, endpoint) else {
             tracing::error!(trunk = %t.name(), "registration is configured but could not be set up");
             continue;
         };
-        let name = t.name().to_string();
-        let handle = registration::start(endpoint.transactions().clone(), cfg);
-        let mut rx = handle.subscribe();
-        let n2 = name.clone();
-        logs.push(tokio::spawn(async move {
-            while rx.changed().await.is_ok() {
-                let st = rx.borrow().clone();
-                match &st {
-                    RegistrationState::Failed { .. } => {
-                        tracing::warn!(trunk = %n2, state = ?st, "registration state");
-                    }
-                    _ => tracing::info!(trunk = %n2, state = ?st, "registration state"),
-                }
-            }
-        }));
-        handles.push((name, handle));
+        items.push(spawn_registration(
+            endpoint,
+            t.name().to_string(),
+            registration_key(t),
+            cfg,
+        ));
     }
-    (handles, logs)
+    items
+}
+
+/// Everything a registration is built from; when it differs, the registration is replaced.
+fn registration_key(t: &Trunk) -> String {
+    format!(
+        "{:?}|{:?}|{:?}",
+        t.cfg.register, t.cfg.peer, t.cfg.transport
+    )
+}
+
+fn spawn_registration(
+    endpoint: &Endpoint,
+    name: String,
+    key: String,
+    cfg: RegistrationConfig,
+) -> RegItem {
+    let handle = registration::start(endpoint.transactions().clone(), cfg);
+    let mut rx = handle.subscribe();
+    let n2 = name.clone();
+    let log = tokio::spawn(async move {
+        while rx.changed().await.is_ok() {
+            let st = rx.borrow().clone();
+            match &st {
+                RegistrationState::Failed { .. } => {
+                    tracing::warn!(trunk = %n2, state = ?st, "registration state");
+                }
+                _ => tracing::info!(trunk = %n2, state = ?st, "registration state"),
+            }
+        }
+    });
+    RegItem {
+        name,
+        key,
+        handle,
+        log,
+    }
 }
 
 fn registration_config(t: &Trunk, endpoint: &Endpoint) -> Option<RegistrationConfig> {
@@ -389,12 +547,13 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
     let to = uri_of(call.request().headers.to());
 
     // C02: the trunk follows from the source address
-    let trunk = match sh.table.lookup(source.ip()) {
+    let snap = sh.live.load_full();
+    let trunk = match snap.table.lookup(source.ip()) {
         Some(t) => t,
-        None => match sh.table.unknown_source() {
+        None => match snap.table.unknown_source() {
             UnknownSource::Log => {
                 tracing::warn!(%source, call_id, "call from a source outside every trunk; handling it with the generic profile (unknown_source = \"log\")");
-                sh.table.fallback()
+                snap.table.fallback()
             }
             UnknownSource::Drop | UnknownSource::Reject => {
                 tracing::warn!(%source, call_id, "call from a source outside every trunk: 403");
@@ -441,7 +600,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         fax: None,
         bye_by: None,
     };
-    let mut outcome = drive(&sh, call, &trunk, &call_id, &mut rec).await;
+    let mut outcome = drive(&sh, &snap, call, &trunk, &call_id, &mut rec).await;
     let fax: Option<FaxReport> = rec.fax.as_ref().and_then(|s| {
         s.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -505,6 +664,7 @@ fn failed(reason: FailureReason) -> CallOutcome {
 
 async fn drive(
     sh: &Arc<Shared>,
+    snap: &Arc<Snapshot>,
     call: IncomingCall,
     trunk: &Arc<Trunk>,
     call_id: &str,
@@ -563,11 +723,11 @@ async fn drive(
             return failed(FailureReason::NoAcceptableMedia { detail });
         }
     };
-    if sh.cfg.call.send_ringing && matches!(call.ringing().await, Err(CallError::Cancelled)) {
+    if snap.cfg.call.send_ringing && matches!(call.ringing().await, Err(CallError::Cancelled)) {
         return failed(FailureReason::Cancelled);
     }
-    if sh.cfg.call.answer_delay_ms > 0 {
-        tokio::time::sleep(Duration::from_millis(sh.cfg.call.answer_delay_ms)).await;
+    if snap.cfg.call.answer_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(snap.cfg.call.answer_delay_ms)).await;
     }
     let dlg = match call.accept(answer).await {
         Ok(d) => d,
@@ -587,6 +747,7 @@ async fn drive(
     });
     Live {
         sh,
+        snap: snap.clone(),
         trunk,
         call_id,
         source: source.ip(),
@@ -628,6 +789,8 @@ enum Internal {
 /// State of one answered call.
 struct Live<'a> {
     sh: &'a Arc<Shared>,
+    /// The configuration of this call (taken at its INVITE).
+    snap: Arc<Snapshot>,
     trunk: &'a Arc<Trunk>,
     call_id: &'a str,
     source: std::net::IpAddr,
@@ -663,7 +826,7 @@ async fn at(t: Option<Instant>) {
 
 impl Live<'_> {
     fn max_duration(&self) -> Duration {
-        Duration::from_secs(self.sh.cfg.call.max_duration_secs)
+        Duration::from_secs(self.snap.cfg.call.max_duration_secs)
     }
 
     fn audio_only_outcome(&self) -> CallOutcome {
@@ -723,6 +886,8 @@ impl Live<'_> {
             report,
             progress: Some(progress_tx),
             cancel: cancel_rx,
+            station_id: Some(self.snap.cfg.call.station_id.clone()),
+            max_duration: Some(self.max_duration()),
         };
         let session = self.sh.factory.create(&ctx);
         let tx = self.internal_tx.clone();

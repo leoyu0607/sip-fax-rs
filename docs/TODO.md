@@ -95,7 +95,8 @@
 ## M4 — 介面
 > 2026-10-21 使用者決定：帳號分管理員／座席；Web 可選 HTTP 或 HTTPS（HTTPS 沒有憑證時自動產生 10 年自簽憑證）；介面繁中＋英文；除了啟動必需的設定，其餘設定改存 DB、可在 Web 修改（ADR-051）。設計見 `docs/design/m4-web.md`，分期 M4a–M4d。
 - [x] [Opus] 撰寫 docs/design/m4-web.md 與 docs/test-plans/M4.md
-- [ ] [Sonnet] M4a：執行設定入 DB（匯入／匯出、驗證、秘密加密、熱套用）、帳號與 session、CLI（config、user、fax）
+- [x] [Sonnet] M4a：執行設定入 DB（匯入／匯出、驗證、秘密加密、熱套用）、帳號與 session、CLI（config、user、fax）
+  - 2026-10-22：Opus 審核通過（`docs/test-reports/M4a.md` §10）；審核時修正 i05 的 schema 版本、K10 的 nonce 斷言、R05 的真實時區測試、投遞 catch-up 延遲與 f22 的競態；ADR-052–054。
 - [ ] [Sonnet] M4b：web crate（REST、WebSocket、HTTP/HTTPS 與自簽憑證、安全 header）
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [ ] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
@@ -111,9 +112,9 @@
   - `logs [-f]`：查看 log。服務 log 檔要能輪替，依大小或天數，並設定保留份數。
   - 用 systemd 管理時仍使用 `serve`（前景）。偵測到服務已經由 systemd 管理時，`start`/`stop` 要提示改用 `systemctl`。
 
-- [ ] [Sonnet] 手動重新投遞（`failed`／`giving_up` 的投遞；Web 按鈕與 CLI）（M3c 審核）
-- [ ] [Sonnet] 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區範本的測試（M3f 審核；與 stop/restart 一起做）
-- [ ] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）
+- [x] [Sonnet] 手動重新投遞（`failed`／`giving_up` 的投遞；Web 按鈕與 CLI）（M3c 審核）（M4a 完成：CLI 與 store；Web 按鈕屬於 M4c）
+- [x] [Sonnet] 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區範本的測試（M3f 審核；與 stop/restart 一起做）（M4a 完成）
+- [x] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）（M4a 完成）
 - [ ] [Any] CI 新增 `web-ui` job
 - [ ] [Opus] 審核 docs/test-reports/M4.md
 

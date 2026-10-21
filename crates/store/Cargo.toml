@@ -17,6 +17,8 @@ percent-encoding = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = { workspace = true }
 t4 = { path = "../t4" }
 

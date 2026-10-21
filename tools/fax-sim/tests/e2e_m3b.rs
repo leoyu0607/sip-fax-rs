@@ -409,7 +409,7 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
         log.contains("database unavailable"),
         "retries are logged: {log}"
     );
-    assert!(!log.contains("secret"), "no password in the log: {log}");
+    assert!(!log.contains(":secret@"), "no password in the log: {log}");
     let faxd_cfg = f.config_path.clone();
     let calls_dir = f.calls_dir.clone();
     let data_dir = f.data_dir.clone();
@@ -442,11 +442,11 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
     let (code, out, err) = cli(&["db", "migrate"]);
     assert_eq!(code, Some(0), "{err}");
     assert!(
-        out.contains("schema version 0 -> 1 (applied 0001)"),
+        out.contains("schema version 0 -> 2 (applied 0001, 0002)"),
         "{out}"
     );
     let (_, out, _) = cli(&["db", "migrate"]);
-    assert!(out.contains("already at schema version 1"), "{out}");
+    assert!(out.contains("already at schema version 2"), "{out}");
 
     // db backfill restores the call that the live server could not write
     let (code, out, err) = cli(&["db", "backfill"]);

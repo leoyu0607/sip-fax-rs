@@ -63,6 +63,17 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 除了 SIP 相關設定，設定檔還有 `[database]`（`url`、`auto_migrate`、`max_connections`）、`[retention]`（`files_days`、`records_days`、`run_at`）、`[[routes]]` 與 `[delivery]`（見[投遞](#投遞)），以及每個 trunk 的 `[trunks.fax]`（`resolutions`、`ecm`）和 `[trunks.numbers]`（進線號碼與撥打號碼取自哪個 header：`ani_sources`、`dnis_sources`、`strip_plus`、`ani_strip_prefix`、`dnis_strip_prefix`）。
 
+**執行設定改存資料庫（M4a、ADR-051）。** 只有 `[log]`、`[database]`、`[storage]`（之後還有 `[web]`、`[service]`）永遠從設定檔讀取。`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`、`[[routes]]`、`[delivery]`、`[retention]` 在第一次啟動時匯入資料庫，之後以資料庫為準（設定檔中不再生效的區段，啟動時會以 warning 列出）。修改後不必重啟，下一通來電就套用；只有監聽位址、UDPTL port 範圍與 `[capture]` 需要重啟。秘密資料（註冊、Email、Webhook 的密碼）以 `conf/secret.key` 加密後存放。
+
+```sh
+./sip-faxd config export [--include-secrets]      # 把資料庫中的執行設定輸出成 TOML（備份用）
+./sip-faxd config import [--force] [--file PATH]  # 把設定檔的執行區段寫入資料庫
+./sip-faxd user add alice --role agent            # 帳號：add | passwd | disable | enable | list
+./sip-faxd fax list --unread                      # 傳真：list | show | read | note | redeliver
+```
+
+第一次啟動會建立管理員 `admin`，隨機密碼寫在 `conf/initial-admin-password`（第一次登入必須改密碼）。
+
 ## 傳真紀錄與資料庫
 
 每通來電在 `[database] url` 指定的資料庫的 `faxes` 資料表有一筆紀錄（預設為 SQLite 檔案 `data/sip-faxd.db`；也可用 `postgres://`、`mysql://`／`mariadb://`、`mssql://`，見 [docs/database.md](docs/database.md)）。通話開始時就建立紀錄（`fax_status = receiving`），對方每送完一頁，`pages` 就加一，通話結束時補齊：狀態（`received`、`partial`、`failed`、`no_fax`）、誰掛斷與原因（`hangup_direction`、`hangup_code`）、進線號碼（ANI）與撥打號碼（DNIS）、檔案路徑與大小，以及協商出來的解析度、速率、編碼和 ECM。來源不在任何 trunk 白名單的電話會被擋掉，不寫入紀錄。

@@ -123,7 +123,10 @@ fn engine_config(env: &T38SessionEnv, ctx: &SessionContext) -> EngineConfig {
         pacing: env.pacing,
         ..EngineConfig::default()
     };
-    cfg.t30.local_id = env.station_id.clone();
+    cfg.t30.local_id = ctx
+        .station_id
+        .clone()
+        .unwrap_or_else(|| env.station_id.clone());
     cfg.t30.tcf = if ctx.t38.rate_management == "localTCF" {
         TcfMode::Local
     } else {
@@ -210,7 +213,7 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
     let mut latched = false;
     let mut cancel = ctx.cancel.clone();
     let t0 = Instant::now();
-    let deadline = t0 + env.max_duration;
+    let deadline = t0 + ctx.max_duration.unwrap_or(env.max_duration);
     let now_ms = |t0: Instant| u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
     let mut buf = vec![0u8; MAX_DATAGRAM];
 

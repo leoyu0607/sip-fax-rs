@@ -44,6 +44,13 @@ peer = "<CS210 的 IP>:5060"
 ./sip-faxd config check
 ```
 
+**設定存放位置（M4a 起，ADR-051）**：上面這些 `[sip]`、`[media]`、`[[trunks]]`（以及 `[call]`、`[capture]`、`[[routes]]`、`[delivery]`、`[retention]`）只在**第一次啟動**時匯入資料庫；之後以資料庫為準，再改設定檔不會生效，啟動 log 會用 warning 列出被忽略的區段。要改動：
+- 重新匯入：`./sip-faxd config import --force`（以設定檔取代資料庫的執行設定，會記稽核）；
+- 備份／檢視：`./sip-faxd config export`（預設不含密碼；`--include-secrets` 含明文，請妥善保管輸出）；
+- 改了不必重啟，下一通來電就套用（`[sip] bind`、`[media] port_range`、`[capture]` 例外，需要重啟）；`config import` 之後，執行中的服務要重新啟動（或等 M4d 的 `reload`）才會載入；
+- `conf/secret.key` 是加密密碼用的金鑰，**要和資料庫一起備份**；遺失的話註冊、Email、Webhook 的密碼要重新輸入（其他功能照常，`config check` 會列出哪些欄位要重填）；
+- 第一次啟動會建立管理員 `admin`，密碼在 `conf/initial-admin-password`（log 只提示檔案位置）。`./sip-faxd user list` 查看帳號，`./sip-faxd fax list --unread` 不開 Web 就能看收到的傳真。
+
 ## 3. 防火牆
 - SIP：UDP 5060，只允許 CS210 的 IP 連入。
 - T.38：UDP 30000–30999，也就是 `port_range` 設定的範圍。

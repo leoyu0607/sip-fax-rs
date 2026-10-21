@@ -254,6 +254,8 @@ fn start_with(
         report: report.clone(),
         progress: Some(progress_tx),
         cancel: cancel_rx,
+        station_id: None,
+        max_duration: None,
     };
     let factory = T38SessionFactory::new(env(&data_dir, capture, max));
     let session = factory.create(&ctx);
@@ -473,6 +475,8 @@ async fn s06_a_port_that_is_taken_fails_the_session() {
             report: Arc::default(),
             progress: None,
             cancel: cancel_rx,
+            station_id: None,
+            max_duration: None,
         };
         let f = T38SessionFactory::new(env(&scratch("s06"), None, Duration::from_secs(5)));
         let out = f.create(&ctx).run(ctx).await;

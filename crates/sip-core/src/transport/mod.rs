@@ -29,7 +29,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
-pub use policy::{Cidr, CidrParseError, Decision, PolicyMode, SourcePolicy};
+pub use policy::{Cidr, CidrParseError, Decision, PolicyCell, PolicyMode, SourcePolicy};
 pub use tap::{MessageTap, TapDirection, TapEvent};
 pub use tcp::{StreamDecoder, StreamEvent};
 
@@ -173,6 +173,7 @@ pub struct TransportHandle {
     out: mpsc::Sender<Outgoing>,
     sent_by: Arc<SentBy>,
     pool: Option<Arc<tcp::TcpShared>>,
+    policy: PolicyCell,
 }
 
 /// A transport that is not attached to any socket; see [`TransportHandle::detached`].
@@ -188,6 +189,16 @@ pub struct Detached {
 }
 
 impl TransportHandle {
+    /// Replaces the inbound source policy (applies to requests that arrive from now on).
+    pub fn set_source_policy(&self, policy: SourcePolicy) {
+        self.policy.set(policy);
+    }
+
+    /// The inbound source policy in force.
+    pub fn source_policy(&self) -> std::sync::Arc<SourcePolicy> {
+        self.policy.get()
+    }
+
     /// A handle whose outgoing queue and incoming feed are plain channels (no sockets), for
     /// driving the transaction layer and everything above it deterministically. `advertised`
     /// is used as sent-by for both transports.
@@ -204,6 +215,7 @@ impl TransportHandle {
                 out,
                 sent_by,
                 pool: None,
+                policy: PolicyCell::new(SourcePolicy::allow_all()),
             },
             outgoing,
             inject,
@@ -401,7 +413,7 @@ impl TransportLayer {
         let (out_tx, out_rx) = mpsc::channel(cfg.queue_capacity);
         let (shutdown, shutdown_rx) = watch::channel(false);
         let tasks = Tasks::default();
-        let policy = Arc::new(cfg.source_policy.clone());
+        let policy = PolicyCell::new(cfg.source_policy.clone());
 
         let tcp_shared = match (listener, tcp_local) {
             (Some(listener), Some(local)) => {
@@ -446,6 +458,7 @@ impl TransportLayer {
             out: out_tx,
             sent_by,
             pool: tcp_shared,
+            policy: policy.clone(),
         };
         Ok((
             TransportLayer {

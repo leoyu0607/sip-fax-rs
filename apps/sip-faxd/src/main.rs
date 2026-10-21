@@ -6,6 +6,10 @@
 //! sip-faxd db migrate [--config PATH]          create / upgrade the database schema
 //! sip-faxd db backfill [--config PATH]         restore calls from logs/calls/*/result.json
 //! sip-faxd purge [--dry-run] [--config PATH]   run the retention job now
+//! sip-faxd config import [--force] [--file PATH]  runtime sections of a file -> database
+//! sip-faxd config export [--include-secrets]  runtime configuration of the database as TOML
+//! sip-faxd user add|passwd|disable|enable|list   accounts of the web interface
+//! sip-faxd fax list|show|read|note|redeliver     received faxes
 //! ```
 //!
 //! Without `--config` the file is `conf/sip-faxd.toml` next to the executable. Relative
@@ -13,9 +17,11 @@
 //! database) are relative to the executable's directory too, so an unpacked tarball is
 //! self-contained.
 
+mod admin_cli;
 mod commands;
 mod db;
 mod delivery_service;
+mod runtime;
 mod schedule;
 mod settings;
 
@@ -61,6 +67,16 @@ enum Command {
         #[command(subcommand)]
         action: DbAction,
     },
+    /// Accounts of the web interface.
+    User {
+        #[command(subcommand)]
+        action: admin_cli::UserAction,
+    },
+    /// Received faxes.
+    Fax {
+        #[command(subcommand)]
+        action: admin_cli::FaxAction,
+    },
     /// Delete expired files and records now (what the daily job does).
     Purge {
         /// Only count what would be deleted.
@@ -73,8 +89,30 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ConfigAction {
-    /// Validate a configuration file and print what it means.
+    /// Validate a configuration file (and the runtime configuration in the database) and print
+    /// what it means.
     Check(ConfigArg),
+    /// Write the runtime sections of a configuration file into the database. Refuses when the
+    /// database already has runtime configuration, unless `--force`.
+    Import {
+        /// Replace what the database holds (sections the file does not have are removed).
+        #[arg(long)]
+        force: bool,
+        /// Import this file's runtime sections (default: the `--config` file).
+        #[arg(long, value_name = "PATH")]
+        file: Option<PathBuf>,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+    /// Print the runtime configuration of the database as TOML (a backup, and a way to look at
+    /// it). Secrets are left out unless `--include-secrets`.
+    Export {
+        /// Include passwords and HMAC keys in clear text.
+        #[arg(long)]
+        include_secrets: bool,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
 }
 
 #[derive(Subcommand)]
@@ -113,7 +151,30 @@ fn main() -> ExitCode {
         }
         Some(Command::Config {
             action: ConfigAction::Check(arg),
-        }) => commands::config_check(&config_path(&arg)),
+        }) => with_runtime(&config_path(&arg), |cfg| async move {
+            commands::config_check_full(&cfg, &config_path(&arg), &exe_dir()).await
+        }),
+        Some(Command::Config {
+            action:
+                ConfigAction::Import {
+                    force,
+                    file,
+                    config,
+                },
+        }) => with_runtime(&config_path(&config), |cfg| async move {
+            admin_cli::config_import(&cfg, &exe_dir(), force, file).await
+        }),
+        Some(Command::Config {
+            action:
+                ConfigAction::Export {
+                    include_secrets,
+                    config,
+                },
+        }) => with_runtime(&config_path(&config), |cfg| async move {
+            admin_cli::config_export(&cfg, &exe_dir(), include_secrets).await
+        }),
+        Some(Command::User { action }) => admin_cli::user(action),
+        Some(Command::Fax { action }) => admin_cli::fax(action),
         Some(Command::Serve(arg)) => serve(&config_path(&arg)),
         Some(Command::Db {
             action: DbAction::Migrate(arg),
@@ -212,15 +273,14 @@ const RECORDER_GRACE: Duration = Duration::from_secs(10);
 
 async fn run(cfg: AppConfig) -> ExitCode {
     let base = exe_dir();
-    for w in cfg.fax_in.warnings() {
-        tracing::warn!("{w}");
-    }
     // The database first: a schema this binary cannot work with stops the start here, before a
     // single call is answered. An unreachable database does not: the calls are received and
     // written to the database as soon as it is back.
     let db = Arc::new(Db::new(&cfg, &base));
+    let mut db_ready = false;
     match db.start().await {
         Ok(Startup::Ready { stale_fixed }) => {
+            db_ready = true;
             if stale_fixed > 0 {
                 tracing::warn!(
                     rows = stale_fixed,
@@ -238,23 +298,30 @@ async fn run(cfg: AppConfig) -> ExitCode {
             return ExitCode::from(1);
         }
     }
+    // The runtime configuration (sip, media, call, capture, trunks, routes, delivery, retention)
+    // lives in the database from the first start on (ADR-051); the file only seeds it.
+    let rt = runtime::Runtime::start(&cfg, db.clone(), db_ready).await;
+    let live = rt.current();
+    let fax_cfg = live.to_fax_in(&cfg.fax_in.storage);
+    for w in fax_cfg.warnings() {
+        tracing::warn!("{w}");
+    }
     let data_dir = cfg.data_dir(&base);
     let mut rcfg = RecorderConfig::new(data_dir.clone());
     rcfg.spill_dir = Some(cfg.calls_dir(&base));
-    // Delivery: only when routes are configured. The recorder announces every fax row it has
-    // written; a database that is down or a failing delivery never reaches the call path.
-    let delivery = if cfg.routes.routes.is_empty() {
+    // Delivery: the recorder announces every fax row it has written; a database that is down or a
+    // failing delivery never reaches the call path. It runs without routes too: routes can be
+    // added while the server runs.
+    if live.routes.routes.is_empty() {
         tracing::info!("no [[routes]] configured: received faxes are stored, not delivered");
-        None
-    } else {
-        Some(DeliveryService::start_default(
-            db.clone(),
-            cfg.routes.clone(),
-            data_dir.clone(),
-            cfg.delivery.clone(),
-        ))
-    };
-    rcfg.on_finalized = delivery.as_ref().map(DeliveryService::hook);
+    }
+    let delivery = DeliveryService::start_default(
+        db.clone(),
+        live.routes.clone(),
+        data_dir.clone(),
+        live.delivery.clone(),
+    );
+    rcfg.on_finalized = Some(delivery.hook());
     let recorder = Arc::new(Recorder::start(db.clone(), rcfg));
     let purge_task = tokio::spawn(commands::purge_daily(db.clone(), data_dir));
 
@@ -262,18 +329,19 @@ async fn run(cfg: AppConfig) -> ExitCode {
         session_factory: None,
         base_dir: Some(base),
     };
-    let (fax, mut events) = match FaxIn::start(cfg.fax_in, opts).await {
-        Ok(x) => x,
+    let (fax, mut events) = match FaxIn::start(fax_cfg, opts).await {
+        Ok((fax, events)) => (Arc::new(fax), events),
         Err(e) => {
             eprintln!("sip-faxd: error: {e}");
+            rt.detach();
             purge_task.abort();
             recorder.shutdown(RECORDER_GRACE).await;
-            if let Some(d) = delivery {
-                d.shutdown().await;
-            }
+            delivery.shutdown().await;
             return ExitCode::from(1);
         }
     };
+    // from now on a configuration change reaches the running server
+    rt.attach(fax.clone(), delivery.reconfigurer());
     tracing::info!(udp = ?fax.udp_addr(), tcp = ?fax.tcp_addr(), "sip-faxd ready");
     let rec = recorder.clone();
     let logger = tokio::spawn(async move {
@@ -289,13 +357,23 @@ async fn run(cfg: AppConfig) -> ExitCode {
     });
     shutdown_signal().await;
     tracing::info!("shutting down");
+    rt.detach();
+    // the applier's reference is gone; an apply that was just running may still hold one
+    let mut fax = fax;
+    let fax = loop {
+        match Arc::try_unwrap(fax) {
+            Ok(f) => break f,
+            Err(shared) => {
+                fax = shared;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    };
     fax.shutdown().await;
     let _ = logger.await;
     purge_task.abort();
     recorder.shutdown(RECORDER_GRACE).await;
-    if let Some(d) = delivery {
-        d.shutdown().await;
-    }
+    delivery.shutdown().await;
     db.close().await;
     ExitCode::SUCCESS
 }

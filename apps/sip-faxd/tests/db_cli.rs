@@ -115,7 +115,7 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success(), "{}", err(&o));
     assert!(
-        out(&o).contains("database sqlite: schema version 0 -> 1 (applied 0001)"),
+        out(&o).contains("database sqlite: schema version 0 -> 2 (applied 0001, 0002)"),
         "{}",
         out(&o)
     );
@@ -123,12 +123,12 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success());
     assert!(
-        out(&o).contains("already at schema version 1, nothing to do"),
+        out(&o).contains("already at schema version 2, nothing to do"),
         "{}",
         out(&o)
     );
     let st = open(&dir).await;
-    assert_eq!(st.schema_version().await.unwrap(), 1);
+    assert_eq!(st.schema_version().await.unwrap(), 2);
 }
 
 #[tokio::test]
@@ -340,7 +340,9 @@ async fn s10_the_database_wins_over_the_config_file_after_the_first_start() {
         (30, 60, "04:20")
     );
     // the operator changes the value in the database (what the web UI will do) ...
-    st.set_setting("retention.files_days", "7", Some("admin"))
+    let mut changed = s.clone();
+    changed.policy.files_days = 7;
+    store::purge::save_retention(&*st, &changed, "admin")
         .await
         .unwrap();
     // ... and a new configuration file with different values does not override it
@@ -488,11 +490,10 @@ async fn s08_serve_closes_the_receiving_rows_a_crash_left_behind() {
     assert_eq!(r.fax_status, FaxStatus::Failed);
     assert_eq!(r.hangup_code.as_deref(), Some("shutdown"));
     // the first start also wrote the retention settings
+    assert!(st.config_get("retention").await.unwrap().is_some());
     assert!(
-        st.get_setting("retention.files_days")
-            .await
-            .unwrap()
-            .is_some()
+        st.config_get("trunk:local").await.unwrap().is_some(),
+        "and imported the runtime sections"
     );
 }
 

@@ -1,0 +1,30 @@
+[package]
+name = "runtime-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Runtime configuration kept in the database: sections, validation, secrets, hot apply (M4a)"
+
+[dependencies]
+fax-in = { workspace = true }
+sip-core = { workspace = true }
+delivery = { path = "../delivery" }
+store = { path = "../store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+toml = { workspace = true }
+arc-swap = { workspace = true }
+ring = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }

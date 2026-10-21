@@ -1,4 +1,4 @@
-# 資料庫說明（M3a、M3b）
+# 資料庫說明（M3a、M3b、M4a）
 
 傳真紀錄、設定與投遞紀錄都存在資料庫。支援 SQLite（預設，內建於執行檔）、PostgreSQL、MySQL/MariaDB、MSSQL；四種資料庫的資料表結構相同，行為由同一份測試套件驗證（見 `docs/test-reports/M3a.md`）。
 
@@ -107,13 +107,32 @@
 
 與規格（`key`、`value`）的差異：`key` 是 MySQL 的保留字，所以欄位名稱改為 `name`。
 
-目前使用的 key：
+M4a 起清整設定（`retention.*`）不再放在這裡：migration 0002 把它們搬進 `config_sections` 的 `retention` 區段（缺少的 key 取預設值 90／365／`03:17`），並從 `settings` 刪除。`settings` 保留給其他零散設定，目前沒有使用中的 key。
 
-| key | 預設 | 說明 |
-|---|---|---|
-| `retention.files_days` | 90 | TIFF、PDF、PNG 預覽保留天數；0 = 永遠不刪 |
-| `retention.records_days` | 365 | 資料表紀錄保留天數；0 = 永遠不刪；必須 ≥ `files_days`（任一為 0 除外） |
-| `retention.run_at` | `03:17` | 每天執行清整的時間（伺服器本地時間，格式 `HH:MM`） |
+## `config_sections`（M4a，migration 0002）
+
+執行設定（ADR-051）。每個區段一列，`body` 是該區段的 JSON，由 Rust 型別驗證。
+
+| 欄位 | 說明 |
+|---|---|
+| `name` | 主鍵：`sip`、`media`、`call`、`capture`、`delivery`、`retention`、`routes`（整份有序清單）、`trunk:<名稱>`（每個 trunk 一列）、`trunk_order`（trunk 的比對順序，名稱的 JSON 陣列；規格只列 `trunk:<name>`，順序是本實作補的） |
+| `body` | JSON；秘密欄位是 `enc:v1:<base64(nonce‖密文‖tag)>`（AES-256-GCM，金鑰在 `conf/secret.key`，欄位路徑為附加驗證資料） |
+| `version` | 樂觀鎖，從 1 起，每次修改加 1；儲存時帶上讀到的 version，不符回 Conflict |
+| `updated_by`、`updated_at` | 最後修改者（使用者名稱、`cli:<作業系統帳號>`、`config-file`、`migration`）與時間 |
+
+首次啟動時，資料庫沒有任何執行設定（`retention` 與 `trunk_order` 不算）就把設定檔的執行區段匯入；之後以資料庫為準。
+
+## `config_audit`
+
+每次修改一列：`id`、`section`、`action`（`create`、`update`、`delete`、`import`，以及帳號操作 `user_add`、`user_disable`、`user_enable`、`user_delete`、`user_update`、`password_reset`、`password_change`，此時 `section` 為 `user:<帳號>`）、`before_json`、`after_json`（秘密欄位一律是 `"***"`）、`changed_by`、`at`。修改與稽核列是兩個陳述式：中途當機可能少一列稽核，不會少修改。
+
+## `users`
+
+`id`、`username`（唯一，小寫 `a-z 0-9 . _ -`，最長 64）、`display_name`、`role`（`admin`／`agent`）、`password_hash`（argon2id PHC 字串，m=19456、t=2、p=1）、`locale`、`disabled`、`must_change_password`、`created_at`、`updated_at`、`last_login_at`。
+
+## `sessions`
+
+`id`、`token_hash`（token 的 SHA-256 十六進位，唯一；token 本身不存）、`user_id`（外鍵）、`created_at`、`last_seen_at`（閒置 8 小時從這裡算）、`expires_at`（絕對上限，登入後 7 天）、`ip`、`user_agent`（截斷）。重新啟動後仍有效。CSRF token 由 session token 推導（SHA-256），不存。
 
 ## `delivery_attempts`
 
@@ -187,5 +206,7 @@
 - **紀錄清整**：`ended_at` 早於「現在 − `records_days`」的紀錄。先刪除殘留的檔案，再刪除紀錄與它的 `delivery_attempts`；殘留檔案刪不掉的紀錄會保留。
 - `receiving` 狀態的紀錄永遠不清整。每批 500 筆。
 - **排程（M3b）**：`sip-faxd serve` 每天在 `retention.run_at`（伺服器本地時間）執行；每次等待前都重新從資料庫讀取 `run_at`，所以 Web 介面（M4）改了時間，隔天起生效。手動：`sip-faxd purge [--dry-run]`，輸出 `purge: files of N record(s) removed (K file(s)), M record(s) deleted (a + b batch(es)), S skipped`；`--dry-run` 輸出 `purge (dry run): files of N record(s) are due, M record(s) are due for deletion; nothing was deleted`。有錯誤時結束碼為 1。
-- **設定來源**：`[retention]` 只在第一次啟動時寫進 `settings`；之後以資料庫為準，改設定檔不會生效。
+- **設定來源**：`[retention]` 屬於 `config_sections` 的 `retention` 區段（見上）；第一次啟動時匯入，之後以資料庫為準，改設定檔不會生效。
 - 刪除檔案前會確認路徑位於 `data_dir` 之內（含 `..` 與 symbolic link 檢查），不在範圍內的拒絕刪除並記 error。
+- **預覽與清整的競態（M4a）**：清整標記 `files_purged_at` 之後會再掃一次 `cache/png/<id>/`；預覽轉檔結束後會再確認一次紀錄，已清整就刪掉剛寫的 PNG 並回 `Purged`（410），所以清整與轉檔不論誰先都不會留下孤兒 PNG。
+- **預覽快取上限（M4a）**：`[storage] preview_cache_mb`（預設 2048）。寫入新 PNG 後，依最後使用時間（檔案修改時間，快取命中時更新）從最舊的開始刪，直到不超過上限；60 秒內用過的、以及轉檔中的頁面不刪（所以上限是軟性的）。

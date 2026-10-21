@@ -3,6 +3,7 @@
 //! case and dropped afterwards). Optional `SIP_FAXD_TEST_DB_CONTAINER=<docker container>` enables
 //! the connection-loss half of S11.
 
+mod admin_tests;
 mod preview_tests;
 mod purge_tests;
 mod store_tests;
