@@ -31,15 +31,87 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # M3c: SMTP test servers for the e-mail delivery cases (D03). MailHog = plain SMTP; two smtp4dev
+    # instances give STARTTLS (with AUTH faxuser/faxpass) and implicit TLS (SMTPS), self-signed.
+    services:
+      mailhog:
+        image: mailhog/mailhog
+        ports:
+          - 1025:1025
+          - 8025:8025
+      smtp4dev-starttls:
+        image: rnwood/smtp4dev
+        env:
+          ServerOptions__TlsMode: StartTls
+          ServerOptions__AuthenticationRequired: "true"
+          ServerOptions__SmtpAllowAnyCredentials: "false"
+          ServerOptions__Users__0__Username: faxuser
+          ServerOptions__Users__0__Password: faxpass
+        ports:
+          - 2525:25
+          - 8081:80
+      smtp4dev-smtps:
+        image: rnwood/smtp4dev
+        env:
+          ServerOptions__TlsMode: ImplicitTls
+        ports:
+          - 2465:25
+          - 8082:80
+    env:
+      SIP_FAXD_TEST_SMTP: 127.0.0.1:1025
+      SIP_FAXD_TEST_SMTP_API: http://127.0.0.1:8025
+      SIP_FAXD_TEST_SMTP_STARTTLS: 127.0.0.1:2525
+      SIP_FAXD_TEST_SMTP_STARTTLS_API: http://127.0.0.1:8081
+      SIP_FAXD_TEST_SMTP_SMTPS: 127.0.0.1:2465
+      SIP_FAXD_TEST_SMTP_SMTPS_API: http://127.0.0.1:8082
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Wait for the SMTP test servers
+        run: |
+          for u in http://127.0.0.1:8025/api/v2/messages http://127.0.0.1:8081/api/version http://127.0.0.1:8082/api/version; do
+            for i in $(seq 1 60); do curl -fs "$u" >/dev/null && break; sleep 2; done
+            curl -fs "$u" >/dev/null || { echo "not ready: $u"; exit 1; }
+          done
       - run: cargo test --workspace --all-targets
       - run: cargo test --workspace --doc
 
   coverage:
     runs-on: ubuntu-latest
+    # M3c: SMTP test servers for the e-mail delivery cases (D03). MailHog = plain SMTP; two smtp4dev
+    # instances give STARTTLS (with AUTH faxuser/faxpass) and implicit TLS (SMTPS), self-signed.
+    services:
+      mailhog:
+        image: mailhog/mailhog
+        ports:
+          - 1025:1025
+          - 8025:8025
+      smtp4dev-starttls:
+        image: rnwood/smtp4dev
+        env:
+          ServerOptions__TlsMode: StartTls
+          ServerOptions__AuthenticationRequired: "true"
+          ServerOptions__SmtpAllowAnyCredentials: "false"
+          ServerOptions__Users__0__Username: faxuser
+          ServerOptions__Users__0__Password: faxpass
+        ports:
+          - 2525:25
+          - 8081:80
+      smtp4dev-smtps:
+        image: rnwood/smtp4dev
+        env:
+          ServerOptions__TlsMode: ImplicitTls
+        ports:
+          - 2465:25
+          - 8082:80
+    env:
+      SIP_FAXD_TEST_SMTP: 127.0.0.1:1025
+      SIP_FAXD_TEST_SMTP_API: http://127.0.0.1:8025
+      SIP_FAXD_TEST_SMTP_STARTTLS: 127.0.0.1:2525
+      SIP_FAXD_TEST_SMTP_STARTTLS_API: http://127.0.0.1:8081
+      SIP_FAXD_TEST_SMTP_SMTPS: 127.0.0.1:2465
+      SIP_FAXD_TEST_SMTP_SMTPS_API: http://127.0.0.1:8082
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -49,6 +121,12 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
+      - name: Wait for the SMTP test servers
+        run: |
+          for u in http://127.0.0.1:8025/api/v2/messages http://127.0.0.1:8081/api/version http://127.0.0.1:8082/api/version; do
+            for i in $(seq 1 60); do curl -fs "$u" >/dev/null && break; sleep 2; done
+            curl -fs "$u" >/dev/null || { echo "not ready: $u"; exit 1; }
+          done
       # Protocol crate gate (docs/test-plans/M1.md section 0): sip-core line coverage >= 85 %.
       - run: cargo llvm-cov -p sip-core --fail-under-lines 85
       # fax-in (M1d): non-protocol crate gate, line coverage >= 70 %.
@@ -61,6 +139,8 @@ jobs:
       # drivers (postgres, mysql, mssql: about 600 lines that only run against a server, M3b review)
       # are left out of this number; the db-matrix job runs the same suite on them.
       - run: cargo llvm-cov -p store --fail-under-lines 80 --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
+      # delivery (M3c): non-protocol crate gate, line coverage >= 80 % (needs the SMTP services above).
+      - run: cargo llvm-cov -p delivery --fail-under-lines 80
 
   # M3a: the store behaviour suite on the four server databases (SQLite runs in `test`).
   # Required check names: "db-matrix (postgres)", "db-matrix (mysql)", "db-matrix (mariadb)", "db-matrix (mssql)".

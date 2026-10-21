@@ -687,24 +687,66 @@ impl FaxStore for SqlStore {
             .be
             .query(&sql, &[fax_id.into()], DELIVERY_KINDS)
             .await?;
-        rows.into_iter()
-            .map(|v| {
-                let mut r = RowReader::new(v);
-                Ok(DeliveryAttempt {
-                    id: r.i64(),
-                    fax_id: r.i64(),
-                    target: r.str(),
-                    kind: r.str(),
-                    attempt: r.i32(),
-                    status: r.str().parse()?,
-                    last_error: r.opt_str(),
-                    next_try_at: r.opt_time(),
-                    created_at: r.time(),
-                    updated_at: r.time(),
-                })
-            })
-            .collect()
+        rows.into_iter().map(read_delivery).collect()
     }
+
+    async fn due_deliveries(&self, now: DateTime<Utc>, limit: u32) -> Result<Vec<DeliveryAttempt>> {
+        let (top, lim) = self.limit(limit);
+        let sql = format!(
+            "SELECT {top} {DELIVERY_COLS} FROM delivery_attempts WHERE status = ?              AND (next_try_at IS NULL OR next_try_at <= ?) ORDER BY CASE WHEN next_try_at IS NULL THEN 0 ELSE 1 END, next_try_at, id {lim}"
+        );
+        let rows = self
+            .be
+            .query(
+                &sql,
+                &[DeliveryStatus::Pending.as_str().into(), tv(now)],
+                DELIVERY_KINDS,
+            )
+            .await?;
+        rows.into_iter().map(read_delivery).collect()
+    }
+
+    async fn update_delivery(
+        &self,
+        id: i64,
+        status: DeliveryStatus,
+        last_error: Option<&str>,
+        next_try_at: Option<DateTime<Utc>>,
+    ) -> Result<bool> {
+        if let Some(e) = last_error {
+            check_len("last_error", e, 4000)?;
+        }
+        let n = self
+            .be
+            .execute(
+                "UPDATE delivery_attempts SET status = ?, last_error = ?, next_try_at = ?, updated_at = ? WHERE id = ?",
+                &[
+                    status.as_str().into(),
+                    Val::S(last_error.map(str::to_string)),
+                    otv(next_try_at),
+                    tv(self.clock.now()),
+                    id.into(),
+                ],
+            )
+            .await?;
+        Ok(n > 0)
+    }
+}
+
+fn read_delivery(v: Vec<Val>) -> Result<DeliveryAttempt> {
+    let mut r = RowReader::new(v);
+    Ok(DeliveryAttempt {
+        id: r.i64(),
+        fax_id: r.i64(),
+        target: r.str(),
+        kind: r.str(),
+        attempt: r.i32(),
+        status: r.str().parse()?,
+        last_error: r.opt_str(),
+        next_try_at: r.opt_time(),
+        created_at: r.time(),
+        updated_at: r.time(),
+    })
 }
 
 fn read_setting(v: Vec<Val>) -> Setting {
