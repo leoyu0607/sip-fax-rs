@@ -148,7 +148,7 @@ pub enum UdpEcName {
 }
 
 /// `[sip]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SipConfig {
     /// Address to bind (UDP and/or TCP, see `transports`).
@@ -231,7 +231,7 @@ impl PortRange {
 }
 
 /// `[media]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MediaConfig {
     /// Address put into `c=` / `o=` of our SDP. Default: the advertised host, else the bind IP.
@@ -243,6 +243,7 @@ pub struct MediaConfig {
     pub port_range: String,
     /// Removed option, kept only to give a helpful error: `t38_port` was replaced by
     /// `port_range` in M2.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub t38_port: Option<u16>,
 }
 
@@ -265,7 +266,7 @@ impl Default for MediaConfig {
 }
 
 /// `[call]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CallConfig {
     /// Send `180 Ringing` for every call.
@@ -300,7 +301,7 @@ impl Default for CallConfig {
 }
 
 /// `[call] fax_session`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FaxSessionKind {
     /// Receive the fax over T.38 and write TIFF / PDF (default).
@@ -310,7 +311,7 @@ pub enum FaxSessionKind {
 }
 
 /// `[storage]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StorageConfig {
     /// Received faxes are written to `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|.pdf`.
@@ -327,7 +328,7 @@ impl Default for StorageConfig {
 }
 
 /// `[capture]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CaptureConfig {
     /// Write per-call SIP captures.
@@ -343,7 +344,7 @@ pub struct CaptureConfig {
 }
 
 /// `[capture] udptl`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UdptlLogMode {
     /// No `udptl.log`.
@@ -368,7 +369,7 @@ impl Default for CaptureConfig {
 }
 
 /// `[trunks.t38]`: the T.38 parameters we advertise.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct T38Section {
     /// Highest `T38FaxVersion` we support (0..=3).
@@ -422,7 +423,7 @@ impl Default for T38Section {
 }
 
 /// `[trunks.fax]`: what the DIS offers (docs/design/m3-store.md sections 8 and 10).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FaxSection {
     /// Vertical resolutions advertised: `"standard"` (3.85 lines/mm) and / or `"fine"`
@@ -480,7 +481,7 @@ impl FaxSection {
 
 /// `[trunks.numbers]`: where the calling / called number comes from (docs/design/m3-store.md
 /// section 2).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NumbersSection {
     /// Where to look for the calling number, in order: `pai` (P-Asserted-Identity), `rpid`
@@ -537,7 +538,7 @@ impl NumbersSection {
 }
 
 /// `[trunks.compat]`: tolerance switches for peers without a specification.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CompatSection {
     /// Accept INVITEs whose `Require` lists option tags we do not know (default: 420).
@@ -557,7 +558,7 @@ impl Default for CompatSection {
 }
 
 /// `[trunks.register]`
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RegisterSection {
     /// Register this trunk at the peer.
@@ -597,7 +598,7 @@ impl Default for RegisterSection {
 }
 
 /// One `[[trunks]]` entry after the preset has been applied.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TrunkConfig {
     /// Unique name (shown in logs and call results).
@@ -1081,4 +1082,100 @@ impl TrunkConfig {
         }
         Ok((cidrs, peer))
     }
+}
+
+
+/// A `[[trunks]]` entry given as JSON (the stored form and the REST body): the preset named in
+/// `preset` supplies the defaults of the keys that are absent, exactly as for a TOML entry.
+///
+/// # Errors
+/// An unknown preset, an unknown or mistyped key (the message names the key), or a trunk that
+/// does not validate.
+pub fn trunk_from_json(value: serde_json::Value) -> Result<TrunkConfig, ConfigError> {
+    let label = value
+        .get("name")
+        .and_then(|n| n.as_str())
+        .map_or_else(|| "trunk".to_string(), |n| format!("trunk \"{n}\""));
+    let merged = trunk_json_with_preset(value)?;
+    let cfg: TrunkConfig = serde_path_to_error::deserialize(merged)
+        .map_err(|e| ConfigError::Toml(format!("{label}: {}: {}", e.path(), e.inner())))?;
+    cfg.validate()?;
+    Ok(cfg)
+}
+
+/// The JSON of a trunk with the defaults of its preset filled in (the step of
+/// [`trunk_from_json`] before the typed parse, exposed so that callers can report errors by key).
+///
+/// # Errors
+/// Not an object, `preset` not a string, or an unknown preset.
+pub fn trunk_json_with_preset(value: serde_json::Value) -> Result<serde_json::Value, ConfigError> {
+    let serde_json::Value::Object(user) = value else {
+        return invalid("a trunk must be a JSON object");
+    };
+    let label = user
+        .get("name")
+        .and_then(|n| n.as_str())
+        .map_or_else(|| "trunk".to_string(), |n| format!("trunk \"{n}\""));
+    let preset = match user.get("preset") {
+        None | Some(serde_json::Value::Null) => "generic".to_string(),
+        Some(serde_json::Value::String(p)) => p.clone(),
+        Some(_) => return invalid(format!("{label}: `preset` must be a string")),
+    };
+    let Some(text) = preset_toml(&preset) else {
+        return invalid(format!(
+            "{label}: unknown preset \"{preset}\" (available: {})",
+            PRESETS.join(", ")
+        ));
+    };
+    let base: toml::Table = text
+        .parse()
+        .map_err(|e| ConfigError::Invalid(format!("built-in preset {preset}: {e}")))?;
+    let mut merged = serde_json::to_value(toml::Value::Table(base))
+        .map_err(|e| ConfigError::Invalid(e.to_string()))?;
+    if let serde_json::Value::Object(m) = &mut merged {
+        for (k, v) in user {
+            if !v.is_null() {
+                m.insert(k, v);
+            }
+        }
+        m.insert("preset".into(), serde_json::Value::String(preset));
+    }
+    Ok(merged)
+}
+
+/// The settings of `now` that differ from `started` and cannot be applied while the server runs
+/// (the sockets, the UDPTL port pool, the SIP stack parameters and the capture writer are built
+/// once at start). Names are the keys of the configuration (`sip.bind`, `media.port_range`, ...).
+pub fn restart_required(started: &FaxInConfig, now: &FaxInConfig) -> Vec<String> {
+    fn j<T: Serialize>(v: &T) -> serde_json::Value {
+        serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
+    }
+    let mut out = Vec::new();
+    let mut check = |name: &str, a: serde_json::Value, b: serde_json::Value| {
+        if a != b {
+            out.push(name.to_string());
+        }
+    };
+    check("sip.bind", j(&started.sip.bind), j(&now.sip.bind));
+    check("sip.transports", j(&started.transports()), j(&now.transports()));
+    check("sip.advertised", j(&started.sip.advertised), j(&now.sip.advertised));
+    check("sip.user_agent", j(&started.sip.user_agent), j(&now.sip.user_agent));
+    check("sip.allow", j(&started.sip.allow), j(&now.sip.allow));
+    check("sip.supported", j(&started.sip.supported), j(&now.sip.supported));
+    check("media.address", j(&started.media_address()), j(&now.media_address()));
+    check("media.audio_port", j(&started.media.audio_port), j(&now.media.audio_port));
+    check("media.port_range", j(&started.media.port_range), j(&now.media.port_range));
+    check("call.fax_session", j(&started.call.fax_session), j(&now.call.fax_session));
+    check(
+        "call.reinvite_timeout_secs",
+        j(&started.call.reinvite_timeout_secs),
+        j(&now.call.reinvite_timeout_secs),
+    );
+    check(
+        "call.max_491_retries",
+        j(&started.call.max_491_retries),
+        j(&now.call.max_491_retries),
+    );
+    check("capture", j(&started.capture), j(&now.capture));
+    out
 }

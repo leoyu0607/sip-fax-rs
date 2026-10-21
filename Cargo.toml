@@ -35,6 +35,12 @@ async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 url = "2"
 percent-encoding = "2"
+# M4a (proposed ADR): hot-swappable configuration snapshot, JSON error paths, password hashing, secret encryption
+arc-swap = "1"
+ring = "0.17"
+base64 = "0.22"
+argon2 = "0.5"
+serde_path_to_error = "0.1"
 tempfile = "3"
 tokio-util = { version = "0.7", features = ["compat"] }
 # t4 PNG preview output (M3e, proposed ADR): pure Rust, MIT/Apache-2.0

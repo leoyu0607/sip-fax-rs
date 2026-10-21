@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 
 use super::tap::{self, MessageTap, TapDirection};
-use super::{Gate, Incoming, SourcePolicy, TransportKind, admit_request, wait_shutdown};
+use super::{Gate, Incoming, PolicyCell, TransportKind, admit_request, wait_shutdown};
 use crate::message::{SipMessage, parse_datagram};
 
 /// RFC 5626 section 4.4.1: a double CRLF "ping" is answered with a single CRLF "pong"; a lone
@@ -18,7 +18,7 @@ const PONG: &[u8] = b"\r\n";
 pub(super) async fn recv_loop(
     socket: Arc<UdpSocket>,
     local: SocketAddr,
-    policy: Arc<SourcePolicy>,
+    policy: PolicyCell,
     in_tx: mpsc::Sender<Incoming>,
     mut shutdown: watch::Receiver<bool>,
     tap: Option<MessageTap>,
@@ -58,7 +58,7 @@ pub(super) async fn recv_loop(
             Ok(m) => m,
             Err(e) => {
                 if reply_to_malformed
-                    && policy.decide(source.ip()).admits()
+                    && policy.get().decide(source.ip()).admits()
                     && let Some(reply) = super::recover::bad_request_reply(data, source)
                 {
                     tracing::debug!(%source, error = %e, "unparseable request answered with 400");
@@ -71,7 +71,7 @@ pub(super) async fn recv_loop(
             }
         };
         let msg = match msg {
-            SipMessage::Request(mut req) => match admit_request(&policy, &mut req, source) {
+            SipMessage::Request(mut req) => match admit_request(&policy.get(), &mut req, source) {
                 Gate::Deliver => SipMessage::Request(req),
                 Gate::Drop => continue,
                 Gate::Reject(bytes) => {

@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use super::framing::take_frame;
 use super::tap::{self, MessageTap, TapDirection};
 use super::{
-    Gate, Incoming, SourcePolicy, Tasks, TransportKind, admit_request, lock, wait_shutdown,
+    Gate, Incoming, PolicyCell, Tasks, TransportKind, admit_request, lock, wait_shutdown,
 };
 use crate::message::{ParseError, SipMessage, parse_message};
 
@@ -109,7 +109,7 @@ pub(super) struct TcpShared {
     next_id: AtomicU64,
     idle: Duration,
     connect_timeout: Duration,
-    policy: Arc<SourcePolicy>,
+    policy: PolicyCell,
     in_tx: mpsc::Sender<Incoming>,
     shutdown: watch::Receiver<bool>,
     tasks: Tasks,
@@ -123,7 +123,7 @@ impl TcpShared {
         local: SocketAddr,
         idle: Duration,
         connect_timeout: Duration,
-        policy: Arc<SourcePolicy>,
+        policy: PolicyCell,
         in_tx: mpsc::Sender<Incoming>,
         shutdown: watch::Receiver<bool>,
         tasks: Tasks,
@@ -269,7 +269,7 @@ async fn conn_loop(
                             }
                         }
                         StreamEvent::Malformed(e) => {
-                            if shared.reply_to_malformed && shared.policy.decide(peer.ip()).admits()
+                            if shared.reply_to_malformed && shared.policy.get().decide(peer.ip()).admits()
                                 && let Some(reply) = super::recover::bad_request_reply(&raw, peer) {
                                     tap::emit(&shared.tap, TapDirection::Sent, peer, TransportKind::Tcp, &reply);
                                     if wr.write_all(&reply).await.is_err() {
@@ -286,7 +286,7 @@ async fn conn_loop(
                         StreamEvent::Message(msg) => {
                             let msg = match msg {
                                 SipMessage::Request(mut req) => {
-                                    match admit_request(&shared.policy, &mut req, peer) {
+                                    match admit_request(&shared.policy.get(), &mut req, peer) {
                                         Gate::Deliver => SipMessage::Request(req),
                                         Gate::Drop => break 'conn,
                                         Gate::Reject(bytes) => {

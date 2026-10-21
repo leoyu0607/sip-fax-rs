@@ -21,6 +21,8 @@ bytes = { workspace = true }
 store = { path = "../store" }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+arc-swap = { workspace = true }
+serde_path_to_error = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -52,6 +52,11 @@ pub struct SessionContext {
     pub progress: Option<tokio::sync::mpsc::UnboundedSender<u32>>,
     /// Turns `true` when the call ends underneath the session (peer BYE, shutdown).
     pub cancel: watch::Receiver<bool>,
+    /// Our station id (CSI) from the configuration snapshot of this call. `None`: the factory's.
+    pub station_id: Option<String>,
+    /// Longest the session may run, from the configuration snapshot of this call. `None`: the
+    /// factory's.
+    pub max_duration: Option<Duration>,
 }
 
 /// How a session ended.
@@ -100,8 +105,9 @@ impl FaxSession for StubFaxSession {
         mut ctx: SessionContext,
     ) -> Pin<Box<dyn Future<Output = SessionOutcome> + Send>> {
         Box::pin(async move {
+            let max = ctx.max_duration.unwrap_or(self.max_duration);
             tokio::select! {
-                () = tokio::time::sleep(self.max_duration) => SessionOutcome::MaxDuration,
+                () = tokio::time::sleep(max) => SessionOutcome::MaxDuration,
                 () = cancelled(&mut ctx.cancel) => SessionOutcome::Aborted,
             }
         })

@@ -1,0 +1,22 @@
+[package]
+name = "accounts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Accounts, roles, login protection and sessions of the web interface (M4a)"
+
+[dependencies]
+store = { path = "../store" }
+argon2 = { workspace = true }
+ring = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true, features = ["sync", "fs"] }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }

@@ -162,6 +162,31 @@ impl Default for SourcePolicy {
     }
 }
 
+/// A [`SourcePolicy`] that can be replaced while the transport runs (a configuration change
+/// that touches the allowed networks). Clones share the same policy; readers take a snapshot
+/// per datagram, so a replacement never affects a request that is already being handled.
+#[derive(Clone, Debug)]
+pub struct PolicyCell(std::sync::Arc<std::sync::RwLock<std::sync::Arc<SourcePolicy>>>);
+
+impl PolicyCell {
+    /// A cell holding `policy`.
+    pub fn new(policy: SourcePolicy) -> Self {
+        PolicyCell(std::sync::Arc::new(std::sync::RwLock::new(
+            std::sync::Arc::new(policy),
+        )))
+    }
+
+    /// The policy in force right now.
+    pub fn get(&self) -> std::sync::Arc<SourcePolicy> {
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Replaces the policy for every request that arrives from now on.
+    pub fn set(&self, policy: SourcePolicy) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(policy);
+    }
+}
+
 impl SourcePolicy {
     /// No filtering: every source is allowed.
     pub fn allow_all() -> Self {
