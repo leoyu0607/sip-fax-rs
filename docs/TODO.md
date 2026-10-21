@@ -54,6 +54,11 @@
 - [x] [Sonnet] 調查 sip-core 涵蓋率一次掉到 83.5% 的不穩定測試（M2a 審核；M2c 結論見報告第 6 節）
 - [x] [Sonnet] t4 在小量餵入時的效能，以實際 T.38 封包大小量測（M2b 審核；M2c：最差 1 byte 一包也只用線路時間的 0.7 %，不需要改成可續解）
 
+## 現場試接
+- [x] [Opus] 現場試接指南 docs/field-test.md，打包進 tarball
+- [ ] [Any] 發佈 v0.1.0-alpha（GitHub Release，prerelease）
+- [ ] [使用者] 對接 CS210 試接，回傳 logs/calls/ 和結果；依結果調整 `cht-cs210` 預設組
+
 ## M3 — Store / Delivery / ECM
 - [ ] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
 - [ ] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）
