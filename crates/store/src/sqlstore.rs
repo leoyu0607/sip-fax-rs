@@ -31,14 +31,14 @@ pub struct SqlStore {
     clock: Arc<dyn Clock>,
 }
 
-fn tv(t: DateTime<Utc>) -> Val {
+pub(crate) fn tv(t: DateTime<Utc>) -> Val {
     Val::T(Some(trunc_ms(t)))
 }
-fn otv(t: Option<DateTime<Utc>>) -> Val {
+pub(crate) fn otv(t: Option<DateTime<Utc>>) -> Val {
     Val::T(t.map(trunc_ms))
 }
 
-fn check_len(field: &'static str, v: &str, max: usize) -> Result<()> {
+pub(crate) fn check_len(field: &'static str, v: &str, max: usize) -> Result<()> {
     // UTF-16 units: the strictest measure among the backends (NVARCHAR counts code units).
     let len = v.encode_utf16().count();
     if len > max {
@@ -47,7 +47,7 @@ fn check_len(field: &'static str, v: &str, max: usize) -> Result<()> {
         Ok(())
     }
 }
-fn check_opt(field: &'static str, v: &Option<String>, max: usize) -> Result<()> {
+pub(crate) fn check_opt(field: &'static str, v: &Option<String>, max: usize) -> Result<()> {
     v.as_deref().map_or(Ok(()), |s| check_len(field, s, max))
 }
 
@@ -122,6 +122,10 @@ fn id_list(ids: &[i64]) -> String {
 }
 
 impl SqlStore {
+    pub(crate) fn now(&self) -> DateTime<Utc> {
+        self.clock.now()
+    }
+
     pub(crate) fn new(be: Box<dyn Backend>, clock: Arc<dyn Clock>) -> Self {
         Self { be, clock }
     }
@@ -133,7 +137,7 @@ impl SqlStore {
     }
 
     /// `(select_prefix, limit_suffix)` for a row limit: `TOP (n)` on MSSQL, `LIMIT n` elsewhere.
-    fn limit(&self, n: u32) -> (String, String) {
+    pub(crate) fn limit(&self, n: u32) -> (String, String) {
         if self.be.kind() == BackendKind::Mssql {
             (format!("TOP ({n})"), String::new())
         } else {

@@ -240,12 +240,21 @@ fn every_backend_ships_the_same_migration_versions() {
         );
         for m in ms {
             assert!(!crate::db::split_statements(m.sql).is_empty());
-            assert!(
-                (m.sql.contains("CREATE TABLE faxes")
-                    || m.sql.contains("CREATE TABLE IF NOT EXISTS faxes"))
-                    && m.sql.contains("delivery_attempts")
-                    && m.sql.contains("settings")
-            );
+            let (first, others) = ("faxes", ["delivery_attempts", "settings"]);
+            let init = m.version == 1;
+            let tables: &[&str] = if init {
+                &[first, others[0], others[1]]
+            } else {
+                &["config_sections", "config_audit", "users", "sessions"]
+            };
+            for t in tables {
+                assert!(
+                    m.sql.contains(&format!("CREATE TABLE {t} "))
+                        || m.sql.contains(&format!("CREATE TABLE IF NOT EXISTS {t} ")),
+                    "{k:?} {:04} lacks {t}",
+                    m.version
+                );
+            }
         }
     }
 }
@@ -257,8 +266,12 @@ fn mysql_migrations_are_safe_to_run_again() {
     for m in crate::migrate::migrations(BackendKind::Mysql) {
         for stmt in crate::db::split_statements(m.sql) {
             let up = stmt.to_ascii_uppercase();
+            // 0002 also moves data: guarded by NOT EXISTS, so a second run inserts nothing, and
+            // the DELETE only removes rows that are no longer needed.
+            let guarded_move = (up.starts_with("INSERT INTO ") && up.contains("NOT EXISTS"))
+                || up.starts_with("DELETE FROM SETTINGS WHERE NAME LIKE ");
             assert!(
-                up.starts_with("CREATE TABLE IF NOT EXISTS "),
+                up.starts_with("CREATE TABLE IF NOT EXISTS ") || guarded_move,
                 "migration {:04}_{}: not repeatable: {}",
                 m.version,
                 m.name,

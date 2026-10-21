@@ -1,5 +1,6 @@
 //! Retention: file purge, record purge and the retention settings (spec section 7).
 
+use crate::admin::ConfigAudit;
 use crate::clock::Clock;
 use crate::error::{Error, Result};
 use crate::model::{PurgeRow, RetentionPolicy};
@@ -12,12 +13,8 @@ use std::sync::Arc;
 /// Rows per batch (spec section 7).
 pub const BATCH: u32 = 500;
 
-/// Setting keys.
-pub const KEY_FILES_DAYS: &str = "retention.files_days";
-/// Setting key for the record retention.
-pub const KEY_RECORDS_DAYS: &str = "retention.records_days";
-/// Setting key for the daily run time (`HH:MM`, server local time).
-pub const KEY_RUN_AT: &str = "retention.run_at";
+/// Name of the retention section in `config_sections` (M4a: the M3 `settings` keys moved there).
+pub const RETENTION_SECTION: &str = "retention";
 
 /// Retention policy plus the daily run time.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,58 +55,106 @@ impl RetentionSettings {
     }
 }
 
-/// First start: copy the configuration file values into `settings`; keys that already exist are
-/// left alone (the database wins from then on). Returns the number of keys written.
-pub async fn seed_retention(store: &dyn FaxStore, cfg: &RetentionSettings) -> Result<u64> {
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetentionBody {
+    #[serde(default = "default_files_days")]
+    files_days: u32,
+    #[serde(default = "default_records_days")]
+    records_days: u32,
+    #[serde(default = "default_run_at")]
+    run_at: String,
+}
+
+fn default_files_days() -> u32 {
+    RetentionPolicy::default().files_days
+}
+fn default_records_days() -> u32 {
+    RetentionPolicy::default().records_days
+}
+fn default_run_at() -> String {
+    RetentionSettings::default().run_at
+}
+
+impl RetentionSettings {
+    /// The JSON body stored in the `retention` section.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&RetentionBody {
+            files_days: self.policy.files_days,
+            records_days: self.policy.records_days,
+            run_at: self.run_at.clone(),
+        })
+        .expect("plain struct serialises")
+    }
+
+    /// Parses the section body (missing keys take the defaults) and validates it.
+    pub fn from_json(text: &str) -> Result<RetentionSettings> {
+        let b: RetentionBody = serde_json::from_str(text)
+            .map_err(|e| Error::Invalid(format!("retention section is not valid: {e}")))?;
+        let s = RetentionSettings {
+            policy: RetentionPolicy {
+                files_days: b.files_days,
+                records_days: b.records_days,
+            },
+            run_at: b.run_at,
+        };
+        s.validate()?;
+        Ok(s)
+    }
+}
+
+/// First start: write the configuration file values as the `retention` section when the database
+/// has none; an existing section is left alone (the database wins from then on). Returns whether
+/// the section was written.
+pub async fn seed_retention(store: &dyn FaxStore, cfg: &RetentionSettings) -> Result<bool> {
     cfg.validate()?;
-    let (f, r) = (
-        cfg.policy.files_days.to_string(),
-        cfg.policy.records_days.to_string(),
-    );
-    store
-        .seed_settings(&[
-            (KEY_FILES_DAYS, &f),
-            (KEY_RECORDS_DAYS, &r),
-            (KEY_RUN_AT, &cfg.run_at),
-        ])
-        .await
-}
-
-/// Effective retention settings from the database (defaults for keys that are missing).
-pub async fn load_retention(store: &dyn FaxStore) -> Result<RetentionSettings> {
-    let mut s = RetentionSettings::default();
-    let num = |name: &str, v: &str| {
-        v.trim()
-            .parse::<u32>()
-            .map_err(|_| Error::Invalid(format!("setting {name}={v:?} is not a number")))
+    if store.config_get(RETENTION_SECTION).await?.is_some() {
+        return Ok(false);
+    }
+    let body = cfg.to_json();
+    let audit = ConfigAudit {
+        action: "create".into(),
+        before: None,
+        after: Some(body.clone()),
     };
-    if let Some(v) = store.get_setting(KEY_FILES_DAYS).await? {
-        s.policy.files_days = num(KEY_FILES_DAYS, &v.value)?;
+    match store
+        .config_put(RETENTION_SECTION, &body, None, "config-file", &audit)
+        .await
+    {
+        Ok(_) => Ok(true),
+        Err(Error::Conflict(_)) => Ok(false),
+        Err(e) => Err(e),
     }
-    if let Some(v) = store.get_setting(KEY_RECORDS_DAYS).await? {
-        s.policy.records_days = num(KEY_RECORDS_DAYS, &v.value)?;
-    }
-    if let Some(v) = store.get_setting(KEY_RUN_AT).await? {
-        s.run_at = v.value;
-    }
-    s.validate()?;
-    Ok(s)
 }
 
-/// Validate and write the retention settings (used by the M4 web UI).
+/// Effective retention settings from the database (defaults while the section does not exist).
+pub async fn load_retention(store: &dyn FaxStore) -> Result<RetentionSettings> {
+    match store.config_get(RETENTION_SECTION).await? {
+        Some(row) => RetentionSettings::from_json(&row.body),
+        None => Ok(RetentionSettings::default()),
+    }
+}
+
+/// Validate and write the retention settings (a change of the `retention` section, with audit).
 pub async fn save_retention(store: &dyn FaxStore, s: &RetentionSettings, by: &str) -> Result<()> {
     s.validate()?;
+    let cur = store.config_get(RETENTION_SECTION).await?;
+    let body = s.to_json();
+    let audit = ConfigAudit {
+        action: if cur.is_some() { "update" } else { "create" }.into(),
+        before: cur.as_ref().map(|r| r.body.clone()),
+        after: Some(body.clone()),
+    };
     store
-        .set_setting(KEY_FILES_DAYS, &s.policy.files_days.to_string(), Some(by))
-        .await?;
-    store
-        .set_setting(
-            KEY_RECORDS_DAYS,
-            &s.policy.records_days.to_string(),
-            Some(by),
+        .config_put(
+            RETENTION_SECTION,
+            &body,
+            cur.map(|r| r.version),
+            by,
+            &audit,
         )
-        .await?;
-    store.set_setting(KEY_RUN_AT, &s.run_at, Some(by)).await
+        .await
+        .map(|_| ())
 }
 
 /// File deletion, abstracted so tests can simulate permission errors.

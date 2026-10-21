@@ -35,7 +35,11 @@ async fn s01_migration_body(env: &Env) {
         ("faxes", 0),
         ("settings", 0),
         ("delivery_attempts", 0),
-        ("schema_migrations", 1),
+        ("schema_migrations", 2),
+        ("config_sections", 0),
+        ("config_audit", 0),
+        ("users", 0),
+        ("sessions", 0),
     ] {
         assert_eq!(
             count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await,
@@ -113,6 +117,10 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     // Drop everything, then connect with auto_migrate = false: clear "outdated" error.
     let be = env.store.raw();
     for stmt in [
+        "DROP TABLE sessions",
+        "DROP TABLE users",
+        "DROP TABLE config_audit",
+        "DROP TABLE config_sections",
         "DROP TABLE delivery_attempts",
         "DROP TABLE settings",
         "DROP TABLE faxes",
@@ -131,13 +139,17 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     }
     // Migrating from empty applies version 1; then auto_migrate=false connects.
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied.clone()), (0, 1, vec![1]));
+    assert_eq!((rep.from, rep.to, rep.applied.clone()), (0, 2, vec![1, 2]));
     connect_with(&env.url, o).await.unwrap();
 }
 
 async fn drop_everything(env: &Env) {
     let be = env.store.raw();
     for stmt in [
+        "DROP TABLE sessions",
+        "DROP TABLE users",
+        "DROP TABLE config_audit",
+        "DROP TABLE config_sections",
         "DROP TABLE delivery_attempts",
         "DROP TABLE settings",
         "DROP TABLE faxes",
@@ -174,13 +186,13 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
             .await
             .unwrap()
             .unwrap_or_else(|e| panic!("{}: a racing migrate failed: {e}", lbl(env, "race")));
-        assert_eq!(rep.to, 1, "{rep:?}");
+        assert_eq!(rep.to, latest_version(env.store.backend()), "{rep:?}");
         if !rep.applied.is_empty() {
             applied_by += 1;
-            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1]));
+            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1, 2]));
         } else {
             assert_eq!(
-                rep.from, 1,
+                rep.from, 2,
                 "a loser starts from the version the winner wrote"
             );
         }
@@ -188,9 +200,9 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
     assert_eq!(applied_by, 1, "exactly one instance applies the migration");
     assert_eq!(
         count_rows(env, "SELECT COUNT(*) FROM schema_migrations").await,
-        1
+        2
     );
-    assert_eq!(env.store.schema_version().await.unwrap(), 1);
+    assert_eq!(env.store.schema_version().await.unwrap(), 2);
 }
 
 fn probe_sql(kind: BackendKind) -> &'static str {
@@ -212,30 +224,35 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
         return;
     }
     let kind = env.store.backend();
-    let init = &migrations(kind)[0];
+    // the real migrations plus a probe as version 3 (the database is already at version 2)
+    let with_probe = |sql: &'static str| -> Vec<Migration> {
+        let mut v: Vec<Migration> = migrations(kind)
+            .iter()
+            .map(|m| Migration {
+                version: m.version,
+                name: m.name,
+                sql: m.sql,
+            })
+            .collect();
+        v.push(Migration {
+            version: 3,
+            name: "probe",
+            sql,
+        });
+        v
+    };
     let ok_sql: &'static str = probe_sql(kind);
     let bad_sql: &'static str =
         Box::leak(format!("{ok_sql};\nINSERT INTO no_such_table VALUES (1)").into_boxed_str());
-    let bad = [
-        Migration {
-            version: init.version,
-            name: init.name,
-            sql: init.sql,
-        },
-        Migration {
-            version: 2,
-            name: "probe",
-            sql: bad_sql,
-        },
-    ];
+    let bad = with_probe(bad_sql);
     let err = apply(env.store.raw(), env.clock.as_ref(), &bad)
         .await
         .expect_err("the failing migration is reported");
-    assert!(err.to_string().contains("0002_probe"), "{err}");
+    assert!(err.to_string().contains("0003_probe"), "{err}");
     assert_eq!(
         env.store.schema_version().await.unwrap(),
-        1,
-        "version 2 is not recorded"
+        2,
+        "version 3 is not recorded"
     );
     let probe = env
         .store
@@ -252,22 +269,11 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
         );
     }
     // the migration is fixed (it no longer fails): the rerun applies it exactly once
-    let good = [
-        Migration {
-            version: init.version,
-            name: init.name,
-            sql: init.sql,
-        },
-        Migration {
-            version: 2,
-            name: "probe",
-            sql: ok_sql,
-        },
-    ];
+    let good = with_probe(ok_sql);
     let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
         .await
         .unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (1, 2, vec![2]));
+    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
     assert_eq!(count_rows(env, "SELECT COUNT(*) FROM m3b_probe").await, 0);
     // and the lock was released after the failure (a third run does not wait)
     let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
@@ -316,7 +322,7 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     );
     // the real migration then runs through (the same statements again, then the rest)
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (0, 1, vec![1]));
+    assert_eq!((rep.from, rep.to, rep.applied), (0, 2, vec![1, 2]));
     for tbl in ["faxes", "settings", "delivery_attempts"] {
         count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await;
     }
@@ -1117,16 +1123,16 @@ async fn s10_settings_body(env: &Env) {
         purge::load_retention(st.as_ref()).await.unwrap() == cfg,
         "no rows yet -> built-in defaults"
     );
-    assert_eq!(purge::seed_retention(st.as_ref(), &cfg).await.unwrap(), 3);
+    assert!(purge::seed_retention(st.as_ref(), &cfg).await.unwrap());
     assert_eq!(purge::load_retention(st.as_ref()).await.unwrap(), cfg);
+    let row = st
+        .config_get(purge::RETENTION_SECTION)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        st.get_setting(purge::KEY_FILES_DAYS)
-            .await
-            .unwrap()
-            .unwrap()
-            .updated_by
-            .as_deref(),
-        Some("config")
+        (row.updated_by.as_deref(), row.version),
+        (Some("config-file"), 1)
     );
 
     // An operator changes it online; the DB now wins.
@@ -1142,47 +1148,44 @@ async fn s10_settings_body(env: &Env) {
         .await
         .unwrap();
     let s = st
-        .get_setting(purge::KEY_FILES_DAYS)
+        .config_get(purge::RETENTION_SECTION)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(
-        (s.value.as_str(), s.updated_by.as_deref(), s.updated_at),
-        ("30", Some("admin"), t(T0 + 5_000))
+        (s.version, s.updated_by.as_deref(), s.updated_at),
+        (2, Some("admin"), t(T0 + 5_000))
     );
+    assert!(s.body.contains("\"files_days\":30"), "{}", s.body);
 
     // "Restart" with the old config file: nothing is overwritten.
-    assert_eq!(purge::seed_retention(st.as_ref(), &cfg).await.unwrap(), 0);
+    assert!(!purge::seed_retention(st.as_ref(), &cfg).await.unwrap());
     assert_eq!(purge::load_retention(st.as_ref()).await.unwrap(), changed);
     // A real restart (new connection to the same DB) sees the same values.
     if !env.is_memory() {
         let again = connect_with(&env.url, env.opts()).await.unwrap();
-        assert_eq!(
-            purge::seed_retention(again.as_ref(), &cfg).await.unwrap(),
-            0
-        );
+        assert!(!purge::seed_retention(again.as_ref(), &cfg).await.unwrap());
         assert_eq!(
             purge::load_retention(again.as_ref()).await.unwrap(),
             changed
         );
         again.close().await;
     }
-    // A new key added later is seeded without touching the others.
+    // A new key added later is seeded without touching the others (the `settings` table is for
+    // odds and ends now; the retention keys live in the `retention` section).
     assert_eq!(
-        st.seed_settings(&[("retention.files_days", "1"), ("new.key", "v")])
+        st.seed_settings(&[("other.key", "1"), ("new.key", "v")])
             .await
             .unwrap(),
-        1
+        2
+    );
+    assert_eq!(
+        st.seed_settings(&[("other.key", "2"), ("new.key", "w")])
+            .await
+            .unwrap(),
+        0
     );
     assert_eq!(st.get_setting("new.key").await.unwrap().unwrap().value, "v");
-    assert_eq!(
-        st.get_setting(purge::KEY_FILES_DAYS)
-            .await
-            .unwrap()
-            .unwrap()
-            .value,
-        "30"
-    );
     // Overwrite via set_setting, list, validation.
     st.set_setting("new.key", "中文 value '; --", None)
         .await
@@ -1191,7 +1194,7 @@ async fn s10_settings_body(env: &Env) {
         st.get_setting("new.key").await.unwrap().unwrap().value,
         "中文 value '; --"
     );
-    assert_eq!(st.list_settings().await.unwrap().len(), 4);
+    assert_eq!(st.list_settings().await.unwrap().len(), 2);
     assert!(st.get_setting("missing").await.unwrap().is_none());
     let bad = RetentionSettings {
         policy: RetentionPolicy {
@@ -1216,9 +1219,24 @@ async fn s10_settings_body(env: &Env) {
         Err(Error::Invalid(_))
     ));
     // Garbage in the table is reported, not ignored.
-    st.set_setting(purge::KEY_FILES_DAYS, "abc", None)
+    let cur = st
+        .config_get(purge::RETENTION_SECTION)
         .await
+        .unwrap()
         .unwrap();
+    st.config_put(
+        purge::RETENTION_SECTION,
+        r#"{"files_days":"abc"}"#,
+        Some(cur.version),
+        "test",
+        &ConfigAudit {
+            action: "update".into(),
+            before: None,
+            after: None,
+        },
+    )
+    .await
+    .unwrap();
     assert!(matches!(
         purge::load_retention(st.as_ref()).await,
         Err(Error::Invalid(_))

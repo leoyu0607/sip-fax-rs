@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 /// Backend independent store API. Implemented once on top of the four drivers
 /// ([`crate::SqlStore`]); the same behaviour suite runs against each.
 #[async_trait]
-pub trait FaxStore: Send + Sync {
+pub trait FaxStore: crate::admin::AdminStore + Send + Sync {
     /// Database family.
     fn backend(&self) -> BackendKind;
     /// Current schema version (0 = empty database).

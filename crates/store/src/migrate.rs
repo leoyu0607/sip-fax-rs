@@ -16,26 +16,54 @@ pub struct Migration {
 }
 
 // include_str! needs literal file names, so the list is spelled out per backend.
-static SQLITE: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/sqlite/0001_init.sql"),
-}];
-static POSTGRES: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/postgres/0001_init.sql"),
-}];
-static MYSQL: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/mysql/0001_init.sql"),
-}];
-static MSSQL: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/mssql/0001_init.sql"),
-}];
+static SQLITE: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/sqlite/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "config_accounts",
+        sql: include_str!("../migrations/sqlite/0002_config_accounts.sql"),
+    },
+];
+static POSTGRES: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/postgres/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "config_accounts",
+        sql: include_str!("../migrations/postgres/0002_config_accounts.sql"),
+    },
+];
+static MYSQL: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/mysql/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "config_accounts",
+        sql: include_str!("../migrations/mysql/0002_config_accounts.sql"),
+    },
+];
+static MSSQL: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/mssql/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "config_accounts",
+        sql: include_str!("../migrations/mssql/0002_config_accounts.sql"),
+    },
+];
 
 /// Migrations of a backend, ascending by version.
 pub fn migrations(kind: BackendKind) -> &'static [Migration] {
