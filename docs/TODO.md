@@ -90,6 +90,14 @@
 - [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）
 - [ ] [Sonnet] web-ui：Svelte + Vite SPA，以 rust-embed 內嵌
 - [ ] [Sonnet] TUI（ratatui）和 CLI 子命令
+- [ ] [Sonnet] 服務管理指令 `sip-faxd start | stop | restart | status | logs`（2026-10-21 使用者需求）：
+  - `start`：在背景啟動服務（以 setsid 重新執行自己，寫入 PID 檔 `run/sip-faxd.pid` 並加 flock 防止重複啟動），等服務就緒後，在前景持續顯示 log（`logs/sip-faxd.log`）。**Ctrl+C 只停止顯示 log，不會停止服務**，並提示這一點；`start -d` 只啟動、不顯示 log。
+  - `stop`：**等進行中的傳真收完再停**（使用者決定）。立即停止接新來電（回 503），等進行中的通話結束，最多等待 `[service] stop_timeout_secs` 秒（預設 300）。`--force` 立即停止，已收到的頁面仍會寫出並標記 partial。
+  - `restart`：先 stop（同樣等通話結束），再 start。
+  - `status`：是否在執行、PID、版本、uptime、監聽位址、進行中的通話數、各 trunk 的註冊狀態。透過本機控制介面（unix socket 或 M4 的本機 HTTP API）取得。
+  - `logs [-f]`：查看 log。服務 log 檔要能輪替，依大小或天數，並設定保留份數。
+  - 用 systemd 管理時仍使用 `serve`（前景）。偵測到服務已經由 systemd 管理時，`start`/`stop` 要提示改用 `systemctl`。
+
 - [ ] [Any] CI 新增 `web-ui` job
 - [ ] [Opus] 審核 docs/test-reports/M4.md
 
