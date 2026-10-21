@@ -102,9 +102,10 @@ E2E_ONLY="--test e2e_m4d" scripts/e2e-docker.sh           test result: ok. 15 pa
 - **服務指令與 TUI 只支援 unix。** 本機的 macOS 可以執行，但 macOS 的 unix socket 路徑上限是 104 bytes，過長時會清楚報錯（M03 有測試）。
 - **`flock` 的檔案系統限制**：見 §3 第 1 點；已寫入 README 與 ADR-052。
 
-## 7. `scripts/ci-local.sh`
+## 7. `scripts/ci-local.sh` 與 GitHub CI
 
-（待完整執行結果）
+- `scripts/ci-local.sh`（macOS＋Docker Desktop）：fmt、clippy、`cargo deny`、workspace 測試、涵蓋率門檻、musl 靜態連結（`statically linked`）都通過；第一次完整執行時 E2E 的 M06 失敗，原因與修正見 §3 第 7 點。修正後重跑完整的 `scripts/e2e-docker.sh`：e2e_m2d 10、e2e_m3b 6、e2e_m3d 5、e2e_m3f 4、e2e_m4d 15、e_ecm 11、m0 10、x_interop 12 等全部通過；interop 的 `sipp::s02` 一次在建置 `sip-faxd` 時出現 `can't find crate`（bind mount 上的建置 I/O，測試尚未開始），單獨重跑 16 passed。
+- GitHub CI（`4feccc0`，run 39691358914）：lint、test、coverage、e2e-spandsp、db-matrix（postgres、mysql、mariadb、mssql）、build-musl（x86_64、aarch64）、smoke-rhel（Rocky 9、AlmaLinux 10）全部 success。
 
 ## 8. 新增依賴
 
