@@ -10,6 +10,8 @@ publish = false
 clap = { workspace = true }
 fax-in = { workspace = true }
 store = { path = "../../crates/store" }
+runtime-config = { path = "../../crates/runtime-config" }
+accounts = { path = "../../crates/accounts" }
 delivery = { path = "../../crates/delivery" }
 chrono = { workspace = true }
 async-trait = { workspace = true }
@@ -22,4 +24,4 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util", "macros"] }

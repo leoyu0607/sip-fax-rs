@@ -61,7 +61,22 @@ struct State {
     config: Arc<RuntimeConfig>,
     versions: BTreeMap<String, i32>,
     issues: Vec<SecretIssue>,
+    /// Stored sections that are not valid (and therefore not in `config`).
+    problems: Vec<String>,
     source: Source,
+}
+
+/// What [`ConfigService::inspect`] found in the database.
+#[derive(Debug, Clone)]
+pub struct Inspection {
+    /// The configuration the database holds (defaults for sections that are not stored).
+    pub config: Arc<RuntimeConfig>,
+    /// Number of stored sections.
+    pub sections: usize,
+    /// Stored sections that do not validate.
+    pub problems: Vec<String>,
+    /// Secrets that cannot be decrypted (`section: field`).
+    pub undecryptable: Vec<String>,
 }
 
 /// Result of [`ConfigService::update`].
@@ -210,6 +225,7 @@ impl ConfigService {
                 config: initial,
                 versions: BTreeMap::new(),
                 issues: Vec::new(),
+                problems: Vec::new(),
                 source: Source::FileFallback,
             }),
             started: Mutex::new(None),
@@ -223,6 +239,11 @@ impl ConfigService {
     /// Registers what applies a change to the running server.
     pub fn set_applier(&self, a: Arc<dyn ConfigApplier>) {
         *self.applier.lock().unwrap_or_else(|e| e.into_inner()) = Some(a);
+    }
+
+    /// Removes the applier (shutdown: nothing is applied any more).
+    pub fn clear_applier(&self) {
+        *self.applier.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// The configuration new calls use right now.
@@ -282,6 +303,7 @@ impl ConfigService {
         let mut cfg = RuntimeConfig::default();
         let mut versions = BTreeMap::new();
         let mut issues = Vec::new();
+        let mut problems = Vec::new();
         let mut trunks: BTreeMap<String, fax_in::config::TrunkConfig> = BTreeMap::new();
         let mut order: Vec<String> = Vec::new();
         for row in &rows {
@@ -298,6 +320,7 @@ impl ConfigService {
                 Ok(v) => v,
                 Err(e) => {
                     tracing::error!(section = %row.name, "stored section is not JSON, ignored: {e}");
+                    problems.push(format!("section {} is not JSON: {e}", row.name));
                     continue;
                 }
             };
@@ -320,6 +343,7 @@ impl ConfigService {
                         .map(|e| format!("{}: {}", e.field, e.message))
                         .collect();
                     tracing::error!(section = %row.name, "stored section is not valid, ignored: {}", list.join("; "));
+                    problems.push(format!("section {} is not valid: {}", row.name, list.join("; ")));
                 }
             }
         }
@@ -340,6 +364,7 @@ impl ConfigService {
             config: Arc::new(cfg),
             versions,
             issues,
+            problems,
             source: Source::Database,
         })
     }
@@ -405,6 +430,27 @@ impl ConfigService {
             }
             Err(e) => Boot::Unreachable(e.to_string()),
         }
+    }
+
+    /// Reads the database without changing anything (no import, no snapshot swap): for
+    /// `config check`.
+    ///
+    /// # Errors
+    /// The database cannot be read.
+    pub async fn inspect(&self) -> Result<Inspection, UpdateError> {
+        let store = self.src.store().await.map_err(map_store)?;
+        let sections = store.config_list().await.map_err(map_store)?.len();
+        let st = self.read_all(&*store).await.map_err(map_store)?;
+        Ok(Inspection {
+            config: st.config.clone(),
+            sections,
+            problems: st.problems.clone(),
+            undecryptable: st
+                .issues
+                .iter()
+                .map(|i| format!("{}: {}", i.section, i.field))
+                .collect(),
+        })
     }
 
     /// Re-reads the database and applies what differs (the `reload` command).

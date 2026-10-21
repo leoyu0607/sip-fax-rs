@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use fax_in::recorder::RecordSink;
-use store::{ConnectOptions, FaxFinal, FaxStore, NewFax, RetentionSettings};
+use store::{ConnectOptions, FaxFinal, FaxStore, NewFax, StoreSource};
 use tokio::sync::Mutex;
 
 use crate::settings::AppConfig;
@@ -17,14 +17,13 @@ use crate::settings::AppConfig;
 pub struct Db {
     url: String,
     opts: ConnectOptions,
-    retention: RetentionSettings,
     inner: Mutex<Option<Arc<dyn FaxStore>>>,
 }
 
 /// How the daemon's first connection attempt went.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Startup {
-    /// Connected, schema current, retention settings seeded, stale `receiving` rows repaired.
+    /// Connected, schema current, stale `receiving` rows repaired.
     Ready {
         /// Rows that were still `receiving` from a previous run.
         stale_fixed: u64,
@@ -43,7 +42,6 @@ impl Db {
                 auto_migrate: cfg.database.auto_migrate,
                 ..ConnectOptions::default()
             },
-            retention: cfg.retention.settings(),
             inner: Mutex::new(None),
         }
     }
@@ -55,7 +53,6 @@ impl Db {
     pub async fn start(&self) -> Result<Startup, store::Error> {
         match store::connect_with(&self.url, self.opts.clone()).await {
             Ok(st) => {
-                store::purge::seed_retention(&*st, &self.retention).await?;
                 // Only now, before the first call: a row that is still `receiving` belongs to a
                 // process that is gone.
                 let stale_fixed = st.fix_stale_receiving().await?;
@@ -75,7 +72,6 @@ impl Db {
         }
         let st = store::connect_with(&self.url, self.opts.clone()).await?;
         // (the stale-row repair is start-up only: calls may be in progress by now)
-        store::purge::seed_retention(&*st, &self.retention).await?;
         *g = Some(st.clone());
         Ok(st)
     }
@@ -85,6 +81,13 @@ impl Db {
         if let Some(s) = self.inner.lock().await.take() {
             s.close().await;
         }
+    }
+}
+
+#[async_trait]
+impl StoreSource for Db {
+    async fn store(&self) -> store::Result<Arc<dyn FaxStore>> {
+        Db::store(self).await
     }
 }
 

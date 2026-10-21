@@ -22,6 +22,6 @@ pub use model::{DeliverySection, RetentionSection, RuntimeConfig, Section, TRUNK
 pub use secret::{KeyStatus, SecretBox, SecretError};
 pub use service::{
     ApplyReport, Boot, ConfigApplier, ConfigService, ConfigStatus, ImportError, ImportReport,
-    ReloadOutcome, SectionView, Source, StoreSource, UpdateError, UpdateOutcome, to_toml,
+    Inspection, ReloadOutcome, SectionView, Source, StoreSource, UpdateError, UpdateOutcome, to_toml,
 };
 pub use validate::{FieldError, SectionValue, parse_section};

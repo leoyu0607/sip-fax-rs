@@ -97,15 +97,8 @@ pub fn routes_summary(routes: &delivery::Routes) -> Vec<String> {
     out
 }
 
-/// `sip-faxd config check`
-pub fn config_check(path: &Path) -> ExitCode {
-    let cfg = match AppConfig::load(path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("sip-faxd: error: {e}");
-            return ExitCode::from(2);
-        }
-    };
+/// What `config check` prints about the configuration file.
+fn print_file_check(cfg: &AppConfig, path: &Path) {
     let f = &cfg.fax_in;
     println!("configuration OK: {}", path.display());
     println!(
@@ -145,7 +138,7 @@ pub fn config_check(path: &Path) -> ExitCode {
         }
     };
     println!(
-        "  retention: files {}, records {}, daily run at {} (server local time); written to the database on the first start, after that the database decides",
+        "  retention: files {}, records {}, daily run at {} (server local time); imported into the database on the first start, after that the database decides",
         days(r.files_days),
         days(r.records_days),
         r.run_at
@@ -196,7 +189,113 @@ pub fn config_check(path: &Path) -> ExitCode {
     for w in f.warnings() {
         println!("warning: {w}");
     }
-    ExitCode::SUCCESS
+}
+
+/// `sip-faxd config check`: the configuration file, and the runtime configuration in the
+/// database when it can be reached (nothing is written to the database: no migration, no
+/// import, no key file).
+pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> ExitCode {
+    print_file_check(cfg, path);
+    println!("database runtime configuration:");
+    let opts = ConnectOptions {
+        max_connections: 1,
+        auto_migrate: false,
+        ..ConnectOptions::default()
+    };
+    let st = match store::connect_with(&cfg.database_url(base), opts).await {
+        Ok(s) => s,
+        Err(e) if e.is_transient() => {
+            println!(
+                "  the database {} is not reachable ({e}): only the configuration file was checked",
+                mask_url(&cfg.database.url)
+            );
+            return ExitCode::SUCCESS;
+        }
+        Err(store::Error::SchemaOutdated { .. }) => {
+            println!(
+                "  the database schema is older than this version: run `sip-faxd db migrate` (or start `serve`); only the configuration file was checked"
+            );
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => {
+            eprintln!("sip-faxd: error: database {}: {e}", mask_url(&cfg.database.url));
+            return ExitCode::from(1);
+        }
+    };
+    let key = cfg.conf_dir.join("secret.key");
+    let secrets = if key.exists() {
+        runtime_config::SecretBox::load_or_create(&key)
+    } else {
+        runtime_config::SecretBox::unavailable("conf/secret.key does not exist yet")
+    };
+    let src: Arc<dyn store::FaxStore> = st.clone();
+    let svc = runtime_config::ConfigService::new(
+        Arc::new(src),
+        Arc::new(secrets),
+        cfg.runtime.clone(),
+        cfg.file_sections.clone(),
+    );
+    let code = match svc.inspect().await {
+        Err(e) => {
+            eprintln!("sip-faxd: error: cannot read the runtime configuration: {e}");
+            ExitCode::from(1)
+        }
+        Ok(ins) if ins.sections == 0 => {
+            println!(
+                "  empty: the runtime sections of the configuration file are imported at the first start of `serve` (or with `config import`)"
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(ins) => {
+            let rt = &ins.config;
+            println!(
+                "  {} stored section(s); the values above under sip / media / call / capture / trunks / routes / delivery / retention are ignored while these exist",
+                ins.sections
+            );
+            println!(
+                "  sip: bind {}, unknown_source = {:?}; media: port_range {}; call: max_duration {} s, station_id {:?}",
+                rt.sip.bind,
+                rt.sip.unknown_source,
+                rt.media.port_range,
+                rt.call.max_duration_secs,
+                rt.call.station_id
+            );
+            println!(
+                "  retention: files {} days, records {} days (0 = never), daily run at {}",
+                rt.retention.files_days, rt.retention.records_days, rt.retention.run_at
+            );
+            println!(
+                "  trunks (match order): {}",
+                if rt.trunks.is_empty() {
+                    "none".to_string()
+                } else {
+                    rt.trunks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", ")
+                }
+            );
+            for l in routes_summary(&rt.routes) {
+                println!("{l}");
+            }
+            for w in runtime_config::validate::warnings(rt) {
+                println!("warning: {w}");
+            }
+            let mut bad = false;
+            for p in &ins.problems {
+                bad = true;
+                eprintln!("error: {p}");
+            }
+            for u in &ins.undecryptable {
+                bad = true;
+                eprintln!("error: the secret {u} cannot be decrypted with conf/secret.key: enter it again");
+            }
+            for p in runtime_config::validate::cross_check(rt) {
+                bad = true;
+                eprintln!("error: {p}");
+            }
+            if bad { ExitCode::from(1) } else { ExitCode::SUCCESS }
+        }
+    };
+    st.close().await;
+    code
 }
 
 /// `sip-faxd db migrate`
@@ -267,6 +366,10 @@ pub async fn purge(cfg: &AppConfig, base: &Path, dry_run: bool) -> ExitCode {
         Ok(s) => s,
         Err(e) => return fail(format!("database {}: {e}", mask_url(&cfg.database.url))),
     };
+    // the file's [retention] is the starting point until the database has its own
+    if let Err(e) = store::purge::seed_retention(&*st, &cfg.retention.settings()).await {
+        return fail(format!("retention settings: {e}"));
+    }
     let settings = match store::purge::load_retention(&*st).await {
         Ok(s) => s,
         Err(e) => return fail(format!("retention settings: {e}")),

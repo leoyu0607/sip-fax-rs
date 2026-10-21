@@ -1,11 +1,13 @@
-//! The application part of the configuration file: `[log]`, `[database]` and `[retention]`
-//! (the rest belongs to `fax_in::FaxInConfig`).
+//! The configuration file: the startup tables (`[log]`, `[database]`, `[storage]`) and the runtime
+//! tables (`[sip]`, `[media]`, `[call]`, `[capture]`, `[[trunks]]`, `[[routes]]`, `[delivery]`,
+//! `[retention]`), which are imported into the database on the first start and ignored afterwards
+//! (ADR-051; see `runtime_config`).
 
 use std::path::{Path, PathBuf};
 
 use fax_in::FaxInConfig;
 use serde::Deserialize;
-use store::{RetentionPolicy, RetentionSettings};
+use runtime_config::{RuntimeConfig, RuntimeFile};
 
 /// `[log]`
 #[derive(Deserialize, Default)]
@@ -39,64 +41,7 @@ impl Default for DatabaseSection {
     }
 }
 
-/// `[retention]`: written to the `settings` table on the first start; after that the database
-/// is the source of truth (the web UI changes it there).
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
-pub struct RetentionSection {
-    /// Delete TIFF / PDF / PNG files after this many days (0 = never).
-    pub files_days: u32,
-    /// Delete the records after this many days (0 = never; at least `files_days`).
-    pub records_days: u32,
-    /// Daily run time `HH:MM`, server local time.
-    pub run_at: String,
-}
-
-impl Default for RetentionSection {
-    fn default() -> Self {
-        let d = RetentionSettings::default();
-        RetentionSection {
-            files_days: d.policy.files_days,
-            records_days: d.policy.records_days,
-            run_at: d.run_at,
-        }
-    }
-}
-
-impl RetentionSection {
-    /// As the store's settings type.
-    pub fn settings(&self) -> RetentionSettings {
-        RetentionSettings {
-            policy: RetentionPolicy {
-                files_days: self.files_days,
-                records_days: self.records_days,
-            },
-            run_at: self.run_at.clone(),
-        }
-    }
-}
-
-/// `[delivery]`: how the delivery engine runs. The routes themselves are the top-level
-/// `[[routes]]` tables (see `delivery::config`).
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
-pub struct DeliverySection {
-    /// At start, queue the deliveries of finished faxes that started at most this many hours ago
-    /// and have none yet (repairs a crash between the database write and the queueing, and
-    /// delivers what `db backfill` restored). 0 = off.
-    pub catch_up_hours: u32,
-    /// Attempts per delivery before it is given up (`giving_up`).
-    pub max_attempts: u32,
-}
-
-impl Default for DeliverySection {
-    fn default() -> Self {
-        DeliverySection {
-            catch_up_hours: 24,
-            max_attempts: delivery::DEFAULT_MAX_ATTEMPTS,
-        }
-    }
-}
+pub use runtime_config::{DeliverySection, RetentionSection};
 
 /// The whole configuration file.
 pub struct AppConfig {
@@ -104,14 +49,21 @@ pub struct AppConfig {
     pub log: LogSection,
     /// `[database]`
     pub database: DatabaseSection,
-    /// `[retention]`
+    /// `[retention]` (runtime section: the file's copy, used for the first import)
     pub retention: RetentionSection,
-    /// `[delivery]`
+    /// `[delivery]` (runtime section)
     pub delivery: DeliverySection,
-    /// `[[routes]]`
+    /// `[[routes]]` (runtime section)
     pub routes: delivery::Routes,
-    /// Everything fax-in reads.
+    /// Everything fax-in reads (the runtime sections plus `[storage]`).
     pub fax_in: FaxInConfig,
+    /// The runtime sections as one value.
+    pub runtime: RuntimeConfig,
+    /// The runtime tables the file actually contains.
+    pub file_sections: Vec<String>,
+    /// The directory of the configuration file (`secret.key` and `initial-admin-password` live
+    /// here).
+    pub conf_dir: PathBuf,
 }
 
 fn section<T: for<'de> Deserialize<'de> + Default>(
@@ -135,25 +87,21 @@ impl AppConfig {
         })?;
         let log = section(&mut table, "log", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
-        let retention: RetentionSection = section(&mut table, "retention", path)?;
-        let delivery: DeliverySection = section(&mut table, "delivery", path)?;
-        let mut routes = delivery::Routes::default();
-        if let Some(v) = table.remove("routes") {
-            let mut t = toml::Table::new();
-            t.insert("routes".into(), v);
-            routes = t.try_into().map_err(|e: toml::de::Error| {
-                format!("{}: [[routes]]: {}", path.display(), e.message())
-            })?;
-        }
-        let fax_in =
-            FaxInConfig::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
+        let file = RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
+        let conf_dir = match path.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
         let cfg = AppConfig {
             log,
             database,
-            retention,
-            delivery,
-            routes,
-            fax_in,
+            retention: file.runtime.retention.clone(),
+            delivery: file.runtime.delivery.clone(),
+            routes: file.runtime.routes.clone(),
+            fax_in: file.fax_in,
+            runtime: file.runtime,
+            file_sections: file.present,
+            conf_dir,
         };
         cfg.validate()
             .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -171,22 +119,6 @@ impl AppConfig {
         store::backend_for_url(&self.database.url).map_err(|e| format!("[database] {e}"))?;
         if self.database.max_connections == 0 {
             return Err("[database] max_connections must be at least 1".into());
-        }
-        self.retention
-            .settings()
-            .validate()
-            .map_err(|e| format!("[retention] {e}"))?;
-        if self.delivery.max_attempts == 0 {
-            return Err("[delivery] max_attempts must be at least 1".into());
-        }
-        if let Err(errs) = self.routes.validate() {
-            return Err(format!(
-                "[[routes]] {}",
-                errs.join(
-                    "
-  "
-                )
-            ));
         }
         Ok(())
     }

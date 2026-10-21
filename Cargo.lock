@@ -2355,11 +2355,13 @@ dependencies = [
 name = "sip-faxd"
 version = "0.2.0"
 dependencies = [
+ "accounts",
  "async-trait",
  "chrono",
  "clap",
  "delivery",
  "fax-in",
+ "runtime-config",
  "serde",
  "serde_json",
  "store",
