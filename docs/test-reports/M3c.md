@@ -159,3 +159,10 @@ SQLite（檔案與記憶體）在一般 `cargo test` 通過。第一次跑 Postg
 ## 12. 異動檔案
 - 新增：`crates/delivery/src/{config,email,engine,error,folder,retry,router,source,template,webhook}.rs`、`crates/delivery/tests/{common/mod.rs,email.rs,retry.rs,routing_folder.rs,webhook.rs}`、`scripts/smtp-test-servers.sh`、`docs/test-reports/M3c.md`
 - 修改：`crates/delivery/{Cargo.toml,src/lib.rs}`、`crates/store/src/{store.rs,sqlstore.rs}`、`crates/store/src/tests/store_tests.rs`、`Cargo.toml`（`[workspace.dependencies]`）、`Cargo.lock`、`deny.toml`（`0BSD`）、`.github/workflows/ci.yml`、`scripts/ci-local.sh`
+
+## Opus 審核結論（2026-10-21）
+**結論：通過。**
+
+- 依賴只開 rustls，`deny.toml` 新增的 `0BSD` 屬寬鬆授權，可接受。HMAC 用測試內手寫實作獨立重算，email 附件以 `mail-parser` 解析後比對 bytes，符合「獨立對照」要求。
+- 接受 ADR-A～G（合併為 ADR-047、048）。
+- 接線（`catch_up`、`notify_finalized`）與 musl 靜態連結驗證在 M3f 完成。手動重新投遞列入 M4。at-least-once 與單實例假設已寫進 ADR-047。

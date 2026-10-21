@@ -120,3 +120,11 @@
 ## 10. 異動的檔案
 - 新增：`crates/fax-in/src/{numbers,recorder,summary}.rs`、`crates/fax-in/tests/{summary,numbers,recorder,m3b_calls}.rs`、`apps/sip-faxd/src/{commands,db,schedule,settings}.rs`、`apps/sip-faxd/tests/db_cli.rs`、`tools/fax-sim/tests/e2e_m3b.rs`、`docker/musl-zigbuild.Dockerfile`、`scripts/musl-docker.sh`、`docs/test-reports/M3b.md`。
 - 修改：`crates/fax-in/src/{config,controller,event,lib,session,t38session,timefmt}.rs`、`crates/fax-in/Cargo.toml`、`crates/fax-in/tests/{real,t38session}.rs`、`crates/store/src/{db,lib,migrate}.rs`、`crates/store/src/backend/{sqlite,postgres,mysql,mssql}.rs`、`crates/store/migrations/mysql/0001_init.sql`、`crates/store/src/tests/{store_tests,unit_tests}.rs`、`apps/sip-faxd/src/main.rs`、`apps/sip-faxd/Cargo.toml`、`tools/interop/src/lib.rs`、`tools/fax-sim/{Cargo.toml,src/sip_uac.rs,tests/e2e_common/mod.rs}`、`tools/Cargo.lock`、`Cargo.lock`、`conf/sip-faxd.toml.example`、`README.md`、`README.zh-TW.md`、`docs/database.md`、`docs/field-test.md`、`scripts/{ci-local,db-matrix,e2e-docker}.sh`、`.github/workflows/ci.yml`。
+
+## Opus 審核結論（2026-10-21）
+**結論：通過。**
+
+- 抽查 `summary::classify`：規格 §3 的每一列都有對應分支，`bye_by` 的補充合理。C01 是表格驅動，人工變異（`no_fax_signal` 不認結果碼 2）會被抓到。
+- 接受 §7 的所有補充與 ADR-A～G（合併為 ADR-041～046）。涵蓋率門檻排除伺服器驅動，與 M3a 審核「其他後端由 db-matrix 驗證」的結論一致。
+- 已知弱點：S01c 在 SQLite 上分不出獨佔與延遲交易；MySQL／MSSQL 的鎖沒有逐一做變異。PostgreSQL 有牙齒，暫時接受。
+- 待追蹤：第一次 CI 的 db-matrix 並行 migration 與 coverage 設定（列入 TODO）。

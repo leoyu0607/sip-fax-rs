@@ -315,3 +315,42 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 
 ## ADR-040：資料庫版本比程式新時拒絕啟動；migration 不提供降版（2026-10-21）
 （規格已有，建議補入決策紀錄。）
+
+## ADR-041：fax-in 依賴 store；DB 寫入是 best-effort 的記憶體佇列（2026-10-21，M3b）
+- `fax-in → store`：紀錄的對映（`summary::classify`、`numbers`）與寫入佇列（`recorder`）放在 fax-in，sip-faxd 只負責接線與 CLI。`sip-core` 仍不依賴任何 fax crate，`store` 不依賴 `fax-in`。
+- 寫入佇列依序處理，指數退避（1 s 起、上限 60 s、8 次），佇列上限 10 000（最終寫入不丟）。最終寫入放棄時，若 capture 沒有寫 `result.json` 就補寫一份，供 `sip-faxd db backfill` 回補。**佇列不持久化**：程序在寫入前結束時，靠 `result.json` 與 backfill 補救。
+- DB 連不上時 daemon 仍然啟動；schema 版本不符、URL 或帳密錯誤則拒絕啟動。殘留 `receiving` 只在啟動當下連得上 DB 時修正。
+- `CallResult` 新增 `bye_by`，`completed` 的掛線方向依實際 BYE 的發送方。`no_fax_signal` 定義為 T.30 結果碼 1 或 2 且沒有頁面；對方在 T.30 進行中掛斷（結果碼 11）判為 `peer_hangup`／`peer_hangup_no_fax`。
+
+## ADR-042：migration 鎖與可重跑（2026-10-21，M3b）
+- 鎖綁連線：PostgreSQL `pg_advisory_lock`、MySQL/MariaDB `GET_LOCK`、MSSQL `sp_getapplock`、SQLite `BEGIN EXCLUSIVE`。取得鎖後重新讀版本。
+- SQLite／PostgreSQL／MSSQL 每個 migration 一個交易。MySQL/MariaDB 的 DDL 不是交易性的，所以每個陳述式都必須可重跑（`CREATE TABLE IF NOT EXISTS`，索引寫在資料表定義裡），由單元測試強制。MySQL 的 `0001_init.sql` 因此改寫（從未發佈）。
+
+## ADR-043：每日清整排程在 sip-faxd 內（2026-10-21，M3b）
+- 以伺服器本地時間的 `retention.run_at` 觸發，每次等待前從 DB 讀設定；時鐘與 sleep 可注入。DST 轉換日可能早或晚一小時，清整是冪等的，不影響結果。
+
+## ADR-044：本機 musl 建置在 Docker 裡進行（2026-10-21，M3b）
+- `scripts/musl-docker.sh`（Rocky 9＋zig 0.14.1＋cargo-zigbuild）。`ci-local.sh` 只有在 Linux 且本機已有 zig 0.14.x 時才用本機工具，其他情況（macOS、Windows、zig 0.16）一律走 Docker。
+
+## ADR-045：store 涵蓋率門檻排除三個伺服器驅動（2026-10-21，M3b）
+- `backend/{postgres,mysql,mssql}.rs` 只有連到真實伺服器才會執行，由 db-matrix 在四種 DB 上跑同一套行為測試驗證；CI 的 `coverage` job 只跑 SQLite，所以門檻（80%）排除這三個檔案。其他檔案仍需 ≥ 80%。
+
+## ADR-046：ECM 協商結果的記錄（2026-10-21，M3b）
+- `FaxReport`／`result.json` 帶 `ecm`、`ecm_ppr_sent`、`ecm_frames_lost`；DB 只存 `ecm`（布林），PPR 次數與遺失 frame 數只在 `result.json`。
+
+## ADR-047：投遞佇列與錯誤分類（2026-10-21，M3c）
+- `delivery_attempts` 直接當佇列，**每次嘗試一列**：暫時性失敗把該列標 `failed` 並新增下一列 `pending`；超過 `max_attempts`（預設 10）標 `giving_up`。當機造成的中間態以「已有後繼列就視為 superseded」處理。重啟只需重新查詢。
+- 暫時性錯誤（依 1、5、15、60 分鐘，之後每 4 小時重試）：連線錯誤、逾時、HTTP 5xx／408／425／429、SMTP 4xx、TLS 錯誤、資料夾 I/O 錯誤。永久性錯誤（直接 `failed`）：其他 HTTP 4xx、3xx（不跟隨轉址）、SMTP 5xx、來源檔不存在、設定錯誤。
+- 投遞是 at-least-once；資料夾投遞以內容比對達到冪等，Email/Webhook 可能重複。目前假設單一 sip-faxd 實例（沒有領取鎖）。
+- `delivery_attempts.target` 是穩定識別字（`folder:<dir>`、`email:<收件者>`、`webhook:<去除帳密與 query 的 URL>`），不含密碼，用來在重啟後找回設定。
+
+## ADR-048：投遞相關依賴與格式（2026-10-21，M3c）
+- lettre 0.11（`tokio1-rustls-tls`）、reqwest 0.13（`rustls`）、hmac 0.13、sha2 0.11；`deny.toml` 允許 `0BSD`（lettre 的 `quoted_printable`）。沒有 OpenSSL／native-tls。
+- Webhook 簽章為 `HMAC-SHA256(secret, 實際送出的 body)`，header 預設 `X-Sipfax-Signature: sha256=<hex>`；multipart 由本專案自行組裝，簽整個 body。
+- 資料夾投遞預設自動建立目錄（`create_dir = false` 時，目錄不存在視為暫時性失敗）；同名不同內容的檔案不覆蓋，改加 `_1`、`_2`。
+- 檔名範本把 `[字母數字 - _ . + ( )]` 以外的字元換成 `_`，去掉開頭的點與 `..`，長度上限 200 bytes；文字範本把控制字元換成空白（防 header injection）。
+
+## ADR-049：PNG 預覽（2026-10-21，M3e）
+- 引入 `png` 0.18（純 Rust，MIT/Apache-2.0），只用在 `t4::png`。正確性由 libpng／libtiff 獨立比對。
+- TIFF 讀取（`t4::TiffReader`）放在 t4，仍然不做 I/O（輸入 `&[u8]`）。
+- 預覽在第一次開啟時才產生並快取在 `data_dir/cache/png/<id>/`，快取不寫入 DB；以快取檔為單位做 single-flight，`.part`＋rename 原子寫入；清整時整個目錄一起刪。快取沒有容量上限（受保留天數約束），M4 若需要再議。

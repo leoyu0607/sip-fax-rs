@@ -102,3 +102,11 @@ cargo deny check
 ## 9. 異動檔案
 - 新增：`crates/t4/src/png.rs`、`crates/t4/src/tiff_read.rs`、`crates/t4/tests/preview.rs`、`crates/t4/tests/preview.proptest-regressions`、`crates/t4/tests/png_oracle.rs`、`crates/t4/fuzz/fuzz_targets/tiff_read.rs`、`crates/store/src/preview.rs`、`crates/store/src/tests/preview_tests.rs`、`docs/test-reports/M3e.md`
 - 修改：`Cargo.toml`（`[workspace.dependencies]` 加 `png = "0.18"`）、`Cargo.lock`、`crates/t4/Cargo.toml`、`crates/t4/src/lib.rs`、`crates/t4/src/error.rs`、`crates/t4/fuzz/Cargo.toml`、`crates/store/Cargo.toml`（加 `t4` 路徑相依；dev 加 `png`）、`crates/store/src/lib.rs`、`crates/store/src/tests/mod.rs`、`docker/test-rocky9.Dockerfile`、`scripts/e2e-docker.sh`、`.github/workflows/ci.yml`
+
+## Opus 審核結論（2026-10-21）
+**結論：通過。**
+
+- 審核時重跑 `cargo test -p t4 --test preview`：17 個通過。縮圖的面積平均有處理非整數比例的部分像素權重；整頁 PNG 由 libtiff／libpng 獨立比對。
+- 接受 ADR-F～H（合併為 ADR-049）。
+- 偏離：沒有遵守「先寫測試」，但測試完整且有變異驗證，不退回。proptest 兩筆 regression 原因不明，現在都能通過，保留檔案以持續重播。
+- 待追蹤：與清整的競態、快取容量上限（列入 M4）；`tiff_read` fuzz 實跑（列入 TODO）。

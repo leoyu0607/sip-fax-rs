@@ -66,24 +66,26 @@
 - [ ] [Any] 發佈 v0.1.1-alpha
 
 ## M3 — Store / Delivery / ECM
-> **2026-10-21 使用者指示暫停開發，等通知再繼續。** 暫停時 M3a、M3d 已完成；M3b 剛開始就停止，沒有留下任何未 commit 的變更；M3c 尚未開始。恢復時從 M3b 重新派工（派工內容見對話紀錄或 M3a/M3d 審核的待辦）。
-> 使用者需求（2026-10-21，見 GOALS「傳真紀錄、預覽與清整」）已確認。**等使用者說開始再動工。**
+> 2026-10-21 恢復開發：M3b（整合）、M3c（delivery）、M3e（PNG 預覽）平行完成並合併到 `m3` 分支；M3f（delivery 接進 sip-faxd）進行中。
 - [x] [Opus] 依需求定案資料表 schema（`inbound_faxes` 欄位對應 GOALS 的欄位表），並撰寫 M3 設計和測試計畫
-- [ ] [Sonnet] ANI/DNIS 擷取規則（PAI、From、Request-URI、To、Diversion 的優先順序，可依 trunk 設定）
-- [ ] [Sonnet] 掛線方向和掛線原因的正規化（SIP 加 T.30）
-- [ ] [Sonnet] 已讀/未讀（全體共用，記錄切換者和時間）、備註（記錄修改者和時間）的資料模型和 API
-- [ ] [Sonnet] PNG 預覽：開啟時從 TIFF 轉出每頁 PNG 並快取（純 Rust，新增依賴要寫 ADR）
-- [ ] [Sonnet] 接收中狀態與即時頁數：INVITE 接通時就建立紀錄（狀態 `receiving`），每收完一頁就更新已收頁數，通話結束時再寫入最終狀態；正式的 TIFF/PDF 仍然在整通結束後才寫出（2026-10-21 使用者需求）
+- [x] [Sonnet] ANI/DNIS 擷取規則（PAI、From、Request-URI、To、Diversion 的優先順序，可依 trunk 設定）
+- [x] [Sonnet] 掛線方向和掛線原因的正規化（SIP 加 T.30）
+- [x] [Sonnet] 已讀/未讀（全體共用，記錄切換者和時間）、備註（記錄修改者和時間）的資料模型和 API
+- [x] [Sonnet] PNG 預覽：開啟時從 TIFF 轉出每頁 PNG 並快取（純 Rust，新增依賴要寫 ADR）（M3e，ADR-049）
+- [x] [Sonnet] 接收中狀態與即時頁數：INVITE 接通時就建立紀錄（狀態 `receiving`），每收完一頁就更新已收頁數，通話結束時再寫入最終狀態；正式的 TIFF/PDF 仍然在整通結束後才寫出（2026-10-21 使用者需求）
 - [x] [Sonnet] 每個 trunk 可以設定 DIS 要宣告哪些解析度（standard/fine；superfine、300/400 dpi 視需求再評估）（2026-10-21 使用者詢問）
-- [ ] [Sonnet] M3b 追加：migration 並行鎖（advisory lock）、MySQL 非交易 DDL 的可重跑性、本機 musl 建置改走 Docker 或固定 zig 0.14（M3a 審核）
-- [ ] [Sonnet] M3b 追加：result.json、DB 和 config check 顯示 ECM 與協商結果（M3d 審核）
+- [x] [Sonnet] M3b 追加：migration 並行鎖（advisory lock）、MySQL 非交易 DDL 的可重跑性、本機 musl 建置改走 Docker 或固定 zig 0.14（M3a 審核）
+- [x] [Sonnet] M3b 追加：result.json、DB 和 config check 顯示 ECM 與協商結果（M3d 審核）
 - [x] [Any] db-matrix 第一次在 GitHub 跑完後，把檢查名稱加進 `scripts/branch-protection.json`（使用者需重新套用）
-- [ ] [Sonnet] 清整排程：檔案（TIFF/PDF/PNG）和紀錄分別設定保留天數，刪檔後紀錄標記「檔案已清除」；測試要涵蓋時間邊界和刪檔失敗的情況
+- [x] [Sonnet] 清整排程：檔案（TIFF/PDF/PNG）和紀錄分別設定保留天數，刪檔後紀錄標記「檔案已清除」；測試要涵蓋時間邊界和刪檔失敗的情況
 - [x] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
 - [x] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）
-- [ ] [Opus] 撰寫 docs/test-plans/M3.md
+- [x] [Opus] 撰寫 docs/test-plans/M3.md
 - [x] [Sonnet] store：Repository traits、sqlx（SQLite/MySQL/PG）、tiberius（MSSQL）、migrations（M3a）
-- [ ] [Sonnet] delivery：folder、email（lettre、rustls）、webhook（reqwest、rustls），含重試佇列
+- [x] [Sonnet] delivery：folder、email（lettre、rustls）、webhook（reqwest、rustls），含重試佇列（M3c，ADR-047、048）
+- [ ] [Sonnet] M3f：delivery 接進 sip-faxd（設定、config check、catch_up、finalize 後通知、E2E、musl 確認）
+- [ ] [Any] 第一次 push 後確認 CI：db-matrix 的 migration 並行測試、coverage 的 `--ignore-filename-regex`、test／coverage job 的 SMTP services
+- [ ] [Any] 在有 nightly 的環境跑 t4 的 `tiff_read` fuzz 目標
 - [x] [Sonnet] t30 ECM（PPS/PPR、64 frame block）（M3d；預設關閉，ADR-035）
 - [x] [Any] CI 新增 `db-matrix` job（MySQL、MariaDB、PostgreSQL、MSSQL 的 services）
 - [ ] [Opus] 審核 docs/test-reports/M3.md
@@ -102,6 +104,8 @@
   - `logs [-f]`：查看 log。服務 log 檔要能輪替，依大小或天數，並設定保留份數。
   - 用 systemd 管理時仍使用 `serve`（前景）。偵測到服務已經由 systemd 管理時，`start`/`stop` 要提示改用 `systemctl`。
 
+- [ ] [Sonnet] 手動重新投遞（`failed`／`giving_up` 的投遞；Web 按鈕與 CLI）（M3c 審核）
+- [ ] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）
 - [ ] [Any] CI 新增 `web-ui` job
 - [ ] [Opus] 審核 docs/test-reports/M4.md
 
