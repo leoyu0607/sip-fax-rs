@@ -118,6 +118,7 @@ pub fn run_detailed(cfg: &T38LoopbackConfig) -> LoopbackOutcome {
         ecm: cfg.ecm,
         ident: "0000000001",
         modems: cfg.modems,
+        ..T30Config::default()
     };
     let answerer_cfg = T30Config {
         tx_file: None,
@@ -125,6 +126,7 @@ pub fn run_detailed(cfg: &T38LoopbackConfig) -> LoopbackOutcome {
         ecm: cfg.ecm,
         ident: "0000000002",
         modems: cfg.modems,
+        ..T30Config::default()
     };
     let mut side = [
         T38Terminal::new(true, &caller_cfg).expect("caller init"),

@@ -56,6 +56,7 @@ jobs:
       # Fax protocol crates (M2, docs/design/fax-stack.md section 0): line coverage >= 85 %.
       - run: cargo llvm-cov -p t38 --fail-under-lines 85
       - run: cargo llvm-cov -p t4 --fail-under-lines 85
+      - run: cargo llvm-cov -p t30 --fail-under-lines 85
 
   build-musl:
     runs-on: ubuntu-latest

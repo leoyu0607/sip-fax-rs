@@ -7,3 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+t4 = { path = "../t4" }
+
+[dev-dependencies]
+proptest = { workspace = true }

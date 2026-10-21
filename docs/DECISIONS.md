@@ -211,3 +211,19 @@ M1d 在 sip-core 之上建立 fax-in 呼叫控制骨架與可執行的 `sip-faxd
 - 硬限制：寬度 ≤ 8192、`max_rows` 預設 16 384，達到時以 `EndReason::RowLimit` 結束。fax-in 應依頁面長度需求設定 `max_rows`，不可關閉。
 - TIFF Class F：little endian、每頁一個 G4 strip、`FillOrder=1`、MinIsWhite、`T6Options=0`；`DateTime`／`ImageDescription` 由呼叫端提供；有 bad lines 時寫 Class F 的 `BadFaxLines` 系列 tag。PDF：每頁一個 `CCITTFaxDecode` 影像（`K -1`、`BlackIs1 false`），頁面大小以 `pixels × 72 / dpi` 計算（1/10000 pt 捨去）。
 - 測試規範：以 libtiff 比對像素必須用 `tiffcmp -t` 並附負向對照（預設的 `tiffcmp` 在 tag 不同時不比像素）。
+
+## ADR-019：T.30 線上 octet 慣例與識別字串（2026-10-21）
+- `t30` 的 frame 一律用 T.38 `hdlc-data` 的 octet 慣例（T.30 表格的書寫順序，最先送出的 bit 為 MSB）：最終 DIS 是 `FF C8 01 …`、DCS 是 `FF C8 C1 …`、X 位元是 FCF 的最高位元；DIS／DCS 的「bit n」＝FIF 第 n 個 bit＝`fif[(n-1)/8] & (0x80 >> ((n-1)%8))`。SpanDSP 記憶體內的 bit 反轉表示（`FF 13 80`）永遠不出現在本 repo。
+- CSI／TSI：字元反序、補空白到 20 個 octet，**每個 octet 再 bit-reverse**（`1`＝`0x8C`、空白＝`0x04`）。T.4 非 ECM 影像資料與 HDLC 無須反轉。
+- 延伸位元只在第 3 個 octet 起（bit 24、32、…）。依據：SpanDSP 3.1.1 原始碼與其真實封包；ITU 原文離線無法取得，請 Opus 對照 T.30 表 2 複核（尤其是掃描時間碼 21–23 的 5／10／40 ms 對應與 V.33 的 bit 13，這兩項只有 SpanDSP 的對照或沒有）。
+## ADR-020：T.30 接收端的事件／動作介面與 localTCF（2026-10-21）
+- `Receiver::on_event(now_ms, Event) -> Vec<Action>`；`Event` 有 `Start`、`Frame{data,fcs_ok}`、`Signal`、`ImageData`、`DataEnd`、`TxComplete`、`Timer`、`Abort`；`Action` 有 `SendSignal(Ced)`、`SendFrames`（一個 V.21 burst）、`StartTimer`、`CancelTimer`、`Page`、`Log`、`Done`。計時器 T4／T2 從 `TxComplete` 起算。失敗先送 DCN（`SendingDcn`），`Done` 在 DCN 送出後；Abort 與收到 DCN 直接 `Done`。
+- localTCF：收到 DCS 後不回 CFR，直接等影像（`local_tcf_sends_cfr` 預設關）。transferredTCF：零 bit ≥95 %、長度 ≥ `rate×1.2 s`。
+- 頁面品質：RTN／RTP／MCF 門檻見報告 §7-8；RTN 的頁面不交付。
+## ADR-021：T.38 接收引擎的 sans-IO 介面與 pacing（2026-10-21）
+- `fax_in::t38engine::T38Engine`：`start/advance/on_ifp/on_loss/abort/poll_output(poll_timed)/next_wakeup_ms/result/take_pages`；時間為呼叫者給的毫秒，內部以 µs 排程（V.21 300 bit/s 無法整除毫秒）。`UdptlEngine` 為薄包裝。輸出頁面一律重新編成單一 MMR strip（`ReceivedPage`），檔案輸出在 session 層。
+- pacing 與重複次數採 SpanDSP `t38_terminal` 的行為（指示 ×3、資料 ×1、sig-end ×3；CED 前 200 ms、CED 3 s、burst 前 75 ms、preamble 1 s、30 ms 一包、frame 尾 stuffed+35 bit、burst 尾 100 ms）。接收端以「情境」丟棄重複的指示與 sig-end，不依賴序號。
+## ADR-022：SpanDSP 互通的限制與測試規範（2026-10-21）
+- SpanDSP 3.1.1 在 non-ECM 下不會使用 T.6，且無論遮罩都保留 MH；non-ECM 的「MMR 互通」不可能，改在 M3 的 ECM 驗證。
+- SpanDSP 的 `NO_TCF` 模式不等 CFR，是 localTCF 對端的行為參考。`t30_terminate` 不送 DCN，只會讓我方走 T2 逾時。
+- 協定 crate 的涵蓋率量測不得同時在同一 target 目錄執行兩個 `cargo llvm-cov`（`scripts/ci-local.sh` 已加鎖）。

@@ -31,6 +31,7 @@ pub fn run(cfg: &AudioLoopbackConfig) -> SessionResult {
         ecm: cfg.ecm,
         ident: "0000000001",
         modems: None,
+        ..T30Config::default()
     };
     let answerer_cfg = T30Config {
         tx_file: None,
@@ -38,6 +39,7 @@ pub fn run(cfg: &AudioLoopbackConfig) -> SessionResult {
         ecm: cfg.ecm,
         ident: "0000000002",
         modems: None,
+        ..T30Config::default()
     };
     let mut caller = FaxModem::new(true, &caller_cfg).expect("caller init");
     let mut answerer = FaxModem::new(false, &answerer_cfg).expect("answerer init");

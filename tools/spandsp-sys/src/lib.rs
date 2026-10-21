@@ -47,6 +47,13 @@ pub const T4_COMPRESSION_T4_1D: c_int = 0x02;
 pub const T4_COMPRESSION_T4_2D: c_int = 0x04;
 pub const T4_COMPRESSION_T6: c_int = 0x08;
 
+// t30.h: internet aware fax modes (t30_set_iaf_mode)
+pub const T30_IAF_MODE_T38: c_int = 0x02;
+pub const T30_IAF_MODE_NO_TCF: c_int = 0x10;
+
+// t30.h: result codes used by the tests
+pub const T30_ERR_INCOMPATIBLE: c_int = 8;
+
 // t38_terminal.h: options
 pub const T38_TERMINAL_OPTION_NO_PACING: c_int = 0x01;
 
@@ -91,6 +98,8 @@ unsafe extern "C" {
         handler: t30_phase_e_handler_t,
         user_data: *mut c_void,
     );
+    pub fn t30_set_iaf_mode(s: *mut t30_state_t, iaf: c_int);
+    pub fn t30_terminate(s: *mut t30_state_t);
     pub fn t30_completion_code_to_str(result: c_int) -> *const c_char;
 
     pub fn fax_init(s: *mut fax_state_t, calling_party: bool) -> *mut fax_state_t;

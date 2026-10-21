@@ -209,6 +209,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sip-core",
+ "t30",
+ "t38",
+ "t4",
  "thiserror",
  "tokio",
  "toml",
@@ -669,6 +672,10 @@ dependencies = [
 [[package]]
 name = "t30"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "t4",
+]
 
 [[package]]
 name = "t38"

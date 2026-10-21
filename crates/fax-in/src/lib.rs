@@ -9,6 +9,9 @@
 //! * [`ports`]: per-call UDPTL port allocation from `[media] port_range`;
 //! * [`event`]: structured call events and results (persisted from M3);
 //! * [`capture`]: per-call SIP capture under `logs/calls/<call-id>/`.
+//!
+//! M2c adds [`t38engine`], the sans-IO T.38 receive engine (IFP in, IFP out, virtual clock)
+//! that glues `t38`, `t30` and `t4`; the socket and the session wiring follow in M2d.
 
 #![deny(missing_docs)]
 
@@ -19,6 +22,7 @@ pub mod event;
 pub mod media;
 pub mod ports;
 pub mod session;
+pub mod t38engine;
 mod timefmt;
 pub mod trunk;
 

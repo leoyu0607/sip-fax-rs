@@ -38,7 +38,12 @@ impl PageSpec {
     }
 }
 
-/// Deterministic text-like pixel pattern; 1 bit = black, MSB first.
+/// Deterministic text-like pixel pattern; 1 bit = black, MSB first. This is exactly what
+/// [`encode`] stores for page `page_idx`, so tests use it as the reference bitmap.
+pub fn render_bitmap(spec: &PageSpec, page_idx: u32) -> Vec<u8> {
+    render_page(spec, page_idx)
+}
+
 fn render_page(spec: &PageSpec, page_idx: u32) -> Vec<u8> {
     let row_bytes = spec.width.div_ceil(8) as usize;
     let mut data = vec![0u8; row_bytes * spec.height as usize];

@@ -42,18 +42,21 @@
 - [x] [Sonnet] sip-core：re-INVITE 的 200 與 BYE 同時到達的競態，200 已收到就回報 Accepted（M1d 審核 #2，M2a，ADR-016）
 - [x] [Opus] 撰寫 docs/test-plans/M2.md
 - [x] [Sonnet] t38：IFP PER codec（v0–v3）、UDPTL redundancy 和 parity FEC，加上 proptest 和 fuzz（M2a）
-- [ ] [Sonnet] t30：接收端狀態機（DIS/DCS/TCF/CFR/FTT/MCF/RTN/MPS/EOP/DCN），以表格驅動測試
+- [x] [Sonnet] t30：接收端狀態機（DIS/DCS/TCF/CFR/FTT/MCF/RTN/MPS/EOP/DCN），以表格驅動測試（M2c；R01–R10 通過，涵蓋率見 docs/test-reports/M2c.md；待 Opus 審核）
+- [x] [Sonnet] fax-in：sans-IO T.38 接收引擎 `fax_in::t38engine`（虛擬時鐘、pacing、重複指示、UDPTL 薄包裝；M2c）
 - [x] [Sonnet] t4：MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF 輸出（M2b）
-- [ ] [Sonnet] 第 2 層互通測試：與 SpanDSP `t38_terminal` 以 IFP 互打
+- [x] [Sonnet] 第 2 層互通測試：與 SpanDSP `t38_terminal` 以 IFP 互打（M2c X01–X05，Docker；逐像素比對每一頁）
 - [x] [Sonnet] fax-sim 加入 UDPTL redundancy/FEC 模型，補上 ECM + 封包遺失案例（多個 seed）（M0 審核追蹤 #1，M2a X06）
-- [ ] [Sonnet] 端到端測試以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2）
+- [x] [Sonnet] 以 t4 解碼器逐像素比對收到的頁面（M0 審核追蹤 #2；M2c 的 X 測試已做；SIP 端到端版本在 M2d）
 - [ ] [Sonnet] fax-in：串起 SIP 到 T.38、T.30 再到文件，並完成端到端多頁接收
 - [ ] [Opus] 審核 docs/test-reports/M2.md
 
-- [ ] [Sonnet] 調查 sip-core 涵蓋率一次掉到 83.5% 的不穩定測試（M2a 審核）
-- [ ] [Sonnet] t4 在小量餵入時的效能，以實際 T.38 封包大小量測（M2b 審核）
+- [x] [Sonnet] 調查 sip-core 涵蓋率一次掉到 83.5% 的不穩定測試（M2a 審核；M2c 結論見報告第 6 節）
+- [x] [Sonnet] t4 在小量餵入時的效能，以實際 T.38 封包大小量測（M2b 審核；M2c：最差 1 byte 一包也只用線路時間的 0.7 %，不需要改成可續解）
 
 ## M3 — Store / Delivery / ECM
+- [ ] [Opus] 取得 ITU-T T.30 原文，重新核對 DIS/DCS 的 bit 位置（V.33、掃描時間碼）（M2c 審核）
+- [ ] [Sonnet] ECM 下的 MMR 互通測試（補 X01 的 MMR 格）（M2c 審核）
 - [ ] [Opus] 撰寫 docs/test-plans/M3.md
 - [ ] [Sonnet] store：Repository traits、sqlx（SQLite/MySQL/PG）、tiberius（MSSQL）、migrations
 - [ ] [Sonnet] delivery：folder、email（lettre、rustls）、webhook（reqwest、rustls），含重試佇列
@@ -76,6 +79,7 @@
 - [ ] [Opus] 審核 docs/test-reports/M5.md
 
 ## M6 — 互通強化與發佈
+- [ ] [Any] 用 CS210 的實際擷取驗證 localTCF 時是否送 CFR，並調整 `cht-cs210` 預設組（M2c 審核）
 - [ ] [Sonnet] K01 的根本解：dialog 改用單一有序事件佇列（ADR-016）
 - [ ] [Opus] 撰寫 docs/test-plans/M6.md
 - [ ] [Sonnet] 建立 Sonus/AudioCodes SIP trace 回歸測試集

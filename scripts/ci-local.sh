@@ -9,7 +9,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 if command -v cargo-deny >/dev/null; then cargo deny check; else echo "warn: cargo-deny not installed, skipping"; fi
 cargo test --workspace --all-targets
 cargo test --workspace --doc
-if cargo llvm-cov --version >/dev/null 2>&1; then { cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only && cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only && cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only; }; else echo "warn: cargo-llvm-cov not installed, skipping coverage gate"; fi
+# Concurrent `cargo llvm-cov` runs share target/llvm-cov-target and wipe each other's profile data
+# (M2c: the likely cause of the one-off 83.5 % sip-core reading), so serialise them.
+cov_lock=target/.llvm-cov.lock
+mkdir -p target
+until mkdir "$cov_lock" 2>/dev/null; do sleep 2; done
+trap 'rmdir "$cov_lock" 2>/dev/null || true' EXIT
+if cargo llvm-cov --version >/dev/null 2>&1; then { cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only && cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only && cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only; }; else echo "warn: cargo-llvm-cov not installed, skipping coverage gate"; fi
+rmdir "$cov_lock" 2>/dev/null || true
 cargo zigbuild --release --locked --target x86_64-unknown-linux-musl -p sip-faxd
 file target/x86_64-unknown-linux-musl/release/sip-faxd | grep -q "statically linked"
 if command -v docker >/dev/null && docker info >/dev/null 2>&1; then

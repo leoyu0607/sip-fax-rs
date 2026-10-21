@@ -30,6 +30,11 @@ pub struct T30Config<'a> {
     pub ident: &'a str,
     /// `T30_SUPPORT_*` bit mask; `None` enables V.27ter, V.29 and V.17.
     pub modems: Option<i32>,
+    /// `T4_COMPRESSION_*` bit mask; `None` enables MH, MR and MMR.
+    pub compressions: Option<i32>,
+    /// `T30_IAF_MODE_*` mask passed to `t30_set_iaf_mode` (T38 terminals only); `None` keeps
+    /// the terminal's default (T.38 aware, with TCF).
+    pub iaf: Option<i32>,
 }
 
 fn cpath(p: &Path) -> CString {
@@ -59,8 +64,13 @@ unsafe fn configure_t30(
         );
         sys::t30_set_supported_compressions(
             t30,
-            sys::T4_COMPRESSION_T4_1D | sys::T4_COMPRESSION_T4_2D | sys::T4_COMPRESSION_T6,
+            cfg.compressions.unwrap_or(
+                sys::T4_COMPRESSION_T4_1D | sys::T4_COMPRESSION_T4_2D | sys::T4_COMPRESSION_T6,
+            ),
         );
+        if let Some(iaf) = cfg.iaf {
+            sys::t30_set_iaf_mode(t30, iaf);
+        }
         if let Some(p) = cfg.tx_file {
             let c = cpath(p);
             sys::t30_set_tx_file(t30, c.as_ptr(), -1, -1);
@@ -164,6 +174,12 @@ impl T38Terminal {
 
     pub fn completion_code(&self) -> Option<i32> {
         self.phase_e.get()
+    }
+
+    /// Ends the call from this side (`t30_terminate`), as if the user hung up.
+    pub fn terminate(&mut self) {
+        // SAFETY: ptr valid.
+        unsafe { sys::t30_terminate(sys::t38_terminal_get_t30_state(self.ptr)) };
     }
 }
 

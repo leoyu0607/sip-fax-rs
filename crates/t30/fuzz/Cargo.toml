@@ -1,0 +1,30 @@
+[package]
+name = "t30-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Own workspace: excluded from the main workspace so that stable `cargo build/test --workspace`
+# never needs nightly or libfuzzer.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+t30 = { path = ".." }
+
+[[bin]]
+name = "frame_parse"
+path = "fuzz_targets/frame_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "receiver_events"
+path = "fuzz_targets/receiver_events.rs"
+test = false
+doc = false
+bench = false

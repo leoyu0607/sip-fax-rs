@@ -5,7 +5,7 @@
 crates/
   sip-core/     獨立 SIP 引擎（不依賴任何 fax crate，日後可拆成獨立專案）
   t38/          T.38 IFP（ASN.1 PER，v0–v3）+ UDPTL（redundancy / parity FEC）
-  t30/          T.30 狀態機（先做接收端 Phase A–E，之後加 ECM）
+  t30/          T.30 狀態機（接收端、non-ECM，M2c；ECM 在 M3）：純函式 `Receiver::on_event`，依賴 t4 解碼頁面
   t4/           MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF（CCITTFaxDecode 直接嵌入）
   fax-modem/    G.711 passthrough：CNG/CED、V.21 HDLC、V.27ter/V.29/V.17（後期）
   fax-in/       進線呼叫控制：SIP dialog ↔ T.38/音訊 ↔ T.30 ↔ 文件產出
@@ -48,6 +48,7 @@ tests/e2e/      端到端整合測試                           ← M1 起
 | `session` | `FaxSession`／`FaxSessionFactory` trait；M1d 為只維持通話的 stub，M2 換成 T.38/T.30 |
 | `event` | `CallEvent`、`CallResult`（trunk、T.38 協商參數、時間戳、結果／失敗原因），M3 寫入 DB |
 | `capture` | 以訊息 tap 寫 `logs/calls/<call-id>/sip.log` 與 `result.json`；`keep = "failed"` 只留失敗通話 |
+| `t38engine`（M2c） | sans-IO 的 T.38 接收引擎：`T38Engine`（`start/advance/on_ifp/poll_output`，虛擬時鐘）把 IFP 轉成 t30 事件、把 t30 動作排成帶 SpanDSP 式 pacing 的 IFP 序列（指示重複 3 次、V.21 逐 octet 配合 300 bit/s），收到的頁面重新編成 MMR（`ReceivedPage`）；`UdptlEngine` 是 UDPTL 薄包裝（redundancy/FEC 送出，接收端補洞與 Gap 轉成壞 FCS）。socket 與 `T38FaxSession` 在 M2d |
 
 `sip-faxd serve --config <path>` 啟動 `FaxIn`，`sip-faxd config check` 驗證設定檔。
 
