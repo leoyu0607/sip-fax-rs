@@ -109,7 +109,7 @@ pub struct FaxdOptions {
     pub real_fax: bool,
     /// Data directory for received faxes (default: `<scratch>/data`).
     pub data_dir: Option<PathBuf>,
-    /// `[database] url` (default: a SQLite file `fax.db` in the scratch directory, so that every
+    /// `[database] url` (default: a SQLite file `fax.db` of its own in the temp dir, so that every
     /// instance has its own database).
     pub database_url: Option<String>,
     /// Write the log to `<scratch>/logs/sip-faxd.log` (default: no log file, stderr only).
@@ -195,10 +195,15 @@ impl Faxd {
         let port = opts.port.unwrap_or_else(free_port);
         let calls_dir = dir.join("calls");
         let data_dir = opts.data_dir.clone().unwrap_or_else(|| dir.join("data"));
-        let db_url = opts
-            .database_url
-            .clone()
-            .unwrap_or_else(|| format!("sqlite://{}/fax.db", dir.display()));
+        let db_url = opts.database_url.clone().unwrap_or_else(|| {
+            // Not in the scratch dir: on a Docker Desktop bind mount the file locks SQLite
+            // relies on do not work between processes, and after a restart of the service a
+            // reader could keep seeing an old WAL (M4d M06).
+            let db_dir = std::env::temp_dir().join(format!("sf{}-{name}-db", std::process::id()));
+            let _ = std::fs::remove_dir_all(&db_dir);
+            std::fs::create_dir_all(&db_dir).expect("create the database dir");
+            format!("sqlite://{}/fax.db", db_dir.display())
+        });
         // unix socket paths are limited to about 100 bytes: keep the socket short
         static NEXT_SOCKET: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let socket_no = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

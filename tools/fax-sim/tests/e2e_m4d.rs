@@ -31,7 +31,10 @@ use fax_sim::sip_uac::{ReinviteBy, UacConfig, audio_offer, run_call};
 use interop::{Faxd, FaxdOptions, Prepared, faxd_cli, faxd_command};
 use sip_core::endpoint::{Endpoint, EndpointConfig, InviteError, InviteOptions};
 use sip_core::message::SipUri;
-use store::{ConnectOptions, FaxRecord, FaxStatus, FaxStore, ListFilter, PageRequest};
+use store::{
+    ConfigAudit, ConnectOptions, FaxRecord, FaxStatus, FaxStore, ListFilter, NewSession,
+    PageRequest,
+};
 
 type Db = Arc<dyn FaxStore>;
 
@@ -56,7 +59,16 @@ async fn final_row(db: &Db, call_id: &str) -> FaxRecord {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("the final row of {call_id} never appeared");
+    let rows = db
+        .list(&ListFilter::default(), PageRequest::default())
+        .await
+        .map(|p| {
+            p.items
+                .iter()
+                .map(|r| format!("{} {} {:?} {}", r.id, r.call_id, r.fax_status, r.pages))
+                .collect::<Vec<_>>()
+        });
+    panic!("the final row of {call_id} never appeared; rows: {rows:?}");
 }
 
 /// Waits until the newest row shows at least `pages` confirmed pages.
@@ -623,6 +635,45 @@ async fn m06_restart_waits_for_the_call_then_starts_a_new_process_with_the_same_
     let db = open(&d.prep.db_url).await;
     let old = d.pid();
     let before = d.status().unwrap();
+    // A runtime setting changed in the database and a login session, both made before the
+    // restart: the new process keeps them (it does not import the file again, ADR-051).
+    // Written through a connection of its own that is closed at once: on a Docker Desktop bind
+    // mount the SQLite WAL index is not shared coherently between processes, and a pool that
+    // has written stopped seeing the rows the service wrote after it.
+    let w = open(&d.prep.db_url).await;
+    let call = w
+        .config_get("call")
+        .await
+        .unwrap()
+        .expect("[call] imported");
+    let mut body: serde_json::Value = serde_json::from_str(&call.body).unwrap();
+    body["station_id"] = "0211112222".into();
+    let audit = ConfigAudit {
+        action: "update".into(),
+        before: Some(call.body.clone()),
+        after: Some(body.to_string()),
+    };
+    let call = w
+        .config_put("call", &body.to_string(), Some(call.version), "e2e", &audit)
+        .await
+        .unwrap();
+    let admin = w
+        .user_get_by_name("admin")
+        .await
+        .unwrap()
+        .expect("the first administrator");
+    let token_hash = "06".repeat(32);
+    w.session_create(&NewSession {
+        token_hash: token_hash.clone(),
+        user_id: admin.id,
+        created_at: chrono::Utc::now(),
+        expires_at: chrono::Utc::now() + chrono::Duration::hours(8),
+        ip: Some("127.0.0.1".into()),
+        user_agent: None,
+    })
+    .await
+    .unwrap();
+    w.close().await;
     let src = source_tiff(
         &scratch(&format!("src-{tag}")),
         "src.tif",
@@ -653,6 +704,18 @@ async fn m06_restart_waits_for_the_call_then_starts_a_new_process_with_the_same_
     assert_eq!(after["pid"], new);
     assert_eq!(after["listen"], before["listen"], "the same listeners");
     assert_eq!(after["state"], "running");
+    let call_after = db.config_get("call").await.unwrap().unwrap();
+    assert_eq!(
+        (call_after.version, call_after.body.as_str()),
+        (call.version, call.body.as_str()),
+        "the setting changed in the database is kept, not imported from the file again"
+    );
+    assert!(call_after.body.contains("0211112222"));
+    let sess = db.session_get(&token_hash).await.unwrap();
+    assert!(
+        sess.is_some_and(|s| s.user_id == admin.id),
+        "the login session survives the restart"
+    );
     // the call made before the restart is complete and kept
     let row = final_row(&db, &rep.call_id).await;
     assert_eq!((row.fax_status, row.pages), (FaxStatus::Received, 4));

@@ -100,6 +100,7 @@
 - [ ] [Sonnet] M4b：web crate（REST、WebSocket、HTTP/HTTPS 與自簽憑證、安全 header）
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [ ] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
+  - 2026-10-22：實作完成（分支 `m4d-service-management`，建立在 M4a 之上），測試報告 `docs/test-reports/M4d.md`，**待 Opus 審核**；ADR-052。M4a 合併進 main 後要 rebase。
 - [ ] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）
 - [ ] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）
 - [ ] [Sonnet] web-ui：Svelte + Vite SPA，以 rust-embed 內嵌
