@@ -93,7 +93,17 @@ cd sip-fax-rs-<version>-linux-x86_64
 - **Log 檔**：`logs/sip-faxd.log`，依大小（`[log] max_size_mb`，預設 50）或每天輪替，保留 `[log] keep`（14）份舊檔並以 gzip 壓縮。前景的 `serve` 同時輸出到檔案與 stderr。
 - **控制 socket**：一行一個 JSON（`status`、`calls`、`stop`、`reload`、`subscribe`），權限 0600；能開啟它的人就等同管理員。TUI 與修改設定後的 `reload` 都使用它。
 
-這些指令需要 Linux（flock、setsid、unix socket）；其他系統只能使用 `serve`。
+- **`run/` 必須在本機檔案系統上**：`flock` 在某些網路檔案系統（以及 Docker Desktop 的 bind mount）上不會真的上鎖，這時執行中的服務會被誤判為沒有在執行。
+
+### TUI
+
+```sh
+./sip-faxd tui                # 在伺服器本機執行
+```
+
+顯示最新的傳真列表（即時更新）、傳真詳細資料與投遞紀錄、進行中的通話，以及服務狀態。按鍵：`Tab` 在傳真、通話、狀態之間切換；`↑`／`↓` 或 `j`／`k` 移動；`Enter` 開啟詳細資料，`Esc` 返回；`u` 只顯示未讀；`r` 把選取的傳真設為已讀或未讀；`n` 編輯備註（`Enter` 儲存、`Esc` 取消）；`q` 離開。傳真資料直接讀寫 DB（操作者記為 `cli:<作業系統帳號>`，與 `fax` 指令相同），通話與狀態來自控制 socket；服務沒有執行時，TUI 會顯示提示，但仍可操作 DB。介面語言跟隨 `LANG`（`zh_TW` 開頭用繁中，其他用英文）。
+
+這些指令需要 unix 系統（Linux；macOS 可用於測試），因為用到 flock、setsid 與 unix socket；其他系統只能使用 `serve`。
 
 ## 傳真紀錄與資料庫
 

@@ -86,7 +86,17 @@ The first start creates the administrator `admin` with a random password in `con
 - **Log file:** `logs/sip-faxd.log`, rotated by size (`[log] max_size_mb`, default 50) or every day, `[log] keep` (14) old files are kept and gzip-compressed. A foreground `serve` writes the file and stderr.
 - **Control socket:** one JSON object per line (`status`, `calls`, `stop`, `reload`, `subscribe`), mode 0600; whoever can open it is an administrator. The TUI and the `reload` after a settings change use it.
 
-These commands need Linux (flock, setsid, unix socket). On other systems only `serve` is available.
+- **`run/` must be on a local file system:** `flock` does not lock on some network file systems (and on Docker Desktop bind mounts), and then a running service looks stopped.
+
+### TUI
+
+```sh
+./sip-faxd tui                # on the server itself
+```
+
+The list of the latest faxes (live), their details with the delivery attempts, the calls in progress and the service status. Keys: `Tab` switches between faxes, calls and status; `↑`/`↓` or `j`/`k` move; `Enter` opens the details, `Esc` goes back; `u` shows only unread faxes; `r` marks the selected fax read or unread; `n` edits its note (`Enter` saves, `Esc` cancels); `q` quits. The fax data comes from the database (changes are recorded as `cli:<os user>`, like the `fax` command), the calls and the status from the control socket: without a running service the TUI says so and still works on the database. The language follows `LANG` (`zh_TW…` → Traditional Chinese, otherwise English).
+
+These commands need a unix system (Linux; macOS works for testing) because of flock, setsid and the unix socket. On other systems only `serve` is available.
 
 ## Fax records and the database
 
