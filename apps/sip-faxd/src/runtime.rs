@@ -106,10 +106,11 @@ pub struct Runtime {
 
 impl Runtime {
     /// Opens `conf/secret.key`, imports or loads the configuration, makes the first
-    /// administrator when there is none, and starts the housekeeping of sessions. The database
+    /// administrator when there is none, and starts the housekeeping of sessions (`db_ready`: the
+    /// database answered at start). The database
     /// being down is not an error: the configuration file is used until it is back (a task keeps
     /// trying).
-    pub async fn start(cfg: &AppConfig, db: Arc<Db>) -> Runtime {
+    pub async fn start(cfg: &AppConfig, db: Arc<Db>, db_ready: bool) -> Runtime {
         let secrets = Arc::new(SecretBox::load_or_create(&cfg.conf_dir.join("secret.key")));
         match secrets.status() {
             runtime_config::KeyStatus::Created => tracing::warn!(
@@ -137,7 +138,16 @@ impl Runtime {
             Arc::new(SystemClock),
             AuthConfig::default(),
         ));
-        let boot = config.bootstrap().await;
+        // A database that did not answer a moment ago is not asked again here (a connection
+        // attempt can take half a minute): the file's configuration serves until the retry
+        // task below finds the database.
+        let boot = if db_ready {
+            tokio::time::timeout(Duration::from_secs(20), config.bootstrap())
+                .await
+                .unwrap_or_else(|_| Boot::Unreachable("timed out".into()))
+        } else {
+            Boot::Unreachable("the database was not reachable at start".into())
+        };
         let mut rt = Runtime {
             config,
             auth,
@@ -268,7 +278,7 @@ mod tests {
             db.start().await.unwrap(),
             crate::db::Startup::Ready { .. }
         ));
-        let rt = Runtime::start(&cfg, db.clone()).await;
+        let rt = Runtime::start(&cfg, db.clone(), true).await;
         // the first administrator exists, with the password in a private file
         let users = rt.auth.list_users().await.unwrap();
         assert_eq!(users.len(), 1);

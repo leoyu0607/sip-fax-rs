@@ -277,8 +277,10 @@ async fn run(cfg: AppConfig) -> ExitCode {
     // single call is answered. An unreachable database does not: the calls are received and
     // written to the database as soon as it is back.
     let db = Arc::new(Db::new(&cfg, &base));
+    let mut db_ready = false;
     match db.start().await {
         Ok(Startup::Ready { stale_fixed }) => {
+            db_ready = true;
             if stale_fixed > 0 {
                 tracing::warn!(
                     rows = stale_fixed,
@@ -298,7 +300,7 @@ async fn run(cfg: AppConfig) -> ExitCode {
     }
     // The runtime configuration (sip, media, call, capture, trunks, routes, delivery, retention)
     // lives in the database from the first start on (ADR-051); the file only seeds it.
-    let rt = runtime::Runtime::start(&cfg, db.clone()).await;
+    let rt = runtime::Runtime::start(&cfg, db.clone(), db_ready).await;
     let live = rt.current();
     let fax_cfg = live.to_fax_in(&cfg.fax_in.storage);
     for w in fax_cfg.warnings() {
