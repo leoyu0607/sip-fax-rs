@@ -90,4 +90,16 @@ pub trait FaxStore: Send + Sync {
     async fn add_delivery(&self, d: &NewDelivery) -> Result<i64>;
     /// Delivery attempts of a fax, oldest first.
     async fn list_deliveries(&self, fax_id: i64) -> Result<Vec<DeliveryAttempt>>;
+    /// Attempts that are due: `status = pending` and `next_try_at` is NULL or `<= now`, ordered by
+    /// `next_try_at, id`, at most `limit` rows (M3c worker queue).
+    async fn due_deliveries(&self, now: DateTime<Utc>, limit: u32) -> Result<Vec<DeliveryAttempt>>;
+    /// Record the outcome of an attempt: new status, error text and next retry time. Returns
+    /// whether a row changed.
+    async fn update_delivery(
+        &self,
+        id: i64,
+        status: DeliveryStatus,
+        last_error: Option<&str>,
+        next_try_at: Option<DateTime<Utc>>,
+    ) -> Result<bool>;
 }

@@ -1103,6 +1103,83 @@ async fn s12_deliveries_table_body(env: &Env) {
     assert!(st.list_deliveries(id + 1000).await.unwrap().is_empty());
 }
 
+// ---------------------------------------------------------------- delivery queue (M3c)
+db_case!(s13_delivery_queue, s13_delivery_queue_body);
+async fn s13_delivery_queue_body(env: &Env) {
+    let st = &env.store;
+    let id = st
+        .insert_receiving(&nf("call-s13", "s13", T0))
+        .await
+        .unwrap();
+    let mk = |target: &str, status, next: Option<i64>| NewDelivery {
+        fax_id: id,
+        target: target.into(),
+        kind: "folder".into(),
+        attempt: 1,
+        status,
+        next_try_at: next.map(t),
+    };
+    let a = st
+        .add_delivery(&mk("a", DeliveryStatus::Pending, Some(T0 + 2_000)))
+        .await
+        .unwrap();
+    let b = st
+        .add_delivery(&mk("b", DeliveryStatus::Pending, Some(T0 + 1_000)))
+        .await
+        .unwrap();
+    let c = st
+        .add_delivery(&mk("c", DeliveryStatus::Pending, None))
+        .await
+        .unwrap();
+    let _done = st
+        .add_delivery(&mk("d", DeliveryStatus::Done, Some(T0 - 1_000)))
+        .await
+        .unwrap();
+    // Nothing due before the first next_try_at except the NULL one.
+    let due = st.due_deliveries(t(T0 + 500), 10).await.unwrap();
+    assert_eq!(due.iter().map(|d| d.id).collect::<Vec<_>>(), vec![c]);
+    // Ordered by next_try_at (then id); exactly-equal times are due; only pending rows.
+    let due = st.due_deliveries(t(T0 + 2_000), 10).await.unwrap();
+    assert_eq!(due.iter().map(|d| d.id).collect::<Vec<_>>(), vec![c, b, a]);
+    // The limit is honoured.
+    assert_eq!(st.due_deliveries(t(T0 + 2_000), 2).await.unwrap().len(), 2);
+
+    // update_delivery changes status, error, next_try_at and updated_at; created_at is kept.
+    env.clock.advance(Duration::seconds(30));
+    let err = "連線失敗 '\";--";
+    assert!(
+        st.update_delivery(b, DeliveryStatus::Failed, Some(err), None)
+            .await
+            .unwrap()
+    );
+    let row = st
+        .list_deliveries(id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|d| d.id == b)
+        .unwrap();
+    assert_eq!(row.status, DeliveryStatus::Failed);
+    assert_eq!(row.last_error.as_deref(), Some(err));
+    assert_eq!(row.next_try_at, None);
+    assert_eq!(row.created_at, t(T0));
+    assert_eq!(row.updated_at, t(T0 + 30_000));
+    // A failed row is no longer due.
+    let due = st.due_deliveries(t(T0 + 9_000), 10).await.unwrap();
+    assert_eq!(due.iter().map(|d| d.id).collect::<Vec<_>>(), vec![c, a]);
+    // Unknown id and over-long error text.
+    assert!(
+        !st.update_delivery(a + 1000, DeliveryStatus::Done, None, None)
+            .await
+            .unwrap()
+    );
+    assert!(matches!(
+        st.update_delivery(a, DeliveryStatus::Failed, Some(&"x".repeat(4001)), None)
+            .await,
+        Err(Error::TooLong { .. })
+    ));
+}
+
 // S11 (connection loss). Needs a restartable server container, so it takes the write lock: no other
 // case may run against the same server while it is stopped.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
