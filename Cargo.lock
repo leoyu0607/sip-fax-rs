@@ -547,13 +547,17 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fax-in"
 version = "0.1.1"
 dependencies = [
+ "async-trait",
  "bytes",
+ "chrono",
  "serde",
  "serde_json",
  "sip-core",
+ "store",
  "t30",
  "t38",
  "t4",
+ "tempfile",
  "thiserror",
  "tokio",
  "toml",
@@ -1589,10 +1593,14 @@ dependencies = [
 name = "sip-faxd"
 version = "0.1.1"
 dependencies = [
+ "async-trait",
+ "chrono",
  "clap",
  "fax-in",
  "serde",
  "serde_json",
+ "store",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",

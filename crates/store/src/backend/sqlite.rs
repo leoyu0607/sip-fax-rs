@@ -51,8 +51,102 @@ fn bind(q: Q, p: &Val) -> Q {
     }
 }
 
+fn decode(rows: Vec<sqlx::sqlite::SqliteRow>, kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut vals = Vec::with_capacity(kinds.len());
+        for (i, k) in kinds.iter().enumerate() {
+            // SQLite is dynamically typed: decode by the requested kind, not the declared type.
+            vals.push(match k {
+                Kind::Int => Val::I(
+                    row.try_get_unchecked::<Option<i64>, _>(i)
+                        .map_err(decode_err)?,
+                ),
+                Kind::Bool => Val::B(
+                    row.try_get_unchecked::<Option<i64>, _>(i)
+                        .map_err(decode_err)?
+                        .map(|v| v != 0),
+                ),
+                Kind::Str => Val::S(
+                    row.try_get_unchecked::<Option<String>, _>(i)
+                        .map_err(decode_err)?,
+                ),
+                Kind::Time => {
+                    let s = row
+                        .try_get_unchecked::<Option<String>, _>(i)
+                        .map_err(decode_err)?;
+                    Val::T(s.as_deref().map(parse_ts).transpose()?)
+                }
+            });
+        }
+        out.push(vals);
+    }
+    Ok(out)
+}
+
+/// The whole migration runs in one `BEGIN EXCLUSIVE` transaction on one connection: other
+/// processes wait (busy timeout) until it commits, and a failure rolls everything back.
+struct SqliteSession {
+    conn: sqlx::pool::PoolConnection<sqlx::Sqlite>,
+}
+
+#[async_trait]
+impl MigrationSession for SqliteSession {
+    async fn execute(&mut self, sql: &str, params: &[Val]) -> Result<u64> {
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.to_string()));
+        for p in params {
+            q = bind(q, p);
+        }
+        Ok(q.execute(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?
+            .rows_affected())
+    }
+    async fn query(&mut self, sql: &str, params: &[Val], kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.to_string()));
+        for p in params {
+            q = bind(q, p);
+        }
+        let rows = q
+            .fetch_all(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        decode(rows, kinds)
+    }
+    fn transactional_ddl(&self) -> bool {
+        true
+    }
+    async fn begin(&mut self) -> Result<()> {
+        Ok(()) // already inside the session's exclusive transaction
+    }
+    async fn commit(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn finish(mut self: Box<Self>, ok: bool) -> Result<()> {
+        let end = if ok { "COMMIT" } else { "ROLLBACK" };
+        sqlx::query(end)
+            .execute(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Backend for Sqlite {
+    async fn migration_session(&self) -> Result<Box<dyn MigrationSession>> {
+        let mut conn = self.pool.acquire().await.map_err(Error::from_sqlx)?;
+        // waits up to the connection's busy timeout (10 s) for another process to finish
+        sqlx::query("BEGIN EXCLUSIVE")
+            .execute(&mut *conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        Ok(Box::new(SqliteSession { conn }))
+    }
+
     fn kind(&self) -> BackendKind {
         BackendKind::Sqlite
     }
@@ -74,36 +168,7 @@ impl Backend for Sqlite {
             q = bind(q, p);
         }
         let rows = q.fetch_all(&self.pool).await.map_err(Error::from_sqlx)?;
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut vals = Vec::with_capacity(kinds.len());
-            for (i, k) in kinds.iter().enumerate() {
-                // SQLite is dynamically typed: decode by the requested kind, not the declared type.
-                vals.push(match k {
-                    Kind::Int => Val::I(
-                        row.try_get_unchecked::<Option<i64>, _>(i)
-                            .map_err(decode_err)?,
-                    ),
-                    Kind::Bool => Val::B(
-                        row.try_get_unchecked::<Option<i64>, _>(i)
-                            .map_err(decode_err)?
-                            .map(|v| v != 0),
-                    ),
-                    Kind::Str => Val::S(
-                        row.try_get_unchecked::<Option<String>, _>(i)
-                            .map_err(decode_err)?,
-                    ),
-                    Kind::Time => {
-                        let s = row
-                            .try_get_unchecked::<Option<String>, _>(i)
-                            .map_err(decode_err)?;
-                        Val::T(s.as_deref().map(parse_ts).transpose()?)
-                    }
-                });
-            }
-            out.push(vals);
-        }
-        Ok(out)
+        decode(rows, kinds)
     }
 
     async fn insert_id(&self, sql: &str, params: &[Val]) -> Result<i64> {

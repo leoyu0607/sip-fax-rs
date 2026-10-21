@@ -71,6 +71,36 @@ pub fn backend_for_url(url: &str) -> Result<BackendKind> {
     }
 }
 
+/// `sip-faxd db migrate`: open the database without insisting on an up-to-date schema, apply the
+/// pending migrations (under the migration lock) and close it again.
+pub async fn migrate_url(url: &str, opts: ConnectOptions) -> Result<(BackendKind, MigrateReport)> {
+    let st = open_sql(url, &opts).await?;
+    let kind = st.backend();
+    let report = st.migrate().await;
+    st.close().await;
+    Ok((kind, report?))
+}
+
+/// Test support: record `version` in `schema_migrations` of an existing database, as a newer
+/// sip-faxd would have (used to check that an older binary refuses to start).
+#[doc(hidden)]
+pub async fn test_record_schema_version(url: &str, version: i32) -> Result<()> {
+    let st = open_sql(url, &ConnectOptions::default()).await?;
+    st.migrate().await?;
+    st.raw()
+        .execute(
+            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+            &[
+                db::Val::from(version),
+                db::Val::from("from-the-future"),
+                db::Val::from(chrono::Utc::now()),
+            ],
+        )
+        .await?;
+    st.close().await;
+    Ok(())
+}
+
 /// Connect with default options (auto-migrate on).
 pub async fn connect(url: &str) -> Result<Arc<dyn FaxStore>> {
     connect_with(url, ConnectOptions::default()).await
@@ -81,7 +111,8 @@ pub async fn connect_with(url: &str, opts: ConnectOptions) -> Result<Arc<dyn Fax
     Ok(Arc::new(connect_sql(url, opts).await?))
 }
 
-pub(crate) async fn connect_sql(url: &str, opts: ConnectOptions) -> Result<SqlStore> {
+/// Opens the pool without looking at the schema (the migration tests race several of these).
+pub(crate) async fn open_sql(url: &str, opts: &ConnectOptions) -> Result<SqlStore> {
     let kind = backend_for_url(url)?;
     let be: Box<dyn db::Backend> = match kind {
         BackendKind::Sqlite => {
@@ -99,7 +130,12 @@ pub(crate) async fn connect_sql(url: &str, opts: ConnectOptions) -> Result<SqlSt
             Box::new(backend::mssql::Mssql::connect(url, opts.max_connections).await?)
         }
     };
-    let store = SqlStore::new(be, opts.clock);
+    Ok(SqlStore::new(be, opts.clock.clone()))
+}
+
+pub(crate) async fn connect_sql(url: &str, opts: ConnectOptions) -> Result<SqlStore> {
+    let store = open_sql(url, &opts).await?;
+    let kind = store.backend();
     if opts.auto_migrate {
         store.migrate().await?;
     } else {

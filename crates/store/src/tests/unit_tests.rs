@@ -241,9 +241,36 @@ fn every_backend_ships_the_same_migration_versions() {
         for m in ms {
             assert!(!crate::db::split_statements(m.sql).is_empty());
             assert!(
-                m.sql.contains("CREATE TABLE faxes")
+                (m.sql.contains("CREATE TABLE faxes")
+                    || m.sql.contains("CREATE TABLE IF NOT EXISTS faxes"))
                     && m.sql.contains("delivery_attempts")
                     && m.sql.contains("settings")
+            );
+        }
+    }
+}
+
+/// MySQL / MariaDB cannot roll DDL back, so every statement of their migrations must be safe to
+/// run again after a failure half way (M3a review).
+#[test]
+fn mysql_migrations_are_safe_to_run_again() {
+    for m in crate::migrate::migrations(BackendKind::Mysql) {
+        for stmt in crate::db::split_statements(m.sql) {
+            let up = stmt.to_ascii_uppercase();
+            assert!(
+                up.starts_with("CREATE TABLE IF NOT EXISTS "),
+                "migration {:04}_{}: not repeatable: {}",
+                m.version,
+                m.name,
+                stmt.lines().next().unwrap_or("")
+            );
+            assert!(
+                !up.starts_with("CREATE INDEX")
+                    && !up.contains(
+                        "
+CREATE INDEX"
+                    ),
+                "MySQL has no CREATE INDEX IF NOT EXISTS: put the index in the table definition"
             );
         }
     }

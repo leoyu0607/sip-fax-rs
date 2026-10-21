@@ -57,9 +57,55 @@ pub fn serialize_opt_time<S: serde::Serializer>(
     }
 }
 
+/// Parses the output of [`rfc3339`] (and any other RFC 3339 instant).
+pub fn parse_rfc3339(text: &str) -> Option<SystemTime> {
+    let dt = chrono::DateTime::parse_from_rfc3339(text).ok()?;
+    let ms = dt.timestamp_millis();
+    if ms >= 0 {
+        Some(UNIX_EPOCH + Duration::from_millis(u64::try_from(ms).ok()?))
+    } else {
+        UNIX_EPOCH.checked_sub(Duration::from_millis(ms.unsigned_abs()))
+    }
+}
+
+/// Serde helper: `SystemTime` from an RFC 3339 string.
+pub fn deserialize_time<'de, D: serde::Deserializer<'de>>(d: D) -> Result<SystemTime, D::Error> {
+    let s = <String as serde::Deserialize>::deserialize(d)?;
+    parse_rfc3339(&s).ok_or_else(|| serde::de::Error::custom(format!("bad RFC 3339 time {s:?}")))
+}
+
+/// Serde helper for `Option<SystemTime>`.
+pub fn deserialize_opt_time<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<SystemTime>, D::Error> {
+    match <Option<String> as serde::Deserialize>::deserialize(d)? {
+        None => Ok(None),
+        Some(s) => parse_rfc3339(&s)
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom(format!("bad RFC 3339 time {s:?}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rfc3339_round_trip() {
+        for t in [
+            UNIX_EPOCH,
+            UNIX_EPOCH + Duration::new(1_709_251_199, 123_000_000),
+            UNIX_EPOCH + Duration::new(1_792_540_800, 999_000_000),
+        ] {
+            assert_eq!(parse_rfc3339(&rfc3339(t)), Some(t));
+        }
+        assert_eq!(parse_rfc3339("not a time"), None);
+        // before the epoch
+        assert_eq!(
+            parse_rfc3339("1969-12-31T23:59:59.000Z"),
+            Some(UNIX_EPOCH - Duration::from_secs(1))
+        );
+    }
 
     #[test]
     fn known_instants() {

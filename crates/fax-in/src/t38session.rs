@@ -215,8 +215,10 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
     let mut buf = vec![0u8; MAX_DATAGRAM];
 
     eng.start(0);
+    let mut pages_reported = 0usize;
     let end = loop {
         send_due(&sock, &mut eng, remote, &sink, &mut counters).await;
+        report_progress(&ctx, &eng, &mut pages_reported);
         if eng.is_done() {
             break End::Done;
         }
@@ -312,6 +314,11 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
         pdf: None,
         store_error: None,
         udptl: counters,
+        tiff_size: None,
+        pdf_size: None,
+        ecm: result.ecm,
+        ecm_ppr_sent: result.ecm_ppr_sent,
+        ecm_frames_lost: result.ecm_frames_lost,
     };
     if !pages.is_empty() {
         match store_pages(
@@ -323,9 +330,11 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
         )
         .await
         {
-            Ok((tif, pdf)) => {
-                report.tiff = Some(tif.display().to_string());
-                report.pdf = Some(pdf.display().to_string());
+            Ok(stored) => {
+                report.tiff = Some(stored.tiff.display().to_string());
+                report.pdf = Some(stored.pdf.display().to_string());
+                report.tiff_size = Some(stored.tiff_size);
+                report.pdf_size = Some(stored.pdf_size);
             }
             Err(e) => {
                 tracing::error!(call_id = %ctx.call_id, "cannot store the received fax: {e}");
@@ -360,6 +369,17 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(report);
     outcome
+}
+
+/// Tells the controller about pages T.30 confirmed since the last call.
+fn report_progress(ctx: &SessionContext, eng: &UdptlEngine, reported: &mut usize) {
+    let n = eng.engine().pages().len();
+    while *reported < n {
+        *reported += 1;
+        if let Some(tx) = &ctx.progress {
+            let _ = tx.send(u32::try_from(*reported).unwrap_or(u32::MAX));
+        }
+    }
 }
 
 /// Sends what the engine released, to the current peer address.
@@ -399,14 +419,22 @@ pub fn file_stem(call_id: &str) -> String {
     format!("{safe}-{:08x}", h >> 32)
 }
 
-/// Writes `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<stem>.tif` and `.pdf`; returns both paths.
+/// The files of a received fax.
+struct Stored {
+    tiff: PathBuf,
+    pdf: PathBuf,
+    tiff_size: u64,
+    pdf_size: u64,
+}
+
+/// Writes `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<stem>.tif` and `.pdf`; returns both paths and sizes.
 async fn store_pages(
     data_dir: &Path,
     call_id: &str,
     at: SystemTime,
     pages: &[ReceivedPage],
     tsi: Option<&str>,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> Result<Stored, String> {
     let (y, m, d) = timefmt::ymd(at);
     let dir = data_dir
         .join("faxes")
@@ -448,7 +476,12 @@ async fn store_pages(
     let pdf_path = dir.join(format!("{name}.pdf"));
     write_atomic(&tif_path, &tiff).await?;
     write_atomic(&pdf_path, &pdf).await?;
-    Ok((tif_path, pdf_path))
+    Ok(Stored {
+        tiff: tif_path,
+        pdf: pdf_path,
+        tiff_size: tiff.len() as u64,
+        pdf_size: pdf.len() as u64,
+    })
 }
 
 async fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {

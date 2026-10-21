@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3）：資料庫紀錄、PNG 預覽、清整、投遞、ECM。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** alpha，現場試接中（最新版：[v0.1.1-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.1.1-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（non-ECM、MH/MR、最高 14400 bit/s），並輸出成 TIFF 與 PDF。開發中（M3，尚未發佈）：**傳真紀錄存入資料庫**（列表含 ANI/DNIS、掛線原因、接收中狀態與頁數、清整）、ECM 接收（預設關閉）、每個 trunk 的解析度設定；M3 還沒做完的有 PNG 預覽與投遞（Email／Webhook／資料夾）。尚未提供：管理介面、G.711 passthrough。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 
@@ -57,9 +57,25 @@ cd sip-fax-rs-<version>-linux-x86_64
 `sip-faxd` 讀取 TOML 設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）。[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) 說明所有選項：SIP 監聽、每個上游的 `[[trunks]]` 設定（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、選用的 REGISTER），以及每通來電的 SIP／UDPTL 擷取和傳真輸出目錄。
 
 ```sh
-./sip-faxd config check --config conf/sip-faxd.toml   # 驗證設定
+./sip-faxd config check --config conf/sip-faxd.toml   # 驗證設定（會顯示資料庫、清整、傳真與號碼設定）
 ./sip-faxd serve --config conf/sip-faxd.toml          # 執行
 ```
+
+除了 SIP 相關設定，設定檔還有 `[database]`（`url`、`auto_migrate`、`max_connections`）、`[retention]`（`files_days`、`records_days`、`run_at`），以及每個 trunk 的 `[trunks.fax]`（`resolutions`、`ecm`）和 `[trunks.numbers]`（進線號碼與撥打號碼取自哪個 header：`ani_sources`、`dnis_sources`、`strip_plus`、`ani_strip_prefix`、`dnis_strip_prefix`）。
+
+## 傳真紀錄與資料庫
+
+每通來電在 `[database] url` 指定的資料庫的 `faxes` 資料表有一筆紀錄（預設為 SQLite 檔案 `data/sip-faxd.db`；也可用 `postgres://`、`mysql://`／`mariadb://`、`mssql://`，見 [docs/database.md](docs/database.md)）。通話開始時就建立紀錄（`fax_status = receiving`），對方每送完一頁，`pages` 就加一，通話結束時補齊：狀態（`received`、`partial`、`failed`、`no_fax`）、誰掛斷與原因（`hangup_direction`、`hangup_code`）、進線號碼（ANI）與撥打號碼（DNIS）、檔案路徑與大小，以及協商出來的解析度、速率、編碼和 ECM。來源不在任何 trunk 白名單的電話會被擋掉，不寫入紀錄。
+
+**資料庫出問題不會害傳真收不到。** 傳真檔和 `result.json` 照常寫出；寫資料庫的動作放在記憶體佇列，以指數退避重試（1 秒、2 秒、4 秒…最長 60 秒）。仍然失敗的寫入會記成 error，之後可用 `sip-faxd db backfill` 從 `logs/calls/*/result.json` 補回。啟動時資料庫連不上，伺服器照樣啟動；但資料庫版本**比程式新**（或 `auto_migrate = false` 而版本過舊）時會拒絕啟動。
+
+清整：`[retention]` 只在**第一次**啟動時寫入資料庫，之後以資料庫為準（之後版本的 Web 介面會在資料庫修改）。每天在 `run_at`（伺服器本地時間）執行：超過 `files_days` 的 TIFF／PDF 檔案刪除（紀錄保留，標記「檔案已清除」），超過 `records_days` 的紀錄刪除。`0` 代表永遠不刪。
+
+| 指令 | 作用 |
+|---|---|
+| `sip-faxd db migrate` | 建立或升級資料表結構（多台同時執行也安全；MySQL/MariaDB 的 migration 失敗後可以重跑） |
+| `sip-faxd db backfill [--dir DIR]` | 把 `logs/calls/*/result.json` 裡資料庫沒有的通話補進去 |
+| `sip-faxd purge [--dry-run]` | 立刻執行清整；`--dry-run` 只計數、不刪除 |
 
 ## 接收傳真
 
@@ -78,6 +94,9 @@ data/faxes/<YYYY>/<MM>/<DD>/<call-id>.pdf    同樣頁面的 PDF
 cargo build
 cargo test --workspace
 scripts/ci-local.sh        # 與 CI 相同的檢查，每次 push 前都要執行
+scripts/e2e-docker.sh      # 在 Rocky 9 容器內跑 SpanDSP 端到端測試（Linux、macOS、Windows 皆可）
+scripts/db-matrix.sh       # 在容器內以 PostgreSQL、MySQL、MariaDB、MSSQL 跑 store 測試
+scripts/musl-docker.sh     # 在容器內做靜態 musl 建置（zig 0.14.1）；ci-local.sh 需要時會自動呼叫
 ```
 
 測試時使用 [SpanDSP](https://github.com/freeswitch/spandsp) 模擬 gateway 進線傳真。SpanDSP 只用在測試工具（`tools/fax-sim`）中，不會連結進正式發佈的執行檔。每次 push 都必須通過 CI。

@@ -28,7 +28,9 @@ use crate::config::FaxSessionKind;
 use crate::config::{
     ConfigError, FaxInConfig, TransportName, UnknownSource, resolve_peer, split_host_port,
 };
-use crate::event::{CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path};
+use crate::event::{
+    ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path,
+};
 use crate::event::{FaxReport, ReportSink};
 use crate::media::{self, Accepted, MediaCtx, Unacceptable};
 use crate::ports::PortPool;
@@ -367,6 +369,8 @@ struct Rec {
     t38: Option<T38Negotiated>,
     /// Where the fax session leaves its report.
     fax: Option<ReportSink>,
+    /// Who sent the BYE.
+    bye_by: Option<ByeBy>,
 }
 
 async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
@@ -401,10 +405,12 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
                     peer: source.to_string(),
                     from,
                     to,
+                    numbers: Default::default(),
                     started_at,
                     answered_at: None,
                     t38_established_at: None,
                     ended_at: SystemTime::now(),
+                    bye_by: None,
                     t38: None,
                     fax: None,
                     outcome: CallOutcome::Failed {
@@ -420,10 +426,12 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         c.begin(&call_id);
     }
     tracing::info!(call_id, trunk = %trunk.name(), %source, %from, %to, "inbound call");
+    let numbers = crate::numbers::extract(call.request(), &trunk.cfg.numbers);
     sh.emit(CallEvent::Started {
         call_id: call_id.clone(),
         trunk: trunk.name().to_string(),
         peer: source.to_string(),
+        numbers: numbers.clone(),
         at: started_at,
     });
     let mut rec = Rec {
@@ -431,6 +439,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         t38_at: None,
         t38: None,
         fax: None,
+        bye_by: None,
     };
     let mut outcome = drive(&sh, call, &trunk, &call_id, &mut rec).await;
     let fax: Option<FaxReport> = rec.fax.as_ref().and_then(|s| {
@@ -458,10 +467,12 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall) {
         peer: source.to_string(),
         from,
         to,
+        numbers,
         started_at,
         answered_at: rec.answered_at,
         t38_established_at: rec.t38_at,
         ended_at: SystemTime::now(),
+        bye_by: rec.bye_by,
         t38: rec.t38,
         fax,
         outcome,
@@ -684,6 +695,21 @@ impl Live<'_> {
         let t38cfg = &self.trunk.cfg.t38;
         let report: ReportSink = Arc::default();
         self.rec.fax = Some(report.clone());
+        // every page T.30 confirms becomes a CallEvent::PageReceived
+        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<u32>();
+        {
+            let sh = self.sh.clone();
+            let call_id = self.call_id.to_string();
+            self.aux.spawn(async move {
+                while let Some(pages) = progress_rx.recv().await {
+                    sh.emit(CallEvent::PageReceived {
+                        call_id: call_id.clone(),
+                        pages,
+                        at: SystemTime::now(),
+                    });
+                }
+            });
+        }
         let ctx = SessionContext {
             call_id: self.call_id.to_string(),
             trunk: self.trunk.name().to_string(),
@@ -695,6 +721,7 @@ impl Live<'_> {
             },
             fax: self.trunk.cfg.fax.clone(),
             report,
+            progress: Some(progress_tx),
             cancel: cancel_rx,
         };
         let session = self.sh.factory.create(&ctx);
@@ -886,6 +913,7 @@ impl Live<'_> {
                         }
                         DialogEvent::Bye => {
                             peer_bye = true;
+                            self.rec.bye_by = Some(ByeBy::Remote);
                             self.cancel_session();
                         }
                         DialogEvent::AckTimeout => {
@@ -896,6 +924,7 @@ impl Live<'_> {
                         DialogEvent::Terminated(reason) => {
                             let o = match reason {
                                 TerminateReason::RemoteBye => {
+                                    self.rec.bye_by = Some(ByeBy::Remote);
                                     self.after_dialog_end(true, &mut irx, &mut session_result).await
                                 }
                                 TerminateReason::SessionExpired => failed(FailureReason::SessionExpired),
@@ -957,6 +986,7 @@ impl Live<'_> {
             } else {
                 BYE_WAIT
             };
+            self.rec.bye_by = Some(ByeBy::Local);
             let _ = tokio::time::timeout(wait, self.control.bye()).await;
         }
         self.aux.abort_all();

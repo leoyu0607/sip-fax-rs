@@ -723,6 +723,11 @@ fn report(code: u8, name: &str, pages: u32) -> fax_in::FaxReport {
         pdf: Some("/data/faxes/x.pdf".into()),
         store_error: None,
         udptl: fax_in::UdptlCounters::default(),
+        tiff_size: Some(1000),
+        pdf_size: Some(2000),
+        ecm: false,
+        ecm_ppr_sent: 0,
+        ecm_frames_lost: 0,
     }
 }
 

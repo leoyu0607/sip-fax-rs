@@ -15,10 +15,19 @@ cov_lock=target/.llvm-cov.lock
 mkdir -p target
 until mkdir "$cov_lock" 2>/dev/null; do sleep 2; done
 trap 'rmdir "$cov_lock" 2>/dev/null || true' EXIT
-if cargo llvm-cov --version >/dev/null 2>&1; then { cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only && cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only && cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only && cargo llvm-cov -p store --fail-under-lines 80 --summary-only; }; else echo "warn: cargo-llvm-cov not installed, skipping coverage gate"; fi
+if cargo llvm-cov --version >/dev/null 2>&1; then { cargo llvm-cov -p sip-core --fail-under-lines 85 --summary-only && cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only && cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only && cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only && cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'; }; else echo "warn: cargo-llvm-cov not installed, skipping coverage gate"; fi
 rmdir "$cov_lock" 2>/dev/null || true
-cargo zigbuild --release --locked --target x86_64-unknown-linux-musl -p sip-faxd
-file target/x86_64-unknown-linux-musl/release/sip-faxd | grep -q "statically linked"
+# Static musl build. CI uses zig 0.14.1; the zig of a developer machine is often newer (0.16 cannot
+# build our C dependencies), so unless this is a Linux box that already has zig 0.14.x the build runs
+# in Docker (Rocky 9 + zig 0.14.1 + cargo-zigbuild: scripts/musl-docker.sh).
+if [ "$(uname -s)" = Linux ] && command -v cargo-zigbuild >/dev/null && command -v zig >/dev/null && zig version | grep -q '^0\.14\.'; then
+  cargo zigbuild --release --locked --target x86_64-unknown-linux-musl -p sip-faxd
+  file target/x86_64-unknown-linux-musl/release/sip-faxd | grep -q "statically linked"
+elif command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+  scripts/musl-docker.sh x86_64-unknown-linux-musl
+else
+  echo "warn: no zig 0.14.x and no Docker, skipping the musl build"
+fi
 if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   scripts/e2e-docker.sh
 else

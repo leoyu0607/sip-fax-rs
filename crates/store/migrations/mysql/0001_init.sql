@@ -1,5 +1,8 @@
--- 0001 initial schema (mysql), forward-only
-CREATE TABLE faxes (
+-- 0001 initial schema (mysql / mariadb), forward-only.
+-- MySQL cannot roll DDL back, so every statement here must be safe to run again after a failure
+-- half way: CREATE TABLE IF NOT EXISTS, with the indexes inside the table definition (MySQL has
+-- no CREATE INDEX IF NOT EXISTS). Keep that rule for every later MySQL migration.
+CREATE TABLE IF NOT EXISTS faxes (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   call_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   trunk VARCHAR(64) NOT NULL,
@@ -36,17 +39,24 @@ CREATE TABLE faxes (
   note_updated_at DATETIME(3),
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
-  CONSTRAINT uq_faxes_call_id UNIQUE (call_id)
+  CONSTRAINT uq_faxes_call_id UNIQUE (call_id),
+  INDEX idx_faxes_started (started_at DESC, id DESC),
+  INDEX idx_faxes_read_started (is_read, started_at DESC),
+  INDEX idx_faxes_status (fax_status),
+  INDEX idx_faxes_ani (ani),
+  INDEX idx_faxes_dnis (dnis),
+  INDEX idx_faxes_files_purged (files_purged_at),
+  INDEX idx_faxes_ended (ended_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
   name VARCHAR(64) NOT NULL PRIMARY KEY,
   value TEXT NOT NULL,
   updated_by VARCHAR(64),
   updated_at DATETIME(3) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE delivery_attempts (
+CREATE TABLE IF NOT EXISTS delivery_attempts (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   fax_id BIGINT NOT NULL,
   target VARCHAR(255) NOT NULL,
@@ -57,15 +67,7 @@ CREATE TABLE delivery_attempts (
   next_try_at DATETIME(3),
   created_at DATETIME(3) NOT NULL,
   updated_at DATETIME(3) NOT NULL,
-  CONSTRAINT fk_delivery_fax FOREIGN KEY (fax_id) REFERENCES faxes (id)
+  CONSTRAINT fk_delivery_fax FOREIGN KEY (fax_id) REFERENCES faxes (id),
+  INDEX idx_delivery_fax (fax_id),
+  INDEX idx_delivery_due (status, next_try_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE INDEX idx_faxes_started ON faxes (started_at DESC, id DESC);
-CREATE INDEX idx_faxes_read_started ON faxes (is_read, started_at DESC);
-CREATE INDEX idx_faxes_status ON faxes (fax_status);
-CREATE INDEX idx_faxes_ani ON faxes (ani);
-CREATE INDEX idx_faxes_dnis ON faxes (dnis);
-CREATE INDEX idx_faxes_files_purged ON faxes (files_purged_at);
-CREATE INDEX idx_faxes_ended ON faxes (ended_at);
-CREATE INDEX idx_delivery_fax ON delivery_attempts (fax_id);
-CREATE INDEX idx_delivery_due ON delivery_attempts (status, next_try_at);

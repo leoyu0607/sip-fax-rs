@@ -109,6 +109,9 @@ pub struct FaxdOptions {
     pub real_fax: bool,
     /// Data directory for received faxes (default: `<scratch>/data`).
     pub data_dir: Option<PathBuf>,
+    /// `[database] url` (default: a SQLite file `fax.db` in the scratch directory, so that every
+    /// instance has its own database).
+    pub database_url: Option<String>,
 }
 
 /// A running `sip-faxd serve`.
@@ -122,6 +125,10 @@ pub struct Faxd {
     pub calls_dir: PathBuf,
     /// Data directory (`<data_dir>/faxes/...`).
     pub data_dir: PathBuf,
+    /// The `[database] url` the server runs with.
+    pub db_url: String,
+    /// The configuration file the server was started with.
+    pub config_path: PathBuf,
     log: Arc<Mutex<Vec<String>>>,
 }
 
@@ -133,9 +140,14 @@ impl Faxd {
         let port = opts.port.unwrap_or_else(free_port);
         let calls_dir = dir.join("calls");
         let data_dir = opts.data_dir.clone().unwrap_or_else(|| dir.join("data"));
+        let db_url = opts
+            .database_url
+            .clone()
+            .unwrap_or_else(|| format!("sqlite://{}/fax.db", dir.display()));
         let cfg = format!(
             "[log]\nlevel = \"debug\"\n\n[sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
              [call]\n{}\n{}\n\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
+             [database]\nurl = {:?}\n\n\
              [[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}\n\n{}\n",
             opts.sip,
             opts.call,
@@ -152,6 +164,7 @@ impl Faxd {
                 "all"
             },
             opts.capture_extra,
+            db_url,
             opts.trunk,
             opts.extra
         );
@@ -194,8 +207,27 @@ impl Faxd {
             dir,
             calls_dir,
             data_dir,
+            db_url,
+            config_path: cfg_path,
             log,
         }
+    }
+
+    /// Runs `sip-faxd <args> --config <config>` (a one-shot subcommand such as `db backfill`)
+    /// and returns the exit code, stdout and stderr. `config` defaults to this server's own.
+    pub fn cli(&self, args: &[&str], config: Option<&Path>) -> (Option<i32>, String, String) {
+        let out = Command::new(faxd_binary())
+            .args(args)
+            .arg("--config")
+            .arg(config.unwrap_or(&self.config_path))
+            .env_remove("RUST_LOG")
+            .output()
+            .expect("run sip-faxd");
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
     }
 
     /// `127.0.0.1:<port>`

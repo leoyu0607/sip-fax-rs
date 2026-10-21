@@ -3,12 +3,13 @@
 
 use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::timefmt::{serialize_opt_time, serialize_time};
+use crate::numbers::Numbers;
+use crate::timefmt::{deserialize_opt_time, deserialize_time, serialize_opt_time, serialize_time};
 
 /// How the T.38 session came about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum T38Path {
     /// The initial INVITE already offered `m=image`.
@@ -20,7 +21,7 @@ pub enum T38Path {
 }
 
 /// The T.38 parameters in force for a call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct T38Negotiated {
     /// How T.38 was established.
     pub path: T38Path,
@@ -49,11 +50,12 @@ pub struct T38Negotiated {
     /// Our UDPTL port.
     pub local_port: u16,
     /// Tolerance decisions taken (missing attributes, raised limits, ...).
+    #[serde(default)]
     pub warnings: Vec<String>,
 }
 
 /// Why a call is counted as failed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FailureReason {
     /// The caller cancelled before we answered.
@@ -109,7 +111,7 @@ pub enum FailureReason {
 }
 
 /// The end state of a call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CallOutcome {
     /// T.38 was established and the session ended normally.
@@ -129,7 +131,7 @@ impl CallOutcome {
 }
 
 /// UDPTL counters of one T.38 session.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UdptlCounters {
     /// Datagrams received from the peer (all, including ones that did not parse).
     pub rx_datagrams: u64,
@@ -151,7 +153,7 @@ pub struct UdptlCounters {
 
 /// What the T.38 / T.30 fax session delivered. Present in [`CallResult`] when a fax session
 /// ran, whether it succeeded or not.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FaxReport {
     /// T.30 result code (0 = success).
     pub code: u8,
@@ -183,13 +185,38 @@ pub struct FaxReport {
     pub store_error: Option<String>,
     /// UDPTL counters.
     pub udptl: UdptlCounters,
+    /// Size of the TIFF file in bytes (0.1.1 and older `result.json` files lack it).
+    #[serde(default)]
+    pub tiff_size: Option<u64>,
+    /// Size of the PDF file in bytes.
+    #[serde(default)]
+    pub pdf_size: Option<u64>,
+    /// The last DCS selected the error correction mode (negotiation result).
+    #[serde(default)]
+    pub ecm: bool,
+    /// ECM: PPR frames we sent (requests for retransmission, repeats included).
+    #[serde(default)]
+    pub ecm_ppr_sent: u32,
+    /// ECM: frames the sender abandoned with EOR (zero filled in the page).
+    #[serde(default)]
+    pub ecm_frames_lost: u32,
 }
 
 /// Where a session leaves its [`FaxReport`] for the controller to pick up.
 pub type ReportSink = std::sync::Arc<std::sync::Mutex<Option<FaxReport>>>;
 
+/// Who ended the SIP dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ByeBy {
+    /// The peer sent the BYE.
+    Remote,
+    /// We sent the BYE.
+    Local,
+}
+
 /// Everything known about a finished call.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallResult {
     /// SIP Call-ID.
     pub call_id: String,
@@ -201,21 +228,43 @@ pub struct CallResult {
     pub from: String,
     /// `To` URI.
     pub to: String,
+    /// Calling / called number (docs/design/m3-store.md section 2).
+    #[serde(default)]
+    pub numbers: Numbers,
     /// INVITE received.
-    #[serde(serialize_with = "serialize_time")]
+    #[serde(
+        serialize_with = "serialize_time",
+        deserialize_with = "deserialize_time"
+    )]
     pub started_at: SystemTime,
     /// 200 sent.
-    #[serde(serialize_with = "serialize_opt_time")]
+    #[serde(
+        serialize_with = "serialize_opt_time",
+        deserialize_with = "deserialize_opt_time",
+        default
+    )]
     pub answered_at: Option<SystemTime>,
     /// T.38 in force.
-    #[serde(serialize_with = "serialize_opt_time")]
+    #[serde(
+        serialize_with = "serialize_opt_time",
+        deserialize_with = "deserialize_opt_time",
+        default
+    )]
     pub t38_established_at: Option<SystemTime>,
     /// Call finished.
-    #[serde(serialize_with = "serialize_time")]
+    #[serde(
+        serialize_with = "serialize_time",
+        deserialize_with = "deserialize_time"
+    )]
     pub ended_at: SystemTime,
+    /// Who sent the BYE (`None` when the dialog never existed, or ended without a BYE).
+    #[serde(default)]
+    pub bye_by: Option<ByeBy>,
     /// Negotiated T.38 parameters, if T.38 was established.
+    #[serde(default)]
     pub t38: Option<T38Negotiated>,
     /// What the fax session delivered (T.30 result, pages, files), if one ran.
+    #[serde(default)]
     pub fax: Option<FaxReport>,
     /// The result.
     pub outcome: CallOutcome,
@@ -232,6 +281,8 @@ pub enum CallEvent {
         trunk: String,
         /// Source.
         peer: String,
+        /// Calling and called number extracted from the INVITE.
+        numbers: Numbers,
         /// When.
         at: SystemTime,
     },
@@ -250,6 +301,16 @@ pub enum CallEvent {
         call_id: String,
         /// Parameters.
         params: T38Negotiated,
+        /// When.
+        at: SystemTime,
+    },
+    /// T.30 confirmed another page (MCF, or RTP): `pages` pages are in so far. Sent for ECM and
+    /// non-ECM calls alike.
+    PageReceived {
+        /// Call-ID.
+        call_id: String,
+        /// Pages received and confirmed so far.
+        pages: u32,
         /// When.
         at: SystemTime,
     },

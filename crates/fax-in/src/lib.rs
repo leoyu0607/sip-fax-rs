@@ -22,8 +22,11 @@ pub mod config;
 pub mod controller;
 pub mod event;
 pub mod media;
+pub mod numbers;
 pub mod ports;
+pub mod recorder;
 pub mod session;
+pub mod summary;
 pub mod t38engine;
 pub mod t38session;
 mod timefmt;
@@ -32,7 +35,10 @@ pub mod trunk;
 pub use config::{ConfigError, FaxInConfig, FaxSessionKind};
 pub use controller::{FaxIn, StartError, StartOptions};
 pub use event::{
-    CallEvent, CallOutcome, CallResult, FailureReason, FaxReport, ReportSink, T38Negotiated,
+    ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, FaxReport, ReportSink, T38Negotiated,
     T38Path, UdptlCounters,
 };
+pub use numbers::Numbers;
+pub use recorder::{Recorder, RecorderConfig};
+pub use summary::{HangupCode, Summary, classify};
 pub use timefmt::rfc3339;

@@ -71,7 +71,24 @@ pub fn faxd(name: &str, ports: u16, trunk: &str, call: &str) -> Server {
 }
 
 pub fn faxd_with(name: &str, ports: u16, trunk: &str, call: &str, capture_extra: &str) -> Server {
+    faxd_full(name, ports, trunk, call, capture_extra, None)
+}
+
+/// A server whose `[database] url` is `db_url` (default: its own SQLite file).
+pub fn faxd_db(name: &str, ports: u16, trunk: &str, db_url: &str) -> Server {
+    faxd_full(name, ports, trunk, "", "", Some(db_url.into()))
+}
+
+fn faxd_full(
+    name: &str,
+    ports: u16,
+    trunk: &str,
+    call: &str,
+    capture_extra: &str,
+    database_url: Option<String>,
+) -> Server {
     let opts = FaxdOptions {
+        database_url,
         trunk: trunk.into(),
         call: format!("station_id = \"0287654321\"\n{call}"),
         extra: format!("\n[media]\nport_range = \"{}\"\n", media_range(ports)),

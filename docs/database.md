@@ -1,4 +1,4 @@
-# 資料庫說明（M3a）
+# 資料庫說明（M3a、M3b）
 
 傳真紀錄、設定與投遞紀錄都存在資料庫。支援 SQLite（預設，內建於執行檔）、PostgreSQL、MySQL/MariaDB、MSSQL；四種資料庫的資料表結構相同，行為由同一份測試套件驗證（見 `docs/test-reports/M3a.md`）。
 
@@ -142,11 +142,50 @@
 - 啟動時（`auto_migrate = true`，預設）或手動執行時套用尚未套用的 migration。
 - 資料庫的版本**比程式新**時一律拒絕連線（`database schema version N is newer than supported version M`），避免舊版程式破壞新版資料。
 - `auto_migrate = false` 且資料庫版本較舊時拒絕連線，錯誤訊息會提示執行 `sip-faxd db migrate`。
-- 不要同時讓兩個程式實例對同一個資料庫做第一次 migration；請先手動 migrate 一次。
+- **並行保護（M3b）**：migration 開始前先取得資料庫鎖（PostgreSQL `pg_advisory_lock`、MySQL/MariaDB `GET_LOCK('sipfaxd_migrate:<schema>')`、MSSQL `sp_getapplock`、SQLite 的 `BEGIN EXCLUSIVE`，最多等 60 秒），取得鎖之後才重新讀版本號；所以兩個實例同時第一次啟動時，只有一個會套用，另一個等它做完後發現沒事可做。鎖屬於連線，程式中途掛掉也不會留下鎖。
+- **失敗後可重跑（M3b）**：SQLite、PostgreSQL、MSSQL 的 DDL 有交易，migration 失敗會整份復原。MySQL/MariaDB 的 DDL 無法復原，所以它的 migration 檔每個陳述式都必須可重複執行（`CREATE TABLE IF NOT EXISTS`，索引寫在資料表定義裡；`mysql_migrations_are_safe_to_run_again` 測試會檢查），失敗後直接再跑一次即可。
+- 手動指令：`sip-faxd db migrate`（輸出 `schema version 0 -> 1 (applied 0001)` 或 `already at schema version 1`）。
+
+## 寫入流程與失敗處理（M3b）
+
+| 時間點 | 動作 | 內容 |
+|---|---|---|
+| 來電對應到 trunk（`CallEvent::Started`） | INSERT | `fax_status = receiving`、`pages = 0`、`trunk`、`ani`／`dnis` 及來源、`started_at` |
+| T.30 每確認一頁（回 MCF／RTP，ECM 與 non-ECM 相同；`CallEvent::PageReceived`） | UPDATE `pages` | 只往前、只作用於 `receiving` 的紀錄 |
+| 通話結束（`CallEvent::Finished`） | 以 `fax_in::summary::classify` 的結果補齊 | `fax_status`、`hangup_*`、`sip_status`、`t30_code`、`duration_sec`、`ended_at`、`remote_ident`、`resolution`、`bit_rate`、`compression`、`ecm`、檔案路徑與大小；INSERT 若遺失，這一步會一併補上 |
+| 伺服器啟動 | 修正殘留的 `receiving` | 依頁數改成 `failed` 或 `partial`，`hangup_code = shutdown` |
+
+- 來源 IP 不在任何 trunk 白名單的電話（`unknown_source` 為 `drop` 或 `reject`）**不寫入**；`unknown_source = "log"` 的電話照常處理，`trunk` 為 `unknown`。
+- 檔案路徑寫入前改成相對於 `data_dir`；對不上的絕對路徑（例如別台主機的 `result.json`）會從 `faxes/` 目錄起算，找不到就維持原樣（清整時會被路徑檢查拒絕）。
+- 欄位超過長度上限時，寫入前先截斷（`call_id` 255、`trunk` 64、`ani`／`dnis` 64、`remote_ident` 32、`hangup_text` 255、路徑 1024），不會因為一個過長的 header 讓整筆紀錄寫不進去。
+- **資料庫故障不影響收傳真**：寫入放進記憶體佇列，由一個 worker 依序處理。暫時性錯誤（連線被拒、逾時、連線中斷）以指數退避重試：1、2、4、8…秒，上限 60 秒，每個動作最多 8 次。8 次都失敗時記 error、進入「降級」狀態：之後的動作各只試一次，佇列不會堆積，成功一次就恢復。非暫時性錯誤（例如欄位限制）不重試。佇列上限 10 000，超過時丟棄 INSERT 與頁數更新（最終寫入不丟）。
+- 最終寫入失敗時，若 capture 沒有留下 `result.json`（`[capture] keep = "failed"` 或 capture 關閉），會把它寫到 `[capture] dir/<call-id>/result.json`。
+- **`sip-faxd db backfill`**：掃描 `logs/calls/*/result.json`，資料庫沒有的就 `upsert`；只有 `receiving` 的就補完成；已經完成的不動。可以重複執行。0.1.1 以前的 `result.json` 沒有號碼，ANI／DNIS 改取 `from`／`to` 的 user（來源記為 `from`／`to`）。
+- 伺服器啟動時資料庫連不上：照樣啟動、照樣收傳真，log 記 `database not reachable`；版本比程式新、`auto_migrate = false` 而版本過舊、URL 或密碼錯誤則拒絕啟動。
+
+### 掛線原因（`hangup_code`）
+
+| `hangup_code` | 方向 | 條件 | `fax_status` |
+|---|---|---|---|
+| `completed` | 依實際送 BYE 的一方（`result.json` 的 `bye_by`） | T.30 成功 | `received` |
+| `peer_hangup` | remote | 對方在 T.30 完成前掛斷，已收到 ≥1 頁 | `partial` |
+| `peer_hangup_no_fax` | remote | 沒有任何頁面就掛斷，含 T.38 建立前 | `no_fax` |
+| `t30_failed` | local | T.30 失敗（`t30_code`）；含 ECM 對方放棄部分 frame | 有頁面 `partial`，否則 `failed` |
+| `no_fax_signal` | local | 接通且 T.38 已建立，但我方的 DIS 一直沒有回應（T.30 結果碼 1 或 2，且沒有頁面），例如一般電話 | `no_fax` |
+| `t38_rejected` | system | 對方拒絕 T.38（488／415／606）或其他失敗回應（附 `sip_status`），G.711 passthrough 尚未支援 | `no_fax` |
+| `caller_cancelled` | remote | 接聽前收到 CANCEL | `no_fax` |
+| `rejected` | system | 我方拒接（488、420、503…，附 `sip_status`） | `no_fax` |
+| `ack_timeout`、`session_expired`、`max_duration`、`shutdown`、`internal_error` | system | 依名稱 | 有頁面 `partial`，否則 `failed` |
+
+### ANI／DNIS
+
+`[trunks.numbers]`：`ani_sources`（預設 `pai`、`rpid`、`from`）、`dnis_sources`（預設 `ruri`、`to`，可加 `diversion`）依序取第一個有號碼的來源；`tel:` 取號碼、`sip:` 取 user 並去掉 `;參數`；`-`、`.`、空白、括號一律移除；`strip_plus` 去掉前導 `+`；`ani_strip_prefix`／`dnis_strip_prefix` 去掉國碼之類的前綴（不帶 `+` 的前綴也能比對帶 `+` 的號碼；整個號碼都被吃掉時不去除）。`diversion` 取最後一筆（RFC 5806：最舊的一筆，也就是原本撥的號碼）。對方隱藏號碼（From 為 `anonymous`、`Privacy: id`、Remote-Party-ID 的 `privacy=full`）時 `ani` 為 NULL、`ani_source = anonymous`。AudioCodes 的號碼在 From 和 Request-URI（預設值即可）；中華電信 CS210 尚未確認，拿到第一份擷取後再調整。
 
 ## 清整
 
 - **檔案清整**：`ended_at` 早於「現在 − `files_days`」、還沒清過、有檔案路徑的紀錄。刪除 TIFF、PDF 與 PNG 預覽快取（`data_dir/cache/png/<id>/`），然後設定 `files_purged_at`；紀錄保留。檔案本來就不存在視為成功；刪除失敗則不設定 `files_purged_at`，下次再試。
 - **紀錄清整**：`ended_at` 早於「現在 − `records_days`」的紀錄。先刪除殘留的檔案，再刪除紀錄與它的 `delivery_attempts`；殘留檔案刪不掉的紀錄會保留。
 - `receiving` 狀態的紀錄永遠不清整。每批 500 筆。
+- **排程（M3b）**：`sip-faxd serve` 每天在 `retention.run_at`（伺服器本地時間）執行；每次等待前都重新從資料庫讀取 `run_at`，所以 Web 介面（M4）改了時間，隔天起生效。手動：`sip-faxd purge [--dry-run]`，輸出 `purge: files of N record(s) removed (K file(s)), M record(s) deleted (a + b batch(es)), S skipped`；`--dry-run` 輸出 `purge (dry run): files of N record(s) are due, M record(s) are due for deletion; nothing was deleted`。有錯誤時結束碼為 1。
+- **設定來源**：`[retention]` 只在第一次啟動時寫進 `settings`；之後以資料庫為準，改設定檔不會生效。
 - 刪除檔案前會確認路徑位於 `data_dir` 之內（含 `..` 與 symbolic link 檢查），不在範圍內的拒絕刪除並記 error。

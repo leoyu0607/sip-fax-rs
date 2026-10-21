@@ -1,0 +1,293 @@
+//! The one-shot subcommands (`config check`, `db migrate`, `db backfill`, `purge`) and the daily
+//! purge task of `serve`.
+
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::Arc;
+
+use store::{ConnectOptions, Purger, RetentionSettings, SystemClock};
+
+use crate::db::Db;
+use crate::schedule;
+use crate::settings::{AppConfig, mask_url};
+
+fn fail(msg: impl std::fmt::Display) -> ExitCode {
+    eprintln!("sip-faxd: error: {msg}");
+    ExitCode::from(1)
+}
+
+fn onoff(b: bool) -> &'static str {
+    if b { "on" } else { "off" }
+}
+
+fn or_dash(s: &Option<String>) -> &str {
+    s.as_deref().unwrap_or("-")
+}
+
+/// `sip-faxd config check`
+pub fn config_check(path: &Path) -> ExitCode {
+    let cfg = match AppConfig::load(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("sip-faxd: error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let f = &cfg.fax_in;
+    println!("configuration OK: {}", path.display());
+    println!(
+        "  sip: bind {} ({}), unknown_source = {:?}",
+        f.sip.bind,
+        f.transports()
+            .iter()
+            .map(|t| format!("{t:?}").to_lowercase())
+            .collect::<Vec<_>>()
+            .join("+"),
+        f.sip.unknown_source
+    );
+    println!(
+        "  capture: {} ({:?}) -> {}",
+        if f.capture.enabled { "on" } else { "off" },
+        f.capture.keep,
+        f.capture.dir.display()
+    );
+    println!(
+        "  fax session: {:?}, received faxes -> {}/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|pdf",
+        f.call.fax_session,
+        f.storage.data_dir.display()
+    );
+    let backend = store::backend_for_url(&cfg.database.url).map_or("?", |k| k.name());
+    println!(
+        "  database: {} ({backend}), auto_migrate = {}, max_connections = {}",
+        mask_url(&cfg.database.url),
+        cfg.database.auto_migrate,
+        cfg.database.max_connections
+    );
+    let r = &cfg.retention;
+    let days = |d: u32| {
+        if d == 0 {
+            "never".to_string()
+        } else {
+            format!("after {d} days")
+        }
+    };
+    println!(
+        "  retention: files {}, records {}, daily run at {} (server local time); written to the database on the first start, after that the database decides",
+        days(r.files_days),
+        days(r.records_days),
+        r.run_at
+    );
+    for t in &f.trunks {
+        println!(
+            "  trunk {}: preset {}, peer {}, allowed {:?}, {:?}, t38_policy {:?}, register {}",
+            t.name,
+            t.preset,
+            t.peer.as_deref().unwrap_or("-"),
+            t.allowed_sources,
+            t.transport,
+            t.t38_policy,
+            onoff(t.register.enabled)
+        );
+        println!(
+            "    fax: resolutions {}, ecm {} (and MMR with it)",
+            t.fax.resolutions.join("+"),
+            onoff(t.fax.ecm)
+        );
+        let n = &t.numbers;
+        println!(
+            "    numbers: ani from {}, dnis from {}, strip_plus {}, ani_strip_prefix {}, dnis_strip_prefix {}",
+            n.ani_sources.join(">"),
+            n.dnis_sources.join(">"),
+            onoff(n.strip_plus),
+            or_dash(&n.ani_strip_prefix),
+            or_dash(&n.dnis_strip_prefix)
+        );
+    }
+    for w in f.warnings() {
+        println!("warning: {w}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// `sip-faxd db migrate`
+pub async fn db_migrate(cfg: &AppConfig, base: &Path) -> ExitCode {
+    let url = cfg.database_url(base);
+    let opts = ConnectOptions {
+        max_connections: cfg.database.max_connections,
+        ..ConnectOptions::default()
+    };
+    match store::migrate_url(&url, opts).await {
+        Ok((kind, rep)) if rep.applied.is_empty() => {
+            println!(
+                "database {}: already at schema version {}, nothing to do",
+                kind.name(),
+                rep.to
+            );
+            ExitCode::SUCCESS
+        }
+        Ok((kind, rep)) => {
+            let list: Vec<String> = rep.applied.iter().map(|v| format!("{v:04}")).collect();
+            println!(
+                "database {}: schema version {} -> {} (applied {})",
+                kind.name(),
+                rep.from,
+                rep.to,
+                list.join(", ")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(format!("database {}: {e}", mask_url(&cfg.database.url))),
+    }
+}
+
+/// `sip-faxd db backfill`
+pub async fn db_backfill(cfg: &AppConfig, base: &Path, dir: Option<PathBuf>) -> ExitCode {
+    let db = Db::new(cfg, base);
+    let st = match db.store().await {
+        Ok(s) => s,
+        Err(e) => return fail(format!("database {}: {e}", mask_url(&cfg.database.url))),
+    };
+    let calls = dir.unwrap_or_else(|| cfg.calls_dir(base));
+    let rep = fax_in::recorder::backfill(&*st, &calls, &cfg.data_dir(base)).await;
+    println!(
+        "backfill {}: {} result.json found, {} inserted, {} finished (were still receiving), {} already recorded, {} not recordable, {} error(s)",
+        calls.display(),
+        rep.scanned,
+        rep.inserted,
+        rep.updated,
+        rep.already_recorded,
+        rep.not_recordable,
+        rep.errors.len()
+    );
+    for e in &rep.errors {
+        eprintln!("sip-faxd: backfill: {e}");
+    }
+    db.close().await;
+    if rep.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// `sip-faxd purge [--dry-run]`
+pub async fn purge(cfg: &AppConfig, base: &Path, dry_run: bool) -> ExitCode {
+    let db = Db::new(cfg, base);
+    let st = match db.store().await {
+        Ok(s) => s,
+        Err(e) => return fail(format!("database {}: {e}", mask_url(&cfg.database.url))),
+    };
+    let settings = match store::purge::load_retention(&*st).await {
+        Ok(s) => s,
+        Err(e) => return fail(format!("retention settings: {e}")),
+    };
+    let purger = Purger::new(st, cfg.data_dir(base), Arc::new(SystemClock));
+    let code = match purger.run(settings.policy, dry_run).await {
+        Ok(rep) => {
+            println!(
+                "retention (from the database): files {} days, records {} days (0 = never)",
+                settings.policy.files_days, settings.policy.records_days
+            );
+            if rep.dry_run {
+                println!(
+                    "purge (dry run): files of {} record(s) are due, {} record(s) are due for deletion; nothing was deleted",
+                    rep.files_due, rep.records_due
+                );
+            } else {
+                println!(
+                    "purge: files of {} record(s) removed ({} file(s)), {} record(s) deleted ({} + {} batch(es)), {} skipped",
+                    rep.files_purged,
+                    rep.files_removed,
+                    rep.records_deleted,
+                    rep.file_batches,
+                    rep.record_batches,
+                    rep.skipped
+                );
+            }
+            for e in &rep.errors {
+                eprintln!("sip-faxd: purge: {e}");
+            }
+            if rep.errors.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(e) => fail(format!("purge: {e}")),
+    };
+    db.close().await;
+    code
+}
+
+/// The daily purge of `serve` at `retention.run_at` (read from the database before every wait, so
+/// a change made there applies from the next day). Never returns; the caller aborts it.
+pub async fn purge_daily(db: Arc<Db>, data_dir: PathBuf) {
+    let run_at = || {
+        let db = db.clone();
+        async move {
+            let configured = RetentionSettings::default().run_at;
+            let text = match db.store().await {
+                Ok(st) => match store::purge::load_retention(&*st).await {
+                    Ok(s) => s.run_at,
+                    Err(e) => {
+                        tracing::error!("retention settings unreadable, using {configured}: {e}");
+                        configured
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(
+                        "database unavailable, using {configured} as the purge time: {e}"
+                    );
+                    configured
+                }
+            };
+            schedule::parse_run_at(&text)
+                .or_else(|| schedule::parse_run_at(&RetentionSettings::default().run_at))
+                .expect("the default run_at is valid")
+        }
+    };
+    let job = || {
+        let db = db.clone();
+        let data_dir = data_dir.clone();
+        async move {
+            let st = match db.store().await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("daily purge skipped, database unavailable: {e}");
+                    return;
+                }
+            };
+            let settings = match store::purge::load_retention(&*st).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("daily purge skipped, retention settings unreadable: {e}");
+                    return;
+                }
+            };
+            match Purger::new(st, data_dir, Arc::new(SystemClock))
+                .run(settings.policy, false)
+                .await
+            {
+                Ok(rep) => {
+                    tracing::info!(
+                        files_purged = rep.files_purged,
+                        records_deleted = rep.records_deleted,
+                        skipped = rep.skipped,
+                        "daily purge done"
+                    );
+                    for e in &rep.errors {
+                        tracing::error!("purge: {e}");
+                    }
+                }
+                Err(e) => tracing::error!("daily purge failed: {e}"),
+            }
+        }
+    };
+    schedule::daily(
+        || chrono::Local::now().naive_local(),
+        tokio::time::sleep,
+        run_at,
+        job,
+    )
+    .await;
+}

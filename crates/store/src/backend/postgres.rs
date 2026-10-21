@@ -53,8 +53,98 @@ fn rewrite(sql: &str) -> String {
     rewrite_placeholders(sql, |n| format!("${n}"))
 }
 
+fn decode(rows: Vec<PgRow>, kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut vals = Vec::with_capacity(kinds.len());
+        for (i, k) in kinds.iter().enumerate() {
+            vals.push(match k {
+                Kind::Int => Val::I(int(&row, i)?),
+                Kind::Bool => Val::B(row.try_get::<Option<bool>, _>(i).map_err(decode_err)?),
+                Kind::Str => Val::S(row.try_get::<Option<String>, _>(i).map_err(decode_err)?),
+                Kind::Time => Val::T(
+                    row.try_get::<Option<DateTime<Utc>>, _>(i)
+                        .map_err(decode_err)?,
+                ),
+            });
+        }
+        out.push(vals);
+    }
+    Ok(out)
+}
+
+/// Advisory lock key shared by every sip-faxd migrating this database ("SIPFAX").
+const LOCK_KEY: i64 = 0x5349_5046_4158;
+
+struct PgSession {
+    conn: sqlx::pool::PoolConnection<sqlx::Postgres>,
+}
+
+#[async_trait]
+impl MigrationSession for PgSession {
+    async fn execute(&mut self, sql: &str, params: &[Val]) -> Result<u64> {
+        let sql = rewrite(sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for p in params {
+            q = bind(q, p);
+        }
+        Ok(q.execute(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?
+            .rows_affected())
+    }
+    async fn query(&mut self, sql: &str, params: &[Val], kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+        let sql = rewrite(sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for p in params {
+            q = bind(q, p);
+        }
+        let rows = q
+            .fetch_all(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        decode(rows, kinds)
+    }
+    fn transactional_ddl(&self) -> bool {
+        true
+    }
+    async fn begin(&mut self) -> Result<()> {
+        self.execute("BEGIN", &[]).await.map(|_| ())
+    }
+    async fn commit(&mut self) -> Result<()> {
+        self.execute("COMMIT", &[]).await.map(|_| ())
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        self.execute("ROLLBACK", &[]).await.map(|_| ())
+    }
+    async fn finish(mut self: Box<Self>, ok: bool) -> Result<()> {
+        if !ok {
+            // a failed statement leaves the transaction aborted; the unlock needs a clean session
+            let _ = self.rollback().await;
+        }
+        sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(LOCK_KEY)
+            .fetch_one(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Backend for Postgres {
+    async fn migration_session(&self) -> Result<Box<dyn MigrationSession>> {
+        let mut conn = self.pool.acquire().await.map_err(Error::from_sqlx)?;
+        // blocks until the other migrating instance has released it; the lock belongs to this
+        // session, so a crashed process cannot leave it behind
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(LOCK_KEY)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        Ok(Box::new(PgSession { conn }))
+    }
+
     fn kind(&self) -> BackendKind {
         BackendKind::Postgres
     }
@@ -78,23 +168,7 @@ impl Backend for Postgres {
             q = bind(q, p);
         }
         let rows = q.fetch_all(&self.pool).await.map_err(Error::from_sqlx)?;
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut vals = Vec::with_capacity(kinds.len());
-            for (i, k) in kinds.iter().enumerate() {
-                vals.push(match k {
-                    Kind::Int => Val::I(int(&row, i)?),
-                    Kind::Bool => Val::B(row.try_get::<Option<bool>, _>(i).map_err(decode_err)?),
-                    Kind::Str => Val::S(row.try_get::<Option<String>, _>(i).map_err(decode_err)?),
-                    Kind::Time => Val::T(
-                        row.try_get::<Option<DateTime<Utc>>, _>(i)
-                            .map_err(decode_err)?,
-                    ),
-                });
-            }
-            out.push(vals);
-        }
-        Ok(out)
+        decode(rows, kinds)
     }
 
     async fn insert_id(&self, sql: &str, params: &[Val]) -> Result<i64> {

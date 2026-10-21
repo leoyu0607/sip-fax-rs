@@ -478,6 +478,64 @@ impl FaxSection {
     }
 }
 
+/// `[trunks.numbers]`: where the calling / called number comes from (docs/design/m3-store.md
+/// section 2).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NumbersSection {
+    /// Where to look for the calling number, in order: `pai` (P-Asserted-Identity), `rpid`
+    /// (Remote-Party-ID), `from`.
+    pub ani_sources: Vec<String>,
+    /// Where to look for the called number, in order: `ruri` (Request-URI), `to`, `diversion`.
+    pub dnis_sources: Vec<String>,
+    /// Drop a leading `+` from both numbers.
+    pub strip_plus: bool,
+    /// Remove this prefix from the calling number (for example a country code).
+    pub ani_strip_prefix: Option<String>,
+    /// Remove this prefix from the called number.
+    pub dnis_strip_prefix: Option<String>,
+}
+
+impl Default for NumbersSection {
+    fn default() -> Self {
+        NumbersSection {
+            ani_sources: vec!["pai".into(), "rpid".into(), "from".into()],
+            dnis_sources: vec!["ruri".into(), "to".into()],
+            strip_plus: false,
+            ani_strip_prefix: None,
+            dnis_strip_prefix: None,
+        }
+    }
+}
+
+impl NumbersSection {
+    /// Names accepted in `ani_sources`.
+    pub const ANI_SOURCES: [&'static str; 3] = ["pai", "rpid", "from"];
+    /// Names accepted in `dnis_sources`.
+    pub const DNIS_SOURCES: [&'static str; 3] = ["ruri", "to", "diversion"];
+
+    /// Checks that every listed source is known and no list is empty.
+    ///
+    /// # Errors
+    /// A message naming the offending key and value.
+    pub fn check(&self) -> Result<(), String> {
+        for (key, list, allowed) in [
+            ("ani_sources", &self.ani_sources, &Self::ANI_SOURCES),
+            ("dnis_sources", &self.dnis_sources, &Self::DNIS_SOURCES),
+        ] {
+            if list.is_empty() {
+                return Err(format!("{key} is empty (use any of {allowed:?})"));
+            }
+            if let Some(bad) = list.iter().find(|s| !allowed.contains(&s.as_str())) {
+                return Err(format!(
+                    "{key}: unsupported value \"{bad}\" (supported: {allowed:?})"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// `[trunks.compat]`: tolerance switches for peers without a specification.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -566,6 +624,8 @@ pub struct TrunkConfig {
     pub register: RegisterSection,
     /// Fax capabilities advertised in the DIS.
     pub fax: FaxSection,
+    /// Where the calling / called number is taken from.
+    pub numbers: NumbersSection,
 }
 
 impl Default for TrunkConfig {
@@ -583,6 +643,7 @@ impl Default for TrunkConfig {
             compat: CompatSection::default(),
             register: RegisterSection::default(),
             fax: FaxSection::default(),
+            numbers: NumbersSection::default(),
         }
     }
 }
@@ -771,6 +832,9 @@ impl FaxInConfig {
             }
             if let Err(e) = t.fax.check() {
                 return invalid(format!("trunk \"{}\": [trunks.fax] {e}", t.name));
+            }
+            if let Err(e) = t.numbers.check() {
+                return invalid(format!("trunk \"{}\": [trunks.numbers] {e}", t.name));
             }
         }
         Ok(())

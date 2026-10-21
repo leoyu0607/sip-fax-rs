@@ -19,7 +19,7 @@ use t38::{
     UdptlReceiver, UdptlSender,
 };
 use tokio::net::UdpSocket;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 // ---------------------------------------------------------------- the scripted caller
 
@@ -193,6 +193,7 @@ struct Run {
     report: ReportSink,
     cancel: watch::Sender<bool>,
     data_dir: PathBuf,
+    progress: mpsc::UnboundedReceiver<u32>,
 }
 
 fn negotiated(local_port: u16, peer: SocketAddr) -> T38Negotiated {
@@ -243,6 +244,7 @@ fn start_with(
     let data_dir = scratch(name);
     let (cancel, cancel_rx) = watch::channel(false);
     let report: ReportSink = Arc::default();
+    let (progress_tx, progress) = mpsc::unbounded_channel();
     let ctx = SessionContext {
         call_id: call_id.into(),
         trunk: "t".into(),
@@ -250,6 +252,7 @@ fn start_with(
         udptl: UdptlSettings::default(),
         fax: Default::default(),
         report: report.clone(),
+        progress: Some(progress_tx),
         cancel: cancel_rx,
     };
     let factory = T38SessionFactory::new(env(&data_dir, capture, max));
@@ -260,6 +263,7 @@ fn start_with(
         report,
         cancel,
         data_dir,
+        progress,
     }
 }
 
@@ -269,12 +273,22 @@ fn start(name: &str, call_id: &str, peer: SocketAddr, port: u16) -> Run {
 
 impl Run {
     async fn finish(self) -> (SessionOutcome, FaxReport, PathBuf) {
+        let (out, rep, dir, _) = self.finish_with_progress().await;
+        (out, rep, dir)
+    }
+
+    /// Like `finish`, plus every page count the session reported while it ran.
+    async fn finish_with_progress(mut self) -> (SessionOutcome, FaxReport, PathBuf, Vec<u32>) {
         let out = tokio::time::timeout(Duration::from_secs(15), self.handle)
             .await
             .expect("session did not finish")
             .unwrap();
         let rep = self.report.lock().unwrap().clone().expect("a fax report");
-        (out, rep, self.data_dir)
+        let mut seen = Vec::new();
+        while let Ok(n) = self.progress.try_recv() {
+            seen.push(n);
+        }
+        (out, rep, self.data_dir, seen)
     }
 }
 
@@ -308,8 +322,10 @@ async fn s01_a_two_page_fax_is_received_and_stored() {
     let pages = vec![(bitmap(120, 0), 120), (bitmap(130, 1), 130)];
     play(&mut c, &pages, true).await;
     assert_eq!(server_fcfs(&c.heard), vec![0x02, 0x01, 0x21, 0x31, 0x31]);
-    let (out, rep, dir) = run.finish().await;
+    let (out, rep, dir, progress) = run.finish_with_progress().await;
     assert_eq!(out, SessionOutcome::Completed);
+    // M3b: one progress report per confirmed page, counting up
+    assert_eq!(progress, vec![1, 2]);
     assert_eq!((rep.code, rep.code_name.as_str()), (0, "ok"));
     assert_eq!(rep.pages, 2);
     assert_eq!(rep.bit_rate, 14_400);
@@ -332,6 +348,9 @@ async fn s01_a_two_page_fax_is_received_and_stored() {
     );
     assert_eq!(tif.file_stem(), pdf.file_stem());
     let tiff_bytes = std::fs::read(&tif).unwrap();
+    assert_eq!(rep.tiff_size, Some(tiff_bytes.len() as u64));
+    assert_eq!(rep.pdf_size, Some(std::fs::metadata(&pdf).unwrap().len()));
+    assert!(!rep.ecm && rep.ecm_ppr_sent == 0 && rep.ecm_frames_lost == 0);
     assert_eq!(&tiff_bytes[..4], b"II*\0");
     assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
     assert!(
@@ -452,6 +471,7 @@ async fn s06_a_port_that_is_taken_fails_the_session() {
             udptl: UdptlSettings::default(),
             fax: Default::default(),
             report: Arc::default(),
+            progress: None,
             cancel: cancel_rx,
         };
         let f = T38SessionFactory::new(env(&scratch("s06"), None, Duration::from_secs(5)));

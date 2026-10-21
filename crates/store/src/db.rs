@@ -169,9 +169,33 @@ impl RowReader {
     }
 }
 
+/// One dedicated connection that holds the cross-process migration lock (`pg_advisory_lock`,
+/// `GET_LOCK`, `sp_getapplock`, or SQLite's exclusive transaction). Everything the migration does
+/// goes through it, so the lock and the statements share one session.
+#[async_trait]
+pub trait MigrationSession: Send {
+    /// Run a statement on the locked connection.
+    async fn execute(&mut self, sql: &str, params: &[Val]) -> Result<u64>;
+    /// Run a query on the locked connection.
+    async fn query(&mut self, sql: &str, params: &[Val], kinds: &[Kind]) -> Result<Vec<Vec<Val>>>;
+    /// True when DDL can be rolled back (SQLite, PostgreSQL, MSSQL); false for MySQL/MariaDB,
+    /// whose migrations therefore have to be safe to run again.
+    fn transactional_ddl(&self) -> bool;
+    /// Start a transaction around one migration (a no-op where the whole session is one).
+    async fn begin(&mut self) -> Result<()>;
+    /// Commit it.
+    async fn commit(&mut self) -> Result<()>;
+    /// Roll it back.
+    async fn rollback(&mut self) -> Result<()>;
+    /// Release the lock and give the connection back. `ok = false` rolls back whatever is open.
+    async fn finish(self: Box<Self>, ok: bool) -> Result<()>;
+}
+
 /// What a database driver must provide.
 #[async_trait]
 pub trait Backend: Send + Sync {
+    /// Wait for the migration lock (up to a minute) on a dedicated connection and return it.
+    async fn migration_session(&self) -> Result<Box<dyn MigrationSession>>;
     /// Database family.
     fn kind(&self) -> BackendKind;
     /// Run a statement, returning affected rows. `sql` uses `?` placeholders.

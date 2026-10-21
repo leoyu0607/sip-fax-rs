@@ -66,8 +66,113 @@ fn text(row: &MySqlRow, i: usize) -> Result<Option<String>> {
     }
 }
 
+fn decode(rows: Vec<MySqlRow>, kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut vals = Vec::with_capacity(kinds.len());
+        for (i, k) in kinds.iter().enumerate() {
+            vals.push(match k {
+                Kind::Int => Val::I(int(&row, i)?),
+                Kind::Bool => Val::B(int(&row, i)?.map(|v| v != 0)),
+                Kind::Str => Val::S(text(&row, i)?),
+                Kind::Time => Val::T(
+                    row.try_get::<Option<NaiveDateTime>, _>(i)
+                        .map_err(decode_err)?
+                        .map(|n| n.and_utc()),
+                ),
+            });
+        }
+        out.push(vals);
+    }
+    Ok(out)
+}
+
+/// Name of the user lock every migrating sip-faxd takes (the schema name is appended: lock names
+/// are server wide).
+const LOCK_NAME: &str = "sipfaxd_migrate";
+/// Seconds to wait for it.
+const LOCK_WAIT_SECS: i64 = 60;
+
+struct MySqlSession {
+    conn: sqlx::pool::PoolConnection<sqlx::MySql>,
+    lock: String,
+}
+
+#[async_trait]
+impl MigrationSession for MySqlSession {
+    async fn execute(&mut self, sql: &str, params: &[Val]) -> Result<u64> {
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.to_string()));
+        for p in params {
+            q = bind(q, p);
+        }
+        Ok(q.execute(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?
+            .rows_affected())
+    }
+    async fn query(&mut self, sql: &str, params: &[Val], kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.to_string()));
+        for p in params {
+            q = bind(q, p);
+        }
+        let rows = q
+            .fetch_all(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        decode(rows, kinds)
+    }
+    fn transactional_ddl(&self) -> bool {
+        false
+    }
+    async fn begin(&mut self) -> Result<()> {
+        Ok(()) // DDL commits implicitly: nothing to wrap
+    }
+    async fn commit(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn finish(mut self: Box<Self>, _ok: bool) -> Result<()> {
+        sqlx::query("SELECT RELEASE_LOCK(?)")
+            .bind(self.lock.clone())
+            .fetch_one(&mut *self.conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Backend for Mysql {
+    async fn migration_session(&self) -> Result<Box<dyn MigrationSession>> {
+        let mut conn = self.pool.acquire().await.map_err(Error::from_sqlx)?;
+        let row = sqlx::query("SELECT CONCAT(?, ':', DATABASE())")
+            .bind(LOCK_NAME)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(Error::from_sqlx)?;
+        let lock = match row.try_get::<String, _>(0) {
+            Ok(s) => s,
+            Err(_) => String::from_utf8_lossy(&row.try_get::<Vec<u8>, _>(0).map_err(decode_err)?)
+                .into_owned(),
+        };
+        let got: Option<i64> = sqlx::query("SELECT GET_LOCK(?, ?)")
+            .bind(lock.clone())
+            .bind(LOCK_WAIT_SECS)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(Error::from_sqlx)?
+            .try_get(0)
+            .map_err(decode_err)?;
+        if got != Some(1) {
+            return Err(Error::Unavailable(format!(
+                "could not get the migration lock {lock} within {LOCK_WAIT_SECS} s (another sip-faxd is migrating?)"
+            )));
+        }
+        Ok(Box::new(MySqlSession { conn, lock }))
+    }
+
     fn kind(&self) -> BackendKind {
         BackendKind::Mysql
     }
@@ -89,24 +194,7 @@ impl Backend for Mysql {
             q = bind(q, p);
         }
         let rows = q.fetch_all(&self.pool).await.map_err(Error::from_sqlx)?;
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut vals = Vec::with_capacity(kinds.len());
-            for (i, k) in kinds.iter().enumerate() {
-                vals.push(match k {
-                    Kind::Int => Val::I(int(&row, i)?),
-                    Kind::Bool => Val::B(int(&row, i)?.map(|v| v != 0)),
-                    Kind::Str => Val::S(text(&row, i)?),
-                    Kind::Time => Val::T(
-                        row.try_get::<Option<NaiveDateTime>, _>(i)
-                            .map_err(decode_err)?
-                            .map(|n| n.and_utc()),
-                    ),
-                });
-            }
-            out.push(vals);
-        }
-        Ok(out)
+        decode(rows, kinds)
     }
 
     async fn insert_id(&self, sql: &str, params: &[Val]) -> Result<i64> {

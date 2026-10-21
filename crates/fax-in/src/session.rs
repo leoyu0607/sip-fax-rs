@@ -46,6 +46,10 @@ pub struct SessionContext {
     pub fax: crate::config::FaxSection,
     /// The session leaves its fax report here before it returns.
     pub report: ReportSink,
+    /// The session sends the page count here every time T.30 confirms a page (MCF / RTP), ECM
+    /// and non-ECM alike. The controller turns it into `CallEvent::PageReceived`. `None`: nobody
+    /// listens.
+    pub progress: Option<tokio::sync::mpsc::UnboundedSender<u32>>,
     /// Turns `true` when the call ends underneath the session (peer BYE, shutdown).
     pub cancel: watch::Receiver<bool>,
 }

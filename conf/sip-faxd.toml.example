@@ -95,13 +95,54 @@ max_491_retries = 3
 data_dir = "data"
 
 # ---------------------------------------------------------------------------------------
+# [database]  where the fax records (list, status, pages, ANI / DNIS ...) are kept
+# ---------------------------------------------------------------------------------------
+# One row per incoming call, created when the call starts (fax_status "receiving", pages
+# counting up while the fax arrives) and completed when it ends. docs/database.md describes
+# the tables. A database that is down never stops a fax from being received: the writes are
+# queued in memory and retried (1 s, 2 s, 4 s ... up to 60 s); what still fails is kept as
+# result.json and restored by `sip-faxd db backfill`.
+[database]
+# SQLite (the default, built in, nothing to install), PostgreSQL, MySQL / MariaDB or SQL Server:
+#   url = "sqlite://data/sip-faxd.db"            (relative: to the executable directory)
+#   url = "postgres://user:password@host:5432/faxdb"
+#   url = "mysql://user:password@host:3306/faxdb"       (also "mariadb://")
+#   url = "mssql://user:password@host:1433/faxdb?trust_server_certificate=true"
+# Percent-encode special characters in the password (@ is %40). `config check` shows the URL
+# with the password hidden.
+url = "sqlite://data/sip-faxd.db"
+# Create / upgrade the tables when the server starts (default). With false the server refuses
+# to start on an outdated schema until you run `sip-faxd db migrate`. A database that is NEWER
+# than this program is always refused.
+auto_migrate = true
+# Connections in the pool.
+max_connections = 5
+
+# ---------------------------------------------------------------------------------------
+# [retention]  how long files and records are kept
+# ---------------------------------------------------------------------------------------
+# These values are written to the database on the FIRST start only; from then on the database
+# is the master (the web interface of a later release changes it there) and editing this file
+# has no effect. A job runs every day at run_at; `sip-faxd purge --dry-run` shows what it would
+# delete, `sip-faxd purge` runs it now.
+[retention]
+# Delete the TIFF / PDF files (and PNG previews) after this many days; the record stays, marked
+# "files purged". 0 = never.
+files_days = 90
+# Delete the record itself after this many days (not less than files_days). 0 = never.
+records_days = 365
+# Time of the daily run, HH:MM, local time of the server.
+run_at = "03:17"
+
+# ---------------------------------------------------------------------------------------
 # [capture]  per-call capture: <dir>/<call-id>/sip.log, udptl.log and result.json
 # ---------------------------------------------------------------------------------------
 [capture]
 # Write captures. sip.log holds every SIP message of the call with a UTC timestamp, the
 # direction (RECV from / SEND to), the peer address, the transport and the raw message.
 # udptl.log has one line per UDPTL datagram, see "udptl" below. result.json is the call result, including the fax
-# report (T.30 result code, pages, rate, TSI, bad lines per page, file paths, UDPTL counters).
+# report (T.30 result code, pages, rate, ECM, TSI, bad lines per page, file paths, UDPTL counters);
+# `sip-faxd db backfill` restores calls that are missing from the database from these files.
 enabled = true
 dir = "logs/calls"
 # "all"    - keep every call
@@ -175,7 +216,6 @@ peer = "203.0.113.10:5060"
 # transcoding_mmr = false
 # transcoding_jbig = false
 
-# Tolerance switches for peers without a specification.
 [trunks.fax]
 # What the DIS advertises (ITU-T T.30 Annex A). The sender chooses within it.
 # resolutions = ["standard", "fine"]   # vertical resolutions offered: "standard" (3.85 l/mm) and/or "fine" (7.7 l/mm).
@@ -184,6 +224,21 @@ peer = "203.0.113.10:5060"
 # ecm = false                          # error correction mode (DIS bit 27) and, with it, MMR (T.6, bit 31).
 #                                      # Off by default until verified against a real gateway; set true to test ECM.
 
+# Where the calling (ANI) and called (DNIS) number of the call list come from.
+[trunks.numbers]
+# Headers to look at, first one that carries a number wins:
+# ani_sources = ["pai", "rpid", "from"]   # P-Asserted-Identity, Remote-Party-ID, From
+# dnis_sources = ["ruri", "to"]           # Request-URI, To; "diversion" (the originally dialled number
+#                                         # of a forwarded call) can be added
+# A caller who hides the number (From "anonymous", Privacy: id) is stored as "anonymous", no number.
+# The AudioCodes gateway puts the numbers in From and the Request-URI (the defaults work).
+# The Chunghwa Telecom CS210 is not known yet: check a first capture and adjust.
+# strip_plus = false           # remove a leading "+" from both numbers
+# ani_strip_prefix = "+886"    # remove this prefix from the calling number (e.g. the country code)
+# dnis_strip_prefix = "+886"   # ... and from the called number
+# (spaces, "-", "." and parentheses are always removed from the numbers)
+
+# Tolerance switches for peers without a specification.
 [trunks.compat]
 # Accept INVITEs whose Require lists option tags we do not know (default: answer 420 with
 # an Unsupported header).

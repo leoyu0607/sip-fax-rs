@@ -1,20 +1,34 @@
 //! `sip-faxd`: the SIP fax server executable.
 //!
 //! ```text
-//! sip-faxd serve [--config PATH]          run the fax-in controller
-//! sip-faxd config check [--config PATH]   validate a configuration file
+//! sip-faxd serve [--config PATH]               run the fax-in controller
+//! sip-faxd config check [--config PATH]        validate a configuration file
+//! sip-faxd db migrate [--config PATH]          create / upgrade the database schema
+//! sip-faxd db backfill [--config PATH]         restore calls from logs/calls/*/result.json
+//! sip-faxd purge [--dry-run] [--config PATH]   run the retention job now
 //! ```
 //!
 //! Without `--config` the file is `conf/sip-faxd.toml` next to the executable. Relative
-//! paths inside the configuration (the capture directory) are relative to the executable's
-//! directory too, so an unpacked tarball is self-contained.
+//! paths inside the configuration (the capture directory, the data directory, a SQLite
+//! database) are relative to the executable's directory too, so an unpacked tarball is
+//! self-contained.
+
+mod commands;
+mod db;
+mod schedule;
+mod settings;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
-use fax_in::{CallEvent, FaxIn, FaxInConfig, StartOptions};
-use serde::Deserialize;
+use fax_in::recorder::{Recorder, RecorderConfig};
+use fax_in::{CallEvent, FaxIn, StartOptions};
+
+use crate::db::{Db, Startup};
+use crate::settings::AppConfig;
 
 /// SIP fax server (fax-in over T.38 / G.711).
 #[derive(Parser)]
@@ -40,6 +54,19 @@ enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Database tools.
+    Db {
+        #[command(subcommand)]
+        action: DbAction,
+    },
+    /// Delete expired files and records now (what the daily job does).
+    Purge {
+        /// Only count what would be deleted.
+        #[arg(long)]
+        dry_run: bool,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
 }
 
 #[derive(Subcommand)]
@@ -48,16 +75,18 @@ enum ConfigAction {
     Check(ConfigArg),
 }
 
-#[derive(Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-struct LogSection {
-    /// Default log filter (overridden by `RUST_LOG`).
-    level: String,
-}
-
-struct AppConfig {
-    log: LogSection,
-    fax_in: FaxInConfig,
+#[derive(Subcommand)]
+enum DbAction {
+    /// Create the schema or upgrade it to this version.
+    Migrate(ConfigArg),
+    /// Insert the calls of `logs/calls/*/result.json` that are missing from the database.
+    Backfill {
+        /// Directory of the per-call captures (default: `[capture] dir`).
+        #[arg(long, value_name = "DIR")]
+        dir: Option<PathBuf>,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
 }
 
 fn exe_dir() -> PathBuf {
@@ -73,22 +102,6 @@ fn config_path(arg: &ConfigArg) -> PathBuf {
         .unwrap_or_else(|| exe_dir().join("conf").join("sip-faxd.toml"))
 }
 
-fn load(path: &Path) -> Result<AppConfig, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("cannot read configuration {}: {e}", path.display()))?;
-    let mut table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
-        format!("{}: invalid TOML: {}", path.display(), e.message())
-    })?;
-    let log = match table.remove("log") {
-        None => LogSection::default(),
-        Some(v) => v
-            .try_into()
-            .map_err(|e: toml::de::Error| format!("{}: [log]: {}", path.display(), e.message()))?,
-    };
-    let fax_in = FaxInConfig::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(AppConfig { log, fax_in })
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
@@ -98,68 +111,27 @@ fn main() -> ExitCode {
         }
         Some(Command::Config {
             action: ConfigAction::Check(arg),
-        }) => config_check(&config_path(&arg)),
+        }) => commands::config_check(&config_path(&arg)),
         Some(Command::Serve(arg)) => serve(&config_path(&arg)),
+        Some(Command::Db {
+            action: DbAction::Migrate(arg),
+        }) => with_runtime(&config_path(&arg), |cfg| async move {
+            commands::db_migrate(&cfg, &exe_dir()).await
+        }),
+        Some(Command::Db {
+            action: DbAction::Backfill { dir, config },
+        }) => with_runtime(&config_path(&config), |cfg| async move {
+            commands::db_backfill(&cfg, &exe_dir(), dir).await
+        }),
+        Some(Command::Purge { dry_run, config }) => {
+            with_runtime(&config_path(&config), |cfg| async move {
+                commands::purge(&cfg, &exe_dir(), dry_run).await
+            })
+        }
     }
 }
 
-fn config_check(path: &Path) -> ExitCode {
-    let cfg = match load(path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("sip-faxd: error: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    let f = &cfg.fax_in;
-    println!("configuration OK: {}", path.display());
-    println!(
-        "  sip: bind {} ({}), unknown_source = {:?}",
-        f.sip.bind,
-        f.transports()
-            .iter()
-            .map(|t| format!("{t:?}").to_lowercase())
-            .collect::<Vec<_>>()
-            .join("+"),
-        f.sip.unknown_source
-    );
-    println!(
-        "  capture: {} ({:?}) -> {}",
-        if f.capture.enabled { "on" } else { "off" },
-        f.capture.keep,
-        f.capture.dir.display()
-    );
-    println!(
-        "  fax session: {:?}, received faxes -> {}/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|pdf",
-        f.call.fax_session,
-        f.storage.data_dir.display()
-    );
-    for t in &f.trunks {
-        println!(
-            "  trunk {}: preset {}, peer {}, allowed {:?}, {:?}, t38_policy {:?}, register {}",
-            t.name,
-            t.preset,
-            t.peer.as_deref().unwrap_or("-"),
-            t.allowed_sources,
-            t.transport,
-            t.t38_policy,
-            if t.register.enabled { "on" } else { "off" }
-        );
-    }
-    for w in f.warnings() {
-        println!("warning: {w}");
-    }
-    ExitCode::SUCCESS
-}
-
-fn serve(path: &Path) -> ExitCode {
-    let cfg = match load(path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("sip-faxd: error: {e}");
-            return ExitCode::from(2);
-        }
-    };
+fn init_logging(cfg: &AppConfig) {
     let level = if cfg.log.level.is_empty() {
         "info".to_string()
     } else {
@@ -172,17 +144,40 @@ fn serve(path: &Path) -> ExitCode {
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .init();
-    let rt = match tokio::runtime::Builder::new_multi_thread()
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime, ExitCode> {
+    tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-    {
-        Ok(r) => r,
-        Err(e) => {
+        .map_err(|e| {
             eprintln!("sip-faxd: error: cannot start the async runtime: {e}");
-            return ExitCode::from(1);
+            ExitCode::from(1)
+        })
+}
+
+/// Loads the configuration and runs a one-shot command on a runtime.
+fn with_runtime<F, Fut>(path: &Path, f: F) -> ExitCode
+where
+    F: FnOnce(AppConfig) -> Fut,
+    Fut: std::future::Future<Output = ExitCode>,
+{
+    let cfg = match AppConfig::load(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("sip-faxd: error: {e}");
+            return ExitCode::from(2);
         }
     };
-    rt.block_on(run(cfg.fax_in))
+    init_logging(&cfg);
+    match runtime() {
+        Ok(rt) => rt.block_on(f(cfg)),
+        Err(c) => c,
+    }
+}
+
+fn serve(path: &Path) -> ExitCode {
+    with_runtime(path, run)
 }
 
 async fn shutdown_signal() {
@@ -210,24 +205,61 @@ async fn shutdown_signal() {
     }
 }
 
-async fn run(cfg: FaxInConfig) -> ExitCode {
-    for w in cfg.warnings() {
+/// How long the shutdown waits for the database write queue.
+const RECORDER_GRACE: Duration = Duration::from_secs(10);
+
+async fn run(cfg: AppConfig) -> ExitCode {
+    let base = exe_dir();
+    for w in cfg.fax_in.warnings() {
         tracing::warn!("{w}");
     }
+    // The database first: a schema this binary cannot work with stops the start here, before a
+    // single call is answered. An unreachable database does not: the calls are received and
+    // written to the database as soon as it is back.
+    let db = Arc::new(Db::new(&cfg, &base));
+    match db.start().await {
+        Ok(Startup::Ready { stale_fixed }) => {
+            if stale_fixed > 0 {
+                tracing::warn!(
+                    rows = stale_fixed,
+                    "records still `receiving` from a previous run were closed (shutdown)"
+                );
+            }
+            tracing::info!(url = %settings::mask_url(&cfg.database.url), "database ready");
+        }
+        Ok(Startup::Unreachable(why)) => {
+            tracing::error!(url = %settings::mask_url(&cfg.database.url),
+                "database not reachable, receiving faxes anyway and retrying the writes: {why}");
+        }
+        Err(e) => {
+            eprintln!("sip-faxd: error: database: {e}");
+            return ExitCode::from(1);
+        }
+    }
+    let data_dir = cfg.data_dir(&base);
+    let mut rcfg = RecorderConfig::new(data_dir.clone());
+    rcfg.spill_dir = Some(cfg.calls_dir(&base));
+    let recorder = Arc::new(Recorder::start(db.clone(), rcfg));
+    let purge_task = tokio::spawn(commands::purge_daily(db.clone(), data_dir));
+
     let opts = StartOptions {
         session_factory: None,
-        base_dir: Some(exe_dir()),
+        base_dir: Some(base),
     };
-    let (fax, mut events) = match FaxIn::start(cfg, opts).await {
+    let (fax, mut events) = match FaxIn::start(cfg.fax_in, opts).await {
         Ok(x) => x,
         Err(e) => {
             eprintln!("sip-faxd: error: {e}");
+            purge_task.abort();
+            recorder.shutdown(RECORDER_GRACE).await;
             return ExitCode::from(1);
         }
     };
     tracing::info!(udp = ?fax.udp_addr(), tcp = ?fax.tcp_addr(), "sip-faxd ready");
+    let rec = recorder.clone();
     let logger = tokio::spawn(async move {
         while let Some(ev) = events.recv().await {
+            rec.record(&ev);
             if let CallEvent::Finished(r) = ev {
                 match serde_json::to_string(&*r) {
                     Ok(json) => tracing::info!(target: "call_result", "{json}"),
@@ -240,6 +272,9 @@ async fn run(cfg: FaxInConfig) -> ExitCode {
     tracing::info!("shutting down");
     fax.shutdown().await;
     let _ = logger.await;
+    purge_task.abort();
+    recorder.shutdown(RECORDER_GRACE).await;
+    db.close().await;
     ExitCode::SUCCESS
 }
 

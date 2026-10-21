@@ -57,9 +57,10 @@ jobs:
       - run: cargo llvm-cov -p t38 --fail-under-lines 85
       - run: cargo llvm-cov -p t4 --fail-under-lines 85
       - run: cargo llvm-cov -p t30 --fail-under-lines 85
-      # store (M3a): non-protocol crate gate, line coverage >= 80 % (SQLite run; the server
-      # backends run the same suite in the db-matrix job).
-      - run: cargo llvm-cov -p store --fail-under-lines 80
+      # store (M3a): non-protocol crate gate, line coverage >= 80 % (SQLite run). The three server
+      # drivers (postgres, mysql, mssql: about 600 lines that only run against a server, M3b review)
+      # are left out of this number; the db-matrix job runs the same suite on them.
+      - run: cargo llvm-cov -p store --fail-under-lines 80 --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
 
   # M3a: the store behaviour suite on the four server databases (SQLite runs in `test`).
   # Required check names: "db-matrix (postgres)", "db-matrix (mysql)", "db-matrix (mariadb)", "db-matrix (mssql)".
@@ -145,8 +146,8 @@ jobs:
           BIN=target/${{ matrix.target }}/release/sip-faxd
           file "$BIN"
           file "$BIN" | grep -q "statically linked"
-      # sip-faxd does not link the store crate until M3b, so prove now that sqlx (bundled SQLite)
-      # and tiberius (rustls) link statically on musl: build the store test executable.
+      # sip-faxd links the store crate since M3b; this also builds and runs the store test executable
+      # (sqlx with bundled SQLite and tiberius with rustls, statically linked on musl).
       - name: Verify store crate links statically (M3a)
         run: |
           EXE=$(cargo zigbuild --release --locked --target ${{ matrix.target }} -p store --tests --message-format=json \

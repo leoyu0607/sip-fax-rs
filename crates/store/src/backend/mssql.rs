@@ -135,8 +135,137 @@ fn int(row: &tiberius::Row, i: usize) -> Result<Option<i64>> {
         .map_err(decode_err)
 }
 
+fn decode(rows: Vec<tiberius::Row>, kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut vals = Vec::with_capacity(kinds.len());
+        for (i, k) in kinds.iter().enumerate() {
+            vals.push(match k {
+                Kind::Int => Val::I(int(&row, i)?),
+                Kind::Bool => Val::B(row.try_get::<bool, _>(i).map_err(decode_err)?),
+                Kind::Str => Val::S(
+                    row.try_get::<&str, _>(i)
+                        .map_err(decode_err)?
+                        .map(str::to_string),
+                ),
+                Kind::Time => Val::T(
+                    row.try_get::<chrono::NaiveDateTime, _>(i)
+                        .map_err(decode_err)?
+                        .map(|n| n.and_utc()),
+                ),
+            });
+        }
+        out.push(vals);
+    }
+    Ok(out)
+}
+
+/// Application lock resource of the migration (scoped to the database).
+const LOCK_RESOURCE: &str = "sipfaxd_migrate";
+/// Milliseconds to wait for it.
+const LOCK_WAIT_MS: u32 = 60_000;
+
+struct MssqlSession {
+    conn: bb8::PooledConnection<'static, Manager>,
+}
+
+#[async_trait]
+impl MigrationSession for MssqlSession {
+    async fn execute(&mut self, sql: &str, params: &[Val]) -> Result<u64> {
+        let sql = rewrite_placeholders(sql, |n| format!("@P{n}"));
+        let res = Mssql::make_query(&sql, params)
+            .execute(&mut *self.conn)
+            .await
+            .map_err(Error::from_tiberius)?;
+        Ok(res.total())
+    }
+    async fn query(&mut self, sql: &str, params: &[Val], kinds: &[Kind]) -> Result<Vec<Vec<Val>>> {
+        let sql = rewrite_placeholders(sql, |n| format!("@P{n}"));
+        let rows = Mssql::make_query(&sql, params)
+            .query(&mut *self.conn)
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_first_result()
+            .await
+            .map_err(Error::from_tiberius)?;
+        decode(rows, kinds)
+    }
+    fn transactional_ddl(&self) -> bool {
+        true
+    }
+    async fn begin(&mut self) -> Result<()> {
+        self.conn
+            .simple_query("BEGIN TRANSACTION")
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_results()
+            .await
+            .map_err(Error::from_tiberius)?;
+        Ok(())
+    }
+    async fn commit(&mut self) -> Result<()> {
+        self.conn
+            .simple_query("COMMIT TRANSACTION")
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_results()
+            .await
+            .map_err(Error::from_tiberius)?;
+        Ok(())
+    }
+    async fn rollback(&mut self) -> Result<()> {
+        self.conn
+            .simple_query("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION")
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_results()
+            .await
+            .map_err(Error::from_tiberius)?;
+        Ok(())
+    }
+    async fn finish(mut self: Box<Self>, ok: bool) -> Result<()> {
+        if !ok {
+            let _ = self.rollback().await;
+        }
+        self.conn
+            .simple_query(format!(
+                "EXEC sp_releaseapplock @Resource = N'{LOCK_RESOURCE}', @LockOwner = 'Session'"
+            ))
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_results()
+            .await
+            .map_err(Error::from_tiberius)?;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl Backend for Mssql {
+    async fn migration_session(&self) -> Result<Box<dyn MigrationSession>> {
+        let mut conn = self.pool.get_owned().await.map_err(map_run)?;
+        let rows = conn
+            .simple_query(format!(
+                "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'{LOCK_RESOURCE}', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = {LOCK_WAIT_MS}; SELECT @r"
+            ))
+            .await
+            .map_err(Error::from_tiberius)?
+            .into_first_result()
+            .await
+            .map_err(Error::from_tiberius)?;
+        let status = rows
+            .first()
+            .and_then(|r| r.try_get::<i32, _>(0).ok().flatten())
+            .unwrap_or(-999);
+        if status < 0 {
+            return Err(Error::Unavailable(format!(
+                "could not get the migration lock within {} s (sp_getapplock returned {status}; another sip-faxd is migrating?)",
+                LOCK_WAIT_MS / 1000
+            )));
+        }
+        Ok(Box::new(MssqlSession { conn }))
+    }
+
     fn kind(&self) -> BackendKind {
         BackendKind::Mssql
     }
@@ -161,28 +290,7 @@ impl Backend for Mssql {
             .into_first_result()
             .await
             .map_err(Error::from_tiberius)?;
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut vals = Vec::with_capacity(kinds.len());
-            for (i, k) in kinds.iter().enumerate() {
-                vals.push(match k {
-                    Kind::Int => Val::I(int(&row, i)?),
-                    Kind::Bool => Val::B(row.try_get::<bool, _>(i).map_err(decode_err)?),
-                    Kind::Str => Val::S(
-                        row.try_get::<&str, _>(i)
-                            .map_err(decode_err)?
-                            .map(str::to_string),
-                    ),
-                    Kind::Time => Val::T(
-                        row.try_get::<chrono::NaiveDateTime, _>(i)
-                            .map_err(decode_err)?
-                            .map(|n| n.and_utc()),
-                    ),
-                });
-            }
-            out.push(vals);
-        }
-        Ok(out)
+        decode(rows, kinds)
     }
 
     async fn insert_id(&self, sql: &str, params: &[Val]) -> Result<i64> {

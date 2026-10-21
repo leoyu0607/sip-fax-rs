@@ -135,6 +135,203 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     connect_with(&env.url, o).await.unwrap();
 }
 
+async fn drop_everything(env: &Env) {
+    let be = env.store.raw();
+    for stmt in [
+        "DROP TABLE delivery_attempts",
+        "DROP TABLE settings",
+        "DROP TABLE faxes",
+        "DROP TABLE schema_migrations",
+    ] {
+        be.execute(stmt, &[]).await.unwrap();
+    }
+}
+
+// S01c (M3a review): several instances migrating the same empty database at the same instant.
+db_case!(
+    s01c_concurrent_first_start,
+    s01c_concurrent_first_start_body
+);
+async fn s01c_concurrent_first_start_body(env: &Env) {
+    if env.is_memory() {
+        return; // every connection to :memory: is a new database
+    }
+    drop_everything(env).await;
+    let mut tasks = Vec::new();
+    for _ in 0..6 {
+        let url = env.url.clone();
+        let opts = env.opts();
+        tasks.push(tokio::spawn(async move {
+            let st = crate::open_sql(&url, &opts).await.unwrap();
+            let rep = st.migrate().await;
+            st.close().await;
+            rep
+        }));
+    }
+    let mut applied_by = 0;
+    for t in tasks {
+        let rep = t
+            .await
+            .unwrap()
+            .unwrap_or_else(|e| panic!("{}: a racing migrate failed: {e}", lbl(env, "race")));
+        assert_eq!(rep.to, 1, "{rep:?}");
+        if !rep.applied.is_empty() {
+            applied_by += 1;
+            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1]));
+        } else {
+            assert_eq!(
+                rep.from, 1,
+                "a loser starts from the version the winner wrote"
+            );
+        }
+    }
+    assert_eq!(applied_by, 1, "exactly one instance applies the migration");
+    assert_eq!(
+        count_rows(env, "SELECT COUNT(*) FROM schema_migrations").await,
+        1
+    );
+    assert_eq!(env.store.schema_version().await.unwrap(), 1);
+}
+
+fn probe_sql(kind: BackendKind) -> &'static str {
+    match kind {
+        BackendKind::Mysql => "CREATE TABLE IF NOT EXISTS m3b_probe (id INT NOT NULL PRIMARY KEY)",
+        _ => "CREATE TABLE m3b_probe (id INT NOT NULL PRIMARY KEY)",
+    }
+}
+
+// S01d: a migration that fails half way. Transactional databases roll it back completely; MySQL /
+// MariaDB cannot, and the next run (with the migration fixed) must still work.
+db_case!(
+    s01d_failed_migration_then_rerun,
+    s01d_failed_migration_then_rerun_body
+);
+async fn s01d_failed_migration_then_rerun_body(env: &Env) {
+    use crate::migrate::{Migration, apply, migrations};
+    if env.is_memory() {
+        return;
+    }
+    let kind = env.store.backend();
+    let init = &migrations(kind)[0];
+    let ok_sql: &'static str = probe_sql(kind);
+    let bad_sql: &'static str =
+        Box::leak(format!("{ok_sql};\nINSERT INTO no_such_table VALUES (1)").into_boxed_str());
+    let bad = [
+        Migration {
+            version: init.version,
+            name: init.name,
+            sql: init.sql,
+        },
+        Migration {
+            version: 2,
+            name: "probe",
+            sql: bad_sql,
+        },
+    ];
+    let err = apply(env.store.raw(), env.clock.as_ref(), &bad)
+        .await
+        .expect_err("the failing migration is reported");
+    assert!(err.to_string().contains("0002_probe"), "{err}");
+    assert_eq!(
+        env.store.schema_version().await.unwrap(),
+        1,
+        "version 2 is not recorded"
+    );
+    let probe = env
+        .store
+        .raw()
+        .query("SELECT COUNT(*) FROM m3b_probe", &[], &[Kind::Int])
+        .await;
+    if kind == BackendKind::Mysql {
+        assert!(probe.is_ok(), "MySQL keeps the DDL that already ran");
+    } else {
+        assert!(
+            probe.is_err(),
+            "{}: undone completely",
+            lbl(env, "failed migration")
+        );
+    }
+    // the migration is fixed (it no longer fails): the rerun applies it exactly once
+    let good = [
+        Migration {
+            version: init.version,
+            name: init.name,
+            sql: init.sql,
+        },
+        Migration {
+            version: 2,
+            name: "probe",
+            sql: ok_sql,
+        },
+    ];
+    let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
+        .await
+        .unwrap();
+    assert_eq!((rep.from, rep.to, rep.applied), (1, 2, vec![2]));
+    assert_eq!(count_rows(env, "SELECT COUNT(*) FROM m3b_probe").await, 0);
+    // and the lock was released after the failure (a third run does not wait)
+    let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
+        .await
+        .unwrap();
+    assert!(rep.applied.is_empty());
+}
+
+// S01e (MySQL / MariaDB only): the first run died after the first CREATE TABLEs of 0001.
+db_case!(
+    s01e_mysql_rerun_after_partial_init,
+    s01e_mysql_rerun_after_partial_init_body
+);
+async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
+    use crate::migrate::{Migration, apply, migrations};
+    if env.store.backend() != BackendKind::Mysql {
+        return;
+    }
+    drop_everything(env).await;
+    let init = &migrations(BackendKind::Mysql)[0];
+    let stmts = crate::db::split_statements(init.sql);
+    assert!(stmts.len() >= 3, "faxes, settings and delivery_attempts");
+    // a run that created `faxes` and `settings` and then failed
+    let dying: &'static str = Box::leak(
+        format!(
+            "{};\n{};\nINSERT INTO no_such_table VALUES (1)",
+            stmts[0], stmts[1]
+        )
+        .into_boxed_str(),
+    );
+    let first = [Migration {
+        version: 1,
+        name: "init",
+        sql: dying,
+    }];
+    assert!(
+        apply(env.store.raw(), env.clock.as_ref(), &first)
+            .await
+            .is_err()
+    );
+    assert_eq!(env.store.schema_version().await.unwrap(), 0);
+    assert_eq!(
+        count_rows(env, "SELECT COUNT(*) FROM faxes").await,
+        0,
+        "half the schema exists"
+    );
+    // the real migration then runs through (the same statements again, then the rest)
+    let rep = env.store.migrate().await.unwrap();
+    assert_eq!((rep.from, rep.to, rep.applied), (0, 1, vec![1]));
+    for tbl in ["faxes", "settings", "delivery_attempts"] {
+        count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await;
+    }
+    let idx = count_rows(
+        env,
+        "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'faxes' AND index_name LIKE 'idx_faxes_%'",
+    )
+    .await;
+    assert_eq!(idx, 7);
+    // running the whole file a second time is harmless as well
+    for stmt in &stmts {
+        env.store.raw().execute(stmt, &[]).await.unwrap();
+    }
+}
+
 // ---------------------------------------------------------------- S02
 db_case!(s02_receiving_flow, s02_receiving_flow_body);
 async fn s02_receiving_flow_body(env: &Env) {

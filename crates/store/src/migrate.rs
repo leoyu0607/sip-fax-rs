@@ -2,7 +2,7 @@
 //! `crates/store/migrations/<backend>/NNNN_name.sql`, compiled into the binary.
 
 use crate::clock::Clock;
-use crate::db::{Backend, BackendKind, Kind, Val, split_statements};
+use crate::db::{Backend, BackendKind, Kind, MigrationSession, Val, split_statements};
 use crate::error::{Error, Result};
 
 /// One migration.
@@ -127,29 +127,101 @@ pub async fn check_not_newer(be: &dyn Backend) -> Result<i32> {
     Ok(db)
 }
 
-/// Apply all pending migrations. Idempotent. Not safe against two processes migrating the same
-/// database at the same instant (the second would fail on the duplicate `schema_migrations` row
-/// or on `CREATE TABLE`); run `sip-faxd db migrate` once, or let a single instance auto-migrate.
+/// Apply all pending migrations. Idempotent, and safe to run from several processes at once: the
+/// run holds a database lock (`pg_advisory_lock`, MySQL `GET_LOCK`, MSSQL `sp_getapplock`, a
+/// SQLite exclusive transaction) and reads the version again once it has the lock, so the
+/// second instance finds nothing left to do. Where DDL is transactional (SQLite, PostgreSQL,
+/// MSSQL) a failed migration is rolled back completely; MySQL/MariaDB cannot roll DDL back, so
+/// their migration files only contain statements that are safe to repeat (`CREATE TABLE IF NOT
+/// EXISTS` with the indexes inside the table definition) and a failed run is simply run again.
 pub async fn migrate(be: &dyn Backend, clock: &dyn Clock) -> Result<MigrateReport> {
+    apply(be, clock, migrations(be.kind())).await
+}
+
+/// [`migrate`] with an explicit list (the tests inject a failing migration).
+pub(crate) async fn apply(
+    be: &dyn Backend,
+    clock: &dyn Clock,
+    list: &[Migration],
+) -> Result<MigrateReport> {
     let kind = be.kind();
-    let from = check_not_newer(be).await?;
-    be.execute(bootstrap_sql(kind), &[]).await?;
-    let mut applied = Vec::new();
-    for m in migrations(kind).iter().filter(|m| m.version > from) {
-        for stmt in split_statements(m.sql) {
-            be.execute(&stmt, &[]).await.map_err(|e| {
-                Error::Backend(format!("migration {:04}_{}: {e}", m.version, m.name))
-            })?;
-        }
-        be.execute(
-            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-            &[
-                Val::from(m.version),
-                Val::from(m.name),
-                Val::from(crate::model::trunc_ms(clock.now())),
-            ],
+    // Refuse a database that is newer than this binary before taking any lock.
+    let db = current_version(be).await?;
+    let supported = list.last().map_or(0, |m| m.version);
+    if db > supported {
+        return Err(Error::SchemaTooNew { db, supported });
+    }
+    let mut session = be.migration_session().await?;
+    let result = run(&mut *session, kind, clock, list).await;
+    let released = session.finish(result.is_ok()).await;
+    let report = result?;
+    released?;
+    Ok(report)
+}
+
+async fn version_in(s: &mut dyn MigrationSession, kind: BackendKind) -> Result<i32> {
+    if s.query(exists_sql(kind), &[], &[Kind::Str])
+        .await?
+        .is_empty()
+    {
+        return Ok(0);
+    }
+    let rows = s
+        .query(
+            "SELECT MAX(version) FROM schema_migrations",
+            &[],
+            &[Kind::Int],
         )
         .await?;
+    match rows.first().and_then(|r| r.first()) {
+        Some(Val::I(Some(v))) => Ok(*v as i32),
+        _ => Ok(0),
+    }
+}
+
+async fn run(
+    s: &mut dyn MigrationSession,
+    kind: BackendKind,
+    clock: &dyn Clock,
+    list: &[Migration],
+) -> Result<MigrateReport> {
+    s.execute(bootstrap_sql(kind), &[]).await?;
+    // read again under the lock: another instance may have migrated while we waited for it
+    let from = version_in(s, kind).await?;
+    let supported = list.last().map_or(0, |m| m.version);
+    if from > supported {
+        return Err(Error::SchemaTooNew {
+            db: from,
+            supported,
+        });
+    }
+    let mut applied = Vec::new();
+    for m in list.iter().filter(|m| m.version > from) {
+        s.begin().await?;
+        let step = async {
+            for stmt in split_statements(m.sql) {
+                s.execute(&stmt, &[]).await.map_err(|e| {
+                    Error::Backend(format!("migration {:04}_{}: {e}", m.version, m.name))
+                })?;
+            }
+            s.execute(
+                "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+                &[
+                    Val::from(m.version),
+                    Val::from(m.name),
+                    Val::from(crate::model::trunc_ms(clock.now())),
+                ],
+            )
+            .await
+        }
+        .await;
+        match step {
+            Ok(_) => s.commit().await?,
+            Err(e) => {
+                let _ = s.rollback().await;
+                return Err(e);
+            }
+        }
         applied.push(m.version);
     }
     Ok(MigrateReport {

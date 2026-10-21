@@ -58,6 +58,9 @@ pub struct UacConfig {
     pub t38_version: u8,
     /// `T38FaxRateManagement` we offer.
     pub rate_management: &'static str,
+    /// With `fax`: a flag the caller sets to make the gateway hang up in the middle of the
+    /// transfer (the transfer is cut off and we send BYE, after `peer_bye_wait`).
+    pub hangup: Option<Arc<AtomicBool>>,
 }
 
 impl UacConfig {
@@ -75,6 +78,7 @@ impl UacConfig {
             peer_bye_wait: Duration::from_secs(3),
             t38_version: 0,
             rate_management: "transferredTCF",
+            hangup: None,
         }
     }
 }
@@ -294,14 +298,33 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
         }
     }
     let Some(fax) = cfg.fax.clone() else {
-        tokio::time::sleep(cfg.hold).await;
+        // hold the call; if the server hangs up first (it gives up on a call without fax
+        // signalling) answer its BYE instead of sending ours
+        let hold = tokio::time::sleep(cfg.hold);
+        tokio::pin!(hold);
+        loop {
+            tokio::select! {
+                () = &mut hold => break,
+                ev = dlg.next_event() => match ev {
+                    Some(DialogEvent::Bye) => {
+                        report.peer_bye = true;
+                        return Ok(report);
+                    }
+                    Some(_) => {}
+                    None => return Ok(report),
+                },
+            }
+        }
         report.bye_status = dlg.bye().await.map_err(|e| format!("BYE: {e}"))?.code();
         return Ok(report);
     };
 
     // The gateway proper: SpanDSP sends the fax over the media socket.
     let remote = remote.ok_or("the server's T.38 SDP has no usable address")?;
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = cfg
+        .hangup
+        .clone()
+        .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
     let stop2 = stop.clone();
     let mut job = tokio::task::spawn_blocking(move || run_fax(&media, remote, &fax, &stop2));
     let run = loop {
