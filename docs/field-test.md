@@ -1,4 +1,4 @@
-# 現場試接指南（v0.1.0-alpha）
+# 現場試接指南（v0.1.1-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
 
@@ -6,9 +6,10 @@
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.1.0-linux-x86_64.tar.gz
-cd sip-fax-rs-0.1.0-linux-x86_64
+tar xzf sip-fax-rs-0.1.1-linux-x86_64.tar.gz
+cd sip-fax-rs-0.1.1-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
+chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```
 
 ## 2. 設定 `conf/sip-faxd.toml`（最少要改的項目）
