@@ -34,6 +34,19 @@ pub enum Error {
     TooLarge,
     /// There are no pages to write.
     NoPages,
+    /// The TIFF file is malformed.
+    InvalidTiff(&'static str),
+    /// The TIFF file uses a feature the reader does not support.
+    UnsupportedTiff(&'static str),
+    /// The requested page (0-based) does not exist.
+    PageOutOfRange {
+        /// Requested page index.
+        page: usize,
+        /// Pages in the file.
+        pages: usize,
+    },
+    /// The PNG encoder failed.
+    Png,
 }
 
 impl fmt::Display for Error {
@@ -53,6 +66,12 @@ impl fmt::Display for Error {
             Error::InvalidMetadata(why) => write!(f, "invalid metadata: {why}"),
             Error::TooLarge => write!(f, "output exceeds 4 GiB"),
             Error::NoPages => write!(f, "no pages to write"),
+            Error::InvalidTiff(why) => write!(f, "invalid TIFF: {why}"),
+            Error::UnsupportedTiff(why) => write!(f, "unsupported TIFF: {why}"),
+            Error::PageOutOfRange { page, pages } => {
+                write!(f, "page index {page} out of range (file has {pages})")
+            }
+            Error::Png => write!(f, "PNG encoding failed"),
         }
     }
 }

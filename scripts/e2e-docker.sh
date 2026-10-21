@@ -15,7 +15,7 @@ docker build -q --platform linux/amd64 -f docker/test-rocky9.Dockerfile -t "$IMA
 if [ -n "${E2E_SKIP_CHECKS:-}" ]; then
   CMD='cargo test ${E2E_ONLY:-} -- --nocapture "$@"'
 else
-  CMD='cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test ${E2E_ONLY:-} -- --nocapture "$@" && cd /work && cargo test -p t4 --test oracle'
+  CMD='cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test ${E2E_ONLY:-} -- --nocapture "$@" && cd /work && cargo test -p t4 --test oracle --test png_oracle'
 fi
 docker run --rm --platform linux/amd64 \
   -v "$HOST_PWD":/work \
