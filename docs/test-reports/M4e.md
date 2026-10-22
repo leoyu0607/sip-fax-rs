@@ -111,4 +111,12 @@ cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-r
 
 ## 9. Opus 審核
 
-（待審核）
+**結論：通過。**（2026-10-22）
+
+- **空斷言／過度 mock**：沒有。store 測試在兩邊都以原始查詢逐表、逐欄位比對測試自己寫入的值；CLI 測試執行真的執行檔並對真的 HTTP 伺服器登入；C12 是 SpanDSP 真的送傳真。
+- **C06** 讓最後一個表（`sessions`）的最後一列被拒，證明前面六個表也一起 rollback，並在同一個目標重試成功，設計正確。
+- **C13** 以每種資料庫的 `information_schema`（SQLite 用 `pragma table_info`）比對欄位清單；報告中的突變測試（拿掉 `note_updated_at`）證實會失敗，可以擋住之後 migration 新增欄位卻忘了更新清單。
+- **涵蓋率**：store 83.08%（門檻 80%），`copy.rs` 83.78%。四種伺服器 DB 的 db-matrix 都通過。
+- **偏離**（§4）都合理：外鍵讓 C04 無法只在子表放資料；C05、C10 只在 SQLite（驗收標準沒有要求矩陣）。
+- **待辦**：CI 的 `e2e-spandsp` 新增的 PostgreSQL service 要在 GitHub 上第一次跑過確認；MSSQL 作為目標只有 store 矩陣，沒有端到端（可接受，MSSQL 的路徑已在矩陣雙向驗證）。
+- 審核時補文件：資料庫存的是相對於 `data_dir` 的檔案路徑，換機器時要連 `data/faxes/` 一起搬（`docs/database.md`、`docs/manual/it.md`）。
