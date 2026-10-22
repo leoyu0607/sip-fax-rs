@@ -81,7 +81,10 @@
   $effect.pre(() => {
     if (field.kind !== 'secret') return;
     // what the server sent (`{"set", "ref"}`) is the stored one; a string or null is an edit
-    if (typeof value === 'object' && value !== null) secretOriginal = value;
+    if (typeof value === 'object' && value !== null) {
+      secretOriginal = value;
+      secretNew = '';
+    }
     else if (secretOriginal === undefined) secretOriginal = typeof value === 'string' ? null : (value ?? null);
   });
   function secretInput(e: Event) {

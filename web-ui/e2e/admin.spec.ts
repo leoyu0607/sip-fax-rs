@@ -145,7 +145,10 @@ test('U08 a secret that is not typed again goes back as {"set": true, ref} and t
   await expect(state).toContainText(tr('config.secret_unset'));
   await page.locator('#f-register_password').fill('Sup3r-secret-value');
   await save().click();
-  // (a new trunk's form is rebuilt after its first save: wait for the row, not for the message)
+  // the form stays with its message; the field now reads back as stored
+  await saved();
+  await expect(state).toContainText(tr('config.secret_set'));
+  await expect(page.locator('#f-register_password')).toHaveValue('');
   await expect.poll(stored).toBeDefined();
   const first = await stored();
   const cipher1 = first!.body.register!.password!;
@@ -182,7 +185,8 @@ test('U08 a secret that is not typed again goes back as {"set": true, ref} and t
   await save().click();
   await saved();
   expect((await stored())!.body.register?.password ?? null).toBeNull();
-  // (the form keeps showing the state it was loaded with until it is loaded again)
+  // the form shows the cleared state at once, and after a reload too
+  await expect(state).toContainText(tr('config.secret_unset'));
   await page.reload();
   await expect(state).toContainText(tr('config.secret_unset'));
 

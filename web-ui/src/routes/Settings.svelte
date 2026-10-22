@@ -60,10 +60,9 @@
       config.sections.push({ name: o.section, version: o.version, body });
     }
     config.status.pending_restart = o.pending_restart;
-    if (draftTrunk?.name === o.section) {
-      draftTrunk = null;
-      load();
-    }
+    // a new trunk is now one of the sections (the server put it last in the order, as here);
+    // the form stays as it is, with its "saved" message
+    if (draftTrunk?.name === o.section) draftTrunk = null;
   }
 
   function addTrunk(e: SubmitEvent) {

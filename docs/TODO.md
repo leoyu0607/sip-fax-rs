@@ -111,21 +111,22 @@
   - [x] `GET /faxes` 的全文搜尋 `q`（規格 §3）：M4c ③ 完成（`ListFilter::q`，store 測試 s07c）
   - **交接狀態（2026-10-22）**：分支 `m4b-web`（已 push），①–⑤ 完成，下一步是 ⑥（Sonnet subagent 依測試計畫補測試並寫報告，之後 Opus 審核）。web crate 的入口是 `crates/web/src/lib.rs::app(AppState)`；路由在 `crates/web/src/api/`，每個處理器以 `Session` extractor 驗證並以 `s.need(Capability::…)` 檢查權限，body 用 `ApiJson`，錯誤用 `ApiError`（`{"error": {code, message, fields?}}`）。`sip-faxd serve` 在 `apps/sip-faxd/src/web_service.rs` 組 `AppState`。測試：`crates/web/tests/`（`common::env()` 起真的 server＋SQLite）。已知：在本機（macOS 的 Claude Code 沙盒）跑整個 workspace 測試時，sip-faxd 的 control／logfile／delivery_service 單元測試偶爾因暫存目錄寫入被拒（`Permission denied`）而失敗，重跑或在 CI 上都通過，與程式無關
 - [x] [Any] 2026-10-22 使用者決定（ADR-057）：① Web 預設開啟（沒有 `[web]` 也啟動；測試用設定檔一律 `enabled = false`）；② PNG 預覽在收完傳真時由伺服器產生，寫在 TIFF／PDF 旁（`<name>-p<n>.png`、`-thumb.png`），預覽 API 讀這些檔案，沒有才轉一次；取消 `cache/png` 與 `preview_cache_mb` 的容量上限；清整一併刪除。GOALS、CHANGELOG（中英）、README（中英）、field-test（防火牆 8443）已更新
-- [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）（分支 `m4c-web-ui`；ADR-058）
+- [x] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）（分支 `m4c-web-ui`；ADR-058；測試報告 `docs/test-reports/M4c.md`，**Opus 審核通過**）
   - 分階段：① 骨架與嵌入 ② 共用模組與登入 ③ 傳真列表與內容頁 ④ 管理頁 ⑤ CI 與打包 ⑥ Sonnet 依測試計畫補測試（vitest＋Playwright E2E 在 Docker）並寫報告、Opus 審核 ⑦ 文件（`docs/web.md`、README、field-test）
   - [x] ① 骨架與嵌入：`web-ui/`（Svelte 5＋Vite 8＋TS 6，`npm run lint|check|test|coverage|build`）；`crates/web/build.rs` 把 `web-ui/dist` 嵌進執行檔（沒有 dist 時嵌入說明頁；`SIPFAX_REQUIRE_WEB_UI=1` 時失敗），`crates/web/src/ui.rs` 提供 `/` 與檔案（`assets/` 長期快取）
   - [x] ② 共用模組與登入：`src/lib/api.ts`（CSRF、錯誤格式）、`i18n.svelte.ts`＋`src/locales/*.json`（由 `scripts/gen-locales.mjs` 產生，427 個 key）、`route.ts`（hash 路由）、`events.ts`（`since`／`resync`／4001／4008 重連）、`session.svelte.ts`、`live.svelte.ts`；登入、強制改密碼、我的帳號（語言、改密碼）
   - [x] ③ 傳真列表（篩選、`q` 搜尋、keyset 捲動、即時事件、捲動時新傳真暫存成「有 N 份新傳真」、列上切換已讀）與內容頁（縮圖＋整頁、縮放、方向鍵換頁、下載、已讀、備註衝突處理、投遞、重新投遞）；後端 `ListFilter::q`（store 測試 s07c，四種 DB 同一段 SQL）
   - [x] ④ 管理頁：設定（`src/lib/schema.ts` 欄位定義表、`FieldInput`／`SectionEditor`／`RoutesEditor`、trunk 新增／刪除／排序、需要重啟的欄位標示：後端 `RESTART_FIELDS`→`GET /config` 的 `restart_fields`）、帳號、稽核紀錄、系統狀態（`status.changed` 即時更新）；後端 `PUT /auth/me`、`locale` 檢查（`bad_locale`）
   - [x] ⑤ CI 與打包：`web-ui` job（lint、check、coverage ≥ 70%、build）；`build-musl` 先建前端並設 `SIPFAX_REQUIRE_WEB_UI=1`；`package.sh` 檢查執行檔含有這次的前端；`ci-local.sh` 有 npm 時一併執行
-  - [ ] ⑥ Sonnet 依 `docs/test-plans/M4.md` §6 與 M4c 新增案例補測試並寫 `docs/test-reports/M4c.md`；Playwright E2E（U10–U19、M4b 留下的「真的收一份傳真看到 fax.created／progress／finalized」）放進 `scripts/e2e-docker.sh` 與 CI；U02 需要後端產生代碼清單的測試
+  - [x] ⑥ Sonnet 依 `docs/test-plans/M4.md` §6 與 M4c 新增案例補測試並寫 `docs/test-reports/M4c.md`；Playwright E2E（U10–U19、M4b 留下的「真的收一份傳真看到 fax.created／progress／finalized」）放進 `scripts/e2e-docker.sh` 與 CI；U02 需要後端產生代碼清單的測試
     - 2026-10-22 測試完成，**待 Opus 審核**（報告 `docs/test-reports/M4c.md`）：W12、W13、A14、U05（`crates/web/tests/m4c.rs`、`ui.rs`）、U02（`crates/web/tests/codes.rs` 寫 `web-ui/src/lib/api-codes.json`、vitest `codes.test.ts`）、U06（`scripts/test-package.sh`）、U07（vitest 41 個、statements 91.65%）、Playwright 16 個（`web-ui/e2e/*.spec.ts`：U08、U10–U19，U11 是 SpanDSP 真的送 3 頁；執行 `scripts/e2e-web.sh`，已放進 `ci-local.sh`、CI 的 `e2e-web` job 與 `branch-protection.json`，需管理員重新套用）。web 行涵蓋率 95.31%。測試找到並修正 6 個產品問題（`validation.reversed` 沒翻譯、路由／投遞的 422 沒顯示、備註即時更新判斷錯、保留的秘密被重新加密、列表離開頁面時錯過新傳真、`PUT /auth/me {}` 清掉語言）。M4b 留下的「真的收一份傳真看到即時事件」由 U11 關閉。
-  - [ ] ⑦ 文件：`docs/web.md`（繁中使用說明）、兩份 README、`docs/field-test.md`
-  - **交接狀態（2026-10-22）**：①–⑤ 完成。已有 vitest 7 個檔（U01、U03、U04 與 lib 的輔助函式，statements 84%）。本機開發：`cd web-ui && npm run dev`（proxy 到 `SIPFAX_DEV_API`，預設 https://127.0.0.1:8443）；或 `npm run build` 後重新 `cargo build`，`sip-faxd serve` 直接提供介面。注意：macOS 上覆蓋執行中的執行檔（`cp` 到同一路徑）會讓新程序被 SIGKILL，要先 `rm` 再複製。W10 的 413 案例原本送 2 MiB，伺服器回 413 並關閉連線時用戶端可能還在寫而得到 reset（main 上也會偶發），改為只超過上限 16 bytes
+    - 2026-10-22 **Opus 審核通過**（報告 §9）。審核時修正報告留下的兩個介面問題（新 trunk 第一次儲存後表單重建、清除秘密後仍顯示「已設定」：儲存後重讀區段），U08 改為斷言這兩點；ADR-058 補上保留秘密不重新加密等決策。
+  - [x] ⑦ 文件：`docs/web.md`（繁中使用說明，打包時放進 `docs/`）、兩份 README 的 Web 介面段落、`docs/field-test.md`。README 頂部的**狀態**段落在發版時更新（發版檢查清單）
+  - **交接狀態（2026-10-22）**：M4c 全部完成並審核通過。待辦：CI 的 `e2e-web` job 在 GitHub 第一次執行的結果要確認；`web-ui`、`e2e-web` 需由管理員執行 `scripts/set-branch-protection.sh` 設為必要檢查。執行檔大小（x86_64 musl，含介面）：19.46 MB，v0.2.0-alpha 為 14.54 MB（+4.9 MB，M4a–M4d 的 axum／rustls 伺服器、argon2、ratatui 與介面）。本機開發：`cd web-ui && npm run dev`（proxy 到 `SIPFAX_DEV_API`，預設 https://127.0.0.1:8443）；或 `npm run build` 後重新 `cargo build`，`sip-faxd serve` 直接提供介面。注意：macOS 上覆蓋執行中的執行檔（`cp` 到同一路徑）會讓新程序被 SIGKILL，要先 `rm` 再複製。W10 的 413 案例原本送 2 MiB，伺服器回 413 並關閉連線時用戶端可能還在寫而得到 reset（main 上也會偶發），改為只超過上限 16 bytes
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。
 - [x] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）（M4a／M4b 完成）
-- [x] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）（M4c ③；E2E 待 ⑥）
+- [x] [Sonnet] 傳真列表與預覽頁：已讀/未讀篩選、可手動切換、備註編輯、PNG 逐頁預覽、下載 TIFF/PDF；接收中的傳真即時顯示進度（第 N 頁）（M4c ③；E2E U11–U13）
 - [x] [Sonnet] web-ui：Svelte + Vite SPA，內嵌進執行檔（M4c ①；以 build.rs 取代 rust-embed，ADR-058）
 - [x] [Sonnet] TUI（ratatui）和 CLI 子命令
 - [x] [Sonnet] 服務管理指令 `sip-faxd start | stop | restart | status | logs`（2026-10-21 使用者需求）：
@@ -140,7 +141,7 @@
 - [x] [Sonnet] 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區範本的測試（M3f 審核；與 stop/restart 一起做）（M4a 完成）
 - [x] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）（M4a 完成）
 - [x] [Any] CI 新增 `web-ui` job（M4c ⑤；需由管理員把 `web-ui` 加進必要檢查：`scripts/branch-protection.json` 已加入，再執行 `scripts/set-branch-protection.sh`）
-- [ ] [Opus] 審核 docs/test-reports/M4.md
+- [x] [Opus] 審核 M4 測試報告：分期為 `docs/test-reports/M4a.md`、`M4b.md`、`M4c.md`、`M4d.md`，各自審核通過（2026-10-22）
 
 ### 文件（優先級在功能開發之後）
 > 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。

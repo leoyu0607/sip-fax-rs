@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { ApiError, put, type UpdateOutcome } from '../lib/api';
+  import { ApiError, get, put, type Section, type UpdateOutcome } from '../lib/api';
   import { errorText, fieldErrorText } from '../lib/errors';
   import { t } from '../lib/i18n.svelte';
   import { setPath, type Field } from '../lib/schema';
@@ -60,6 +60,13 @@
     conflict = false;
     try {
       const o = await put<UpdateOutcome>(`/config/${encodeURIComponent(name)}`, { version, body });
+      // what is stored now, in the API's form: a secret typed in or cleared reads back as
+      // `{"set": …}`, so the form shows its new state (and does not send the plain text again)
+      try {
+        body = (await get<Section>(`/config/${encodeURIComponent(name)}`)).body;
+      } catch {
+        // the change is saved; the form keeps what was sent
+      }
       outcome = o;
       saved = JSON.stringify(body);
       onsaved(o, body);

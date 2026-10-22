@@ -3,7 +3,7 @@
 - 實作：Opus（M4c ①–⑤）；測試與本報告：M4c ⑥（Claude，依 Opus 的測試計畫）
 - 計畫：`docs/test-plans/M4.md` §0、§6（U01–U19）、§6.3（W12、W13、A14、U05–U08）；規格：`docs/design/m4-web.md` §3–§6；ADR-058
 - 分支：`m4c-web-ui`
-- 狀態：**待 Opus 審核**（§9 由 Opus 填寫）
+- 狀態：**Opus 審核通過**（§9）
 
 ## 1. 環境
 
@@ -110,4 +110,14 @@ E2E_KEEP=1 scripts/e2e-web.sh                          # 不刪容器（docker r
 
 ## 9. Opus 審核
 
-（待填）
+**結論：通過。**（2026-10-22）
+
+- **空斷言**：逐一檢查 `toBeDefined`／`toBe(true)` 的用法，都在更強的斷言之前（例如先確認 cookie 存在，再比對 `secure`、`httpOnly`、`sameSite`），沒有只斷言「沒有拋錯」的案例。
+- **過度 mock**：Rust 的 HTTP 測試對真的伺服器與 SQLite；E2E 對 Docker 裡真的 `sip-faxd`，傳真由 SpanDSP 真的以 T.38 送進來，DB 以唯讀查詢比對。前端單元測試只 stub `fetch`（`faxlist`、`session`、`api`），合理。
+- **反向斷言**：A14、U14、U08 都檢查被拒的請求沒有改到 DB（版本、帳號數、語言、密文）。
+- **涵蓋率**：`web` 95.31%（門檻 80%）；前端 statements 91.65%（門檻 70%）。
+- **U11** 以頁內 MutationObserver 記錄徽章的每個狀態，確認第 1／2／3 頁依序出現且沒有重新載入，關閉 M4b 審核留下的項目。
+- **產品修正**（§3 的 6 項）都看過：codec 的 `Keep` 只在路徑相同時沿用原密文、仍先解密確認金鑰，正確；其他為前端與 `PUT /auth/me` 的小修正。決策補進 ADR-058。
+- **審核時修正**：§3 最後兩個未修的介面問題由 Opus 修正——新 trunk 第一次儲存後表單不再重建（`Settings.svelte` 不重新載入全部設定）、儲存後重讀該區段讓秘密欄位立刻顯示新狀態（`SectionEditor.svelte`、`FieldInput.svelte`）；U08 改為斷言這兩點（不再以重新載入繞過）。
+- **執行檔大小**（計畫 §9）：x86_64 musl（含介面）19.46 MB，v0.2.0-alpha 14.54 MB，增加 4.9 MB。
+- **待辦**：CI 的 `e2e-web` job 在 GitHub 上第一次執行的結果要確認；`e2e-web` 需由管理員以 `scripts/set-branch-protection.sh` 設為必要檢查。

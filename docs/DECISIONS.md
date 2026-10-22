@@ -471,3 +471,7 @@ ADR-005 決定以 axum 加內嵌的 Svelte SPA 提供介面、只發佈一個執
 - **需要重啟的欄位**：新增 `fax_in::config::RESTART_FIELDS`（`restart_required` 可能回報的全部名稱，debug build 會檢查兩者一致），`GET /config` 以 `restart_fields` 回傳，表單在修改之前就標示。
 - **新增 API**：`GET /faxes?q=`（ani、dnis、remote_ident、note 任何位置，不分大小寫，`LOWER(col) LIKE ? ESCAPE '!'`，四種 DB 共用同一段 SQL）；`PUT /auth/me {locale}`（自己的介面語言，`null` 表示依瀏覽器）；`locale` 只接受 `zh-TW`、`en` 或 `null`（`/users` 一併檢查，否則 422 `bad_locale`）。
 - **語言**：帳號設定 → 這個瀏覽器上次的選擇（localStorage）→ 瀏覽器語言 → zh-TW。介面上方的語言選單只改這個瀏覽器；「我的帳號」頁可存進帳號。伺服器回的英文訊息與設定提醒（`warnings`）不直接顯示：錯誤依 `code` 翻譯，提醒收在預設收合的區塊。
+- **保留的秘密不重新加密**（M4c ⑥ 測試發現，修正 ADR-053 的行為）：送回 `{"set": true, "ref"}` 且 `ref` 與目前路徑相同時，DB 中的密文原樣保留（仍先解密一次，確認金鑰可用）；只有秘密換了位置（例如路由重新排序）才以新路徑重新加密。原本每次儲存都以新的 nonce 重新加密，改別的欄位也會讓密文改變。
+- **儲存後重讀區段**：設定表單儲存成功後以 `GET /config/{section}` 重讀，秘密欄位立刻顯示新的「已設定／未設定」，也不會在下一次儲存時再送出明文。
+- **`PUT /auth/me` 必須帶 `locale`**：沒有這個欄位回 400（`null` 才是改回依瀏覽器），避免空 body 把語言清掉。
+- **列表的即時事件在登入期間一直訂閱**（`App.svelte`），不在列表頁時新傳真進「有 N 份新傳真」。
