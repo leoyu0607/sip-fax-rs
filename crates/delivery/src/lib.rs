@@ -38,6 +38,7 @@ pub mod email;
 pub mod engine;
 pub mod error;
 pub mod folder;
+pub mod mask;
 pub mod retry;
 pub mod router;
 pub mod source;

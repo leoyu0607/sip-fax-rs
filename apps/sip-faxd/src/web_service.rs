@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use accounts::AuthService;
 use chrono::Utc;
-use store::SystemClock;
+use store::{StoreSource, SystemClock};
 use web::config::Scheme;
 use web::server::WebServer;
 use web::tls;
@@ -22,6 +22,7 @@ pub async fn start(
     cfg: &AppConfig,
     base: &Path,
     auth: Arc<AuthService>,
+    store: Arc<dyn StoreSource>,
 ) -> Result<Option<WebServer>, String> {
     let w = &cfg.web;
     if !w.enabled {
@@ -69,6 +70,10 @@ pub async fn start(
     let https = tls.is_some();
     let state = web::AppState {
         auth,
+        store,
+        data_dir: cfg.data_dir(base),
+        preview_cache_mb: cfg.fax_in.storage.preview_cache_mb,
+        preview: Arc::default(),
         clock: Arc::new(SystemClock),
         https,
     };

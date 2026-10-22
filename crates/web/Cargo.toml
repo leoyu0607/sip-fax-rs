@@ -10,6 +10,7 @@ description = "The HTTP/HTTPS server of the web interface: REST API, WebSocket, 
 [dependencies]
 accounts = { path = "../accounts" }
 store = { path = "../store" }
+delivery = { path = "../delivery" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -35,5 +36,6 @@ rustix = { workspace = true, features = ["system"] }
 [dev-dependencies]
 tempfile = { workspace = true }
 toml = { workspace = true }
+t4 = { path = "../t4" }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
 reqwest = { workspace = true, features = ["cookies"] }

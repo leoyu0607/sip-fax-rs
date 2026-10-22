@@ -11,11 +11,7 @@ use web::server::{CSP, HSTS, WebServer};
 use web::tls;
 
 fn state_of(e: &common::Env) -> web::AppState {
-    web::AppState {
-        auth: e.auth.clone(),
-        clock: e.clock.clone(),
-        https: false,
-    }
+    e.state.clone()
 }
 
 fn today() -> NaiveDate {
