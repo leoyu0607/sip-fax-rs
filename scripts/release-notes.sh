@@ -23,7 +23,9 @@ zh=$(awk -v v="$ver" '
   on { print }
 ' "$file")
 
-trim() { sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac; }
+# (reverse with awk: macOS has no tac)
+rev_lines() { awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }'; }
+trim() { sed -e '/./,$!d' | rev_lines | sed -e '/./,$!d' | rev_lines; }
 en=$(printf '%s\n' "$en" | trim)
 zh=$(printf '%s\n' "$zh" | trim)
 if [ -z "$en" ]; then echo "release-notes: no English section [$ver] in $file" >&2; exit 1; fi

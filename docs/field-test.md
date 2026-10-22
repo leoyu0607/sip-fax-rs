@@ -1,6 +1,11 @@
-# 現場試接指南（v0.2.0-alpha）
+# 現場試接指南（v0.3.0-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
+
+0.3.0 新增的功能（M4）：
+- **Web 介面**（預設開啟，HTTPS 8443）：即時看到收進來的傳真（接收中會逐頁顯示）、預覽與下載、已讀與備註；管理員可以在網頁上修改設定與帳號。使用說明見壓縮檔內的 `docs/web.md`。
+- **設定存資料庫**：第一次啟動時把設定檔的內容匯入資料庫，之後在 Web 介面修改，大部分設定不必重啟就套用（見第 2 節）。
+- **服務管理**：`./sip-faxd start|stop|restart|status|logs`，以及終端機畫面 `./sip-faxd tui`（見第 4 節）。
 
 0.2.0 新增的功能（M3）：
 - **資料庫紀錄**：預設 SQLite（`data/sip-faxd.db`，內建，不需要另外安裝）。每通電話一筆：進線號碼（ANI）、撥打號碼（DNIS）、掛線方向與原因、狀態（接收中／完整／部分／失敗／非傳真）、頁數、檔案大小。設定在 `[database]`、`[retention]`。
@@ -11,12 +16,12 @@
 - `./sip-faxd config check` 會顯示上述所有設定。
 - ECM 已支援但預設關閉（`[trunks.fax] ecm = false`），真機驗證後才會重新評估。這次試接**請維持關閉**。
 
-Web 介面：以瀏覽器開啟 `https://<伺服器>:8443/`，可以即時看到收進來的傳真、預覽與下載、標記已讀與寫備註；管理員可以修改設定與帳號。使用說明見壓縮檔內的 `docs/web.md`。
+**從 0.2.0 升級**：停止舊版，把新版解壓到新目錄，再把舊目錄的 `conf/sip-faxd.toml`、`data/`（含 `sip-faxd.db` 與傳真檔案）複製過去後啟動。第一次啟動會升級資料表、把設定檔的執行設定匯入資料庫、建立 `conf/secret.key` 與管理員 `admin`（密碼在 `conf/initial-admin-password`）。之後請在 Web 介面修改設定；`conf/secret.key` 要和資料庫一起備份。防火牆記得開 TCP 8443（第 3 節）。
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.2.0-linux-x86_64.tar.gz
-cd sip-fax-rs-0.2.0-linux-x86_64
+tar xzf sip-fax-rs-0.3.0-linux-x86_64.tar.gz
+cd sip-fax-rs-0.3.0-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```
@@ -47,7 +52,7 @@ peer = "<CS210 的 IP>:5060"
 **設定存放位置（M4a 起，ADR-051）**：上面這些 `[sip]`、`[media]`、`[[trunks]]`（以及 `[call]`、`[capture]`、`[[routes]]`、`[delivery]`、`[retention]`）只在**第一次啟動**時匯入資料庫；之後以資料庫為準，再改設定檔不會生效，啟動 log 會用 warning 列出被忽略的區段。要改動：
 - 重新匯入：`./sip-faxd config import --force`（以設定檔取代資料庫的執行設定，會記稽核）；
 - 備份／檢視：`./sip-faxd config export`（預設不含密碼；`--include-secrets` 含明文，請妥善保管輸出）；
-- 改了不必重啟，下一通來電就套用（`[sip] bind`、`[media] port_range`、`[capture]` 例外，需要重啟）；`config import` 之後，執行中的服務要重新啟動（或等 M4d 的 `reload`）才會載入；
+- 改了不必重啟，下一通來電就套用（`[sip] bind`、`[media] port_range`、`[capture]` 例外，需要重啟）；`config import` 之後，執行中的服務要重新啟動（`./sip-faxd restart`）才會載入；在 Web 介面修改則立即生效；
 - `conf/secret.key` 是加密密碼用的金鑰，**要和資料庫一起備份**；遺失的話註冊、Email、Webhook 的密碼要重新輸入（其他功能照常，`config check` 會列出哪些欄位要重填）；
 - 第一次啟動會建立管理員 `admin`，密碼在 `conf/initial-admin-password`（log 只提示檔案位置）。`./sip-faxd user list` 查看帳號，`./sip-faxd fax list --unread` 不開 Web 就能看收到的傳真。
 
