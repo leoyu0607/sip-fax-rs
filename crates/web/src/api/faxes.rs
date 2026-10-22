@@ -332,6 +332,11 @@ fn preview_error(e: PreviewError) -> ApiError {
         PreviewError::NoFile(_)
         | PreviewError::TiffMissing(_)
         | PreviewError::PageOutOfRange { .. } => ApiError::not_found("page"),
+        // a record that names a file outside data_dir: the same 404 as the download gives
+        PreviewError::UnsafePath(why) => {
+            tracing::warn!("web: a fax record names a file outside data_dir: {why}");
+            ApiError::not_found("page")
+        }
         PreviewError::Store(e) => store_error(e),
         other => ApiError::internal(other),
     }

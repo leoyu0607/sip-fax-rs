@@ -42,3 +42,5 @@ tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"
 reqwest = { workspace = true, features = ["cookies"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+async-trait = { workspace = true }
+fax-in = { path = "../fax-in" }

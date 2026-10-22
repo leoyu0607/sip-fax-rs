@@ -79,6 +79,20 @@ pub async fn env_with(request_timeout: Duration) -> Env {
 
 /// [`env`] with another request deadline and WebSocket ping interval.
 pub async fn env_opts(request_timeout: Duration, ws_ping: Duration) -> Env {
+    build(request_timeout, ws_ping, None).await
+}
+
+/// [`env`] whose runtime configuration is imported from `toml` (trunks, routes, ...).
+pub async fn env_seeded(toml: &str) -> Env {
+    build(
+        web::REQUEST_TIMEOUT,
+        web::api::events::PING_EVERY,
+        Some(toml),
+    )
+    .await
+}
+
+async fn build(request_timeout: Duration, ws_ping: Duration, seed: Option<&str>) -> Env {
     let events = Arc::new(EventBus::new());
     let dir = tempfile::tempdir().unwrap();
     let clock = Arc::new(ManualClock::at_millis(T0));
@@ -99,11 +113,18 @@ pub async fn env_opts(request_timeout: Duration, ws_ping: Duration) -> Env {
         clock.clone(),
         AuthConfig::default(),
     ));
+    let (file, sections) = match seed {
+        Some(t) => {
+            let f = runtime_config::RuntimeFile::parse(t).expect("the seed is valid");
+            (f.runtime, f.present)
+        }
+        None => (RuntimeConfig::default(), Vec::new()),
+    };
     let config = Arc::new(ConfigService::new(
         src.clone(),
         Arc::new(SecretBox::load_or_create(&dir.path().join("secret.key"))),
-        RuntimeConfig::default(),
-        Vec::new(),
+        file,
+        sections,
     ));
     config.bootstrap().await;
     let status = Arc::new(FixedStatus(std::sync::Mutex::new(service_status())));

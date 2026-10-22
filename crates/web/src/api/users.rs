@@ -125,28 +125,22 @@ async fn update(
             "must_change_password goes with a new password",
         ));
     }
-    // the password first: its rules are what a request most likely breaks, and nothing else
-    // has changed when it is refused
+    // A request is applied whole or not at all as far as the checks can tell: the rules of
+    // the new password are checked first, then the account changes (which can be refused as
+    // the last administrator), and only then the password is reset. A refused request has
+    // changed nothing (and ended no session).
     if let Some(pw) = &b.password {
-        st.auth
-            .set_password(
-                &u.username,
-                pw,
-                b.must_change_password.unwrap_or(true),
-                s.username(),
-            )
-            .await
-            .map_err(|e| account_error(&e))?;
-        tracing::info!(user = %u.username, by = s.username(), "web: password reset");
-        st.events.revoke_user(u.id);
+        accounts::password::check_rules(&u.username, pw)
+            .map_err(|e| account_error(&AccountError::Password(e)))?;
     }
     let changes = new_role.is_some()
         || b.disabled.is_some()
         || b.display_name.is_some()
         || b.locale.is_some();
     let before = u.clone();
-    let u = if changes {
-        let u = st
+    let mut u = u;
+    if changes {
+        u = st
             .auth
             .update_user(
                 &u.username,
@@ -164,11 +158,22 @@ async fn update(
         if (u.disabled && !before.disabled) || u.role != before.role {
             st.events.revoke_user(u.id);
         }
-        u
-    } else {
-        // (a password reset alone: read it again for must_change_password)
-        by_id(&st, &id).await?
-    };
+    }
+    if let Some(pw) = &b.password {
+        st.auth
+            .set_password(
+                &u.username,
+                pw,
+                b.must_change_password.unwrap_or(true),
+                s.username(),
+            )
+            .await
+            .map_err(|e| account_error(&e))?;
+        tracing::info!(user = %u.username, by = s.username(), "web: password reset");
+        st.events.revoke_user(u.id);
+        // (read it again for must_change_password)
+        u = by_id(&st, &id).await?;
+    }
     Ok(Json(json!({ "user": user_json(&u) })))
 }
 

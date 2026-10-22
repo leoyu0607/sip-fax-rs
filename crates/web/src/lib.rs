@@ -28,14 +28,17 @@ pub use state::{AppState, REQUEST_TIMEOUT, ServiceStatus, StatusSource, TrunkSta
 
 use crate::error::ApiError;
 
-/// The application: the API under `/api/v1`, the request deadline (W11) and the security
-/// headers (HSTS with HTTPS).
+/// The application: the API under `/api/v1`, the request deadline (W11), the error shape of
+/// answers that did not come from a handler (W10) and the security headers (HSTS with HTTPS).
 pub fn app(state: AppState) -> Router {
     let https = state.https;
     let r = Router::new()
         .nest("/api/v1", api::routes())
         .fallback(error::not_found)
         .layer(middleware::from_fn_with_state(state.clone(), deadline))
+        .layer(middleware::map_response(|r: Response| async {
+            error::json_errors(r)
+        }))
         .with_state(state);
     server::with_security_headers(r, https)
 }

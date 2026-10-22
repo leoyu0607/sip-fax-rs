@@ -84,3 +84,50 @@ impl IntoResponse for ApiError {
 pub async fn not_found() -> ApiError {
     ApiError::not_found("resource")
 }
+
+/// The fixed code of a status that came from the framework (an extractor's rejection, a method
+/// the route does not have) and not from a handler.
+fn code_of(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::BAD_REQUEST => "bad_request",
+        StatusCode::NOT_FOUND => "not_found",
+        StatusCode::METHOD_NOT_ALLOWED => "method_not_allowed",
+        StatusCode::REQUEST_TIMEOUT => "timeout",
+        StatusCode::PAYLOAD_TOO_LARGE => "too_large",
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => "unsupported_media_type",
+        StatusCode::UNPROCESSABLE_ENTITY => "unprocessable",
+        s if s.is_server_error() => "internal",
+        _ => "error",
+    }
+}
+
+/// Turns an error answer that is not JSON (axum's plain-text rejections: a path that is not
+/// UTF-8, a method the route does not have, ...) into the API's error shape (W10). The original
+/// text is dropped: it is the framework's, and says more than a client needs. Headers such as
+/// `Allow` stay.
+pub fn json_errors(mut r: Response) -> Response {
+    let status = r.status();
+    let is_json = r
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/json"));
+    if !(status.is_client_error() || status.is_server_error()) || is_json {
+        return r;
+    }
+    let mut shaped = ApiError::new(
+        status,
+        code_of(status),
+        status.canonical_reason().unwrap_or("error").to_lowercase(),
+    )
+    .into_response();
+    for (k, v) in r.headers_mut().drain() {
+        if let Some(k) = k
+            && k != axum::http::header::CONTENT_TYPE
+            && k != axum::http::header::CONTENT_LENGTH
+        {
+            shaped.headers_mut().insert(k, v);
+        }
+    }
+    shaped
+}

@@ -1,4 +1,4 @@
-//! M4b ?? `/config`, `/users`, `/status` (W09), and the request deadline (W11).
+//! M4b: `/config`, `/users`, `/status` (W09), and the request deadline (W11).
 
 mod common;
 
@@ -48,12 +48,17 @@ async fn config_list_and_one_section() {
         assert!(names.contains(&n), "{n} in {names:?}");
     }
     assert_eq!(v["status"]["source"], "database");
-    assert!(v["status"]["pending_restart"].is_array());
+    assert_eq!(v["status"]["pending_restart"], json!([]));
 
     let (s, v) = body(c.get(e.url("/api/v1/config/media")).send().await.unwrap()).await;
     assert_eq!(s, 200);
     assert_eq!(v["name"], "media");
-    assert!(v["body"]["port_range"].is_string(), "{v}");
+    let pr = v["body"]["port_range"].as_str().expect("a string");
+    let (lo, hi) = pr.split_once('-').expect("low-high");
+    assert!(
+        lo.parse::<u16>().unwrap() < hi.parse::<u16>().unwrap(),
+        "{pr}"
+    );
 
     let (s, v) = body(
         c.get(e.url("/api/v1/config/nonsense"))
@@ -109,8 +114,8 @@ async fn config_update_validation_conflict_and_restart_flag() {
     .await;
     assert_eq!(s, 422, "{v}");
     assert_eq!(v["error"]["code"], "invalid");
-    assert!(
-        v["error"]["fields"]["port_range"]["code"].is_string(),
+    assert_eq!(
+        v["error"]["fields"]["port_range"]["code"], "reversed",
         "{v}"
     );
     let again: Value = c
@@ -176,7 +181,7 @@ async fn config_update_validation_conflict_and_restart_flag() {
     let first = &v["entries"][0];
     assert_eq!(first["section"], "media");
     assert_eq!(first["by"], "root");
-    assert!(first["after"].is_object(), "{first}");
+    assert_eq!(first["after"]["port_range"], "32000-32999", "{first}");
 
     // a body that is not the expected shape
     let (s, v) = body(put("media", json!({"body": {}})).send().await.unwrap()).await;
@@ -604,7 +609,12 @@ async fn agents_and_strangers_are_refused_and_nothing_changes() {
             }
             let (s, v) = body(rq.send().await.unwrap()).await;
             assert_eq!(s, expect, "{who} {m} {path}: {v}");
-            assert!(v["error"]["code"].is_string(), "{v}");
+            let code = if who == "agent" {
+                "forbidden"
+            } else {
+                "unauthenticated"
+            };
+            assert_eq!(v["error"]["code"], code, "{who} {m} {path}: {v}");
         }
     }
     // the database is as it was
@@ -642,7 +652,7 @@ async fn w09_status_reports_service_database_and_config() {
     assert_eq!(v["database"]["state"], "ok");
     assert!(v["database"]["schema"].as_i64().unwrap() >= 2);
     assert_eq!(v["config"]["source"], "database");
-    assert!(v["config"]["key"].is_string());
+    assert_eq!(v["config"]["key"], json!(e.config.status().key));
     assert_eq!(v["config"]["pending_restart"], json!([]));
     e.stop().await;
 }

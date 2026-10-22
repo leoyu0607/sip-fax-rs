@@ -1,4 +1,6 @@
-//! M4b ⑤: `/api/v1/events` (V01-V06, A08) with a real WebSocket client.
+//! M4b ⑤: `/api/v1/events` (V01-V06, A08) with a real WebSocket client. (V05 is the ping,
+//! V06 the client that falls behind; the 100 connections, V01 with a real recorder and the
+//! expired session at the handshake are in `events_more.rs`.)
 
 mod common;
 
@@ -6,7 +8,7 @@ use std::time::Duration;
 
 use accounts::Role;
 use common::*;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use reqwest::Method;
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -207,7 +209,7 @@ async fn v02_v03_since_replays_or_asks_for_a_resync() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn v04_a_client_that_does_not_answer_pings_is_closed() {
+async fn v05_a_client_that_does_not_answer_pings_is_closed() {
     let e = env_opts(web::REQUEST_TIMEOUT, Duration::from_millis(150)).await;
     add_user(&e, "amy", Role::Agent, false).await;
     let (t, _) = token(&e, "amy").await;
@@ -239,7 +241,7 @@ async fn v04_a_client_that_does_not_answer_pings_is_closed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn v05_a_client_that_falls_behind_is_closed() {
+async fn v06_a_client_that_falls_behind_is_closed_with_4008() {
     let e = env().await;
     add_user(&e, "amy", Role::Agent, false).await;
     let (t, _) = token(&e, "amy").await;
@@ -308,7 +310,7 @@ async fn a08_logout_password_and_disable_close_the_connections() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_handshake_needs_a_session_and_this_origin() {
+async fn v04_the_handshake_needs_a_session_and_this_origin() {
     let e = env().await;
     add_user(&e, "amy", Role::Agent, false).await;
     let (t, _) = token(&e, "amy").await;
@@ -337,6 +339,5 @@ async fn the_handshake_needs_a_session_and_this_origin() {
     let (c, _) = login(&e, "amy").await;
     let r = c.get(e.url("/api/v1/events")).send().await.unwrap();
     assert_eq!(r.status(), 400);
-    let _ = ws.send(Message::Text("ignored".into())).await;
     e.stop().await;
 }

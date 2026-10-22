@@ -420,7 +420,7 @@ async fn w07_tricks_in_the_path_never_read_outside_the_data_directory() {
         .send()
         .await
         .unwrap();
-    assert!(r.status().is_client_error() || r.status().is_server_error());
+    assert_eq!(r.status(), 404, "a path outside data_dir is not a picture");
     assert!(!r.text().await.unwrap().contains("TOP SECRET"));
     // encoded slashes, dot segments and huge numbers in the URL
     for p in [
