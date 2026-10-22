@@ -5,19 +5,28 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.3.0-alpha] - 2026-10-22
+Milestone M4: the web interface, accounts, settings in the database, service management, TUI.
+
 ### Added
+- **Settings in the database** (M4a): `[sip]`, `[media]`, `[call]`, `[capture]`, `[[trunks]]`, `[[routes]]`, `[delivery]` and `[retention]` are imported into the database at the first start and edited there afterwards (web interface, or `sip-faxd config import --force`). A change applies to the next call without a restart, except the listen address, the UDPTL port range and `[capture]`, which are listed as waiting for a restart. Every change is validated by the server and recorded in an audit log. Passwords of registrations, e-mail and webhooks are stored encrypted with `conf/secret.key`; `sip-faxd config export` prints the settings as TOML (secrets only with `--include-secrets`).
+- **Accounts** (M4a): administrators and agents; passwords hashed with Argon2id, at least 10 characters; 5 wrong passwords lock an account for 15 minutes. At the first start an `admin` account is created with a random password in `conf/initial-admin-password`, to be changed at the first login. `sip-faxd user add|passwd|disable|enable|list`.
+- **Fax commands** (M4a): `sip-faxd fax list [--unread]`, `show`, `read`, `note`, `redeliver` (queue failed or given-up deliveries again).
+- **TUI** (M4d): `sip-faxd tui` shows the faxes (read flag and note editable), the calls in progress and the service status in a terminal, live while the service runs.
 - **Service management** (M4d, Linux): `sip-faxd start [-d]`, `stop [--force] [--timeout SECS]`, `restart`, `status [--json]` (exit code 3 when not running) and `logs [-f] [-n N]`. `start` runs the service in the background (own session, PID file locked with `flock`, ready when the control socket answers) and shows the log; Ctrl+C only stops the display. systemd-managed services are detected and `start`/`stop`/`restart` point to `systemctl` (`--ignore-systemd` overrides). Use `serve` in a systemd unit.
 - **Graceful stop**: `stop` and `SIGTERM` answer new INVITEs with 503, wait for the faxes in progress (`[service] stop_timeout_secs`, default 300) and only then end the rest; their pages are kept (`partial`, `hangup_code = shutdown`).
 - Control socket `run/sip-faxd.sock` (mode 0600, one JSON object per line: `status`, `calls`, `stop`, `reload`, `subscribe`).
 - Log file `logs/sip-faxd.log` with rotation by size or day, `[log] keep` files kept, gzip-compressed (`[log]`, `[service]` in the configuration).
-- **Web interface server** (M4b): HTTPS on `0.0.0.0:8443` with a self-signed certificate (825 days, renewed 30 days before it ends; its SHA-256 fingerprint is logged) or your own; REST API under `/api/v1` for login, faxes (list, details, read flag, note, page previews, PDF/TIFF download, redelivery), configuration, accounts and status; live updates over a WebSocket (`/api/v1/events`). The browser pages follow in M4c.
+- **Web interface server** (M4b): HTTPS on `0.0.0.0:8443` with a self-signed certificate (825 days, renewed 30 days before it ends; its SHA-256 fingerprint is logged) or your own; REST API under `/api/v1` for login, faxes (list, details, read flag, note, page previews, PDF/TIFF download, redelivery), configuration, accounts and status; live updates over a WebSocket (`/api/v1/events`).
 - **PNG page previews are written with the fax**: next to `<name>.tif` and `<name>.pdf` come `<name>-p1.png` (whole page) and `<name>-p1-thumb.png` (300 px wide) for every page. They are deleted with the TIFF and the PDF.
-- **Web interface** (M4c), built into the `sip-faxd` binary, in Traditional Chinese and English: the fax list (unread in bold, filters, search in numbers, remote ID and notes, endless scrolling, faxes being received shown live page by page without reloading), the fax page (thumbnails, zoomable page view, PDF/TIFF download, read/unread switch, notes with a warning when someone else changed them meanwhile, delivery status, redelivery), and for administrators the settings (SIP, media, calls, capture, trunks, delivery routes, delivery, retention; settings that need a restart are marked), accounts and the settings audit log; the service status for everyone. Usable with the keyboard alone.
+- **Web interface** (M4c, guide in `docs/web.md`), built into the `sip-faxd` binary, in Traditional Chinese and English: the fax list (unread in bold, filters, search in numbers, remote ID and notes, endless scrolling, faxes being received shown live page by page without reloading), the fax page (thumbnails, zoomable page view, PDF/TIFF download, read/unread switch, notes with a warning when someone else changed them meanwhile, delivery status, redelivery), and for administrators the settings (SIP, media, calls, capture, trunks, delivery routes, delivery, retention; settings that need a restart are marked), accounts and the settings audit log; the service status for everyone. Usable with the keyboard alone.
 - `GET /api/v1/faxes` takes `q`: text anywhere in the calling or called number, the remote ID or the note (ignoring case). `PUT /api/v1/auth/me` sets the account's own language. `GET /api/v1/config` lists the settings that need a restart (`restart_fields`).
 
 ### Changed
 - **The web interface is on by default**, also when the configuration file has no `[web]` table: an upgraded server starts listening on TCP 8443. Open it in the firewall only for the networks that use it, or turn it off with `[web] enabled = false`.
 - `[storage] preview_cache_mb` is no longer used (there is no separate preview cache any more); `config check` asks you to remove it.
+- **Upgrading from 0.2.0**: at the first start of 0.3.0 the runtime sections of the configuration file are copied into the database; from then on editing them in the file has no effect (the start log warns about it). Back up `conf/secret.key` together with the database.
 
 ## [0.2.0-alpha] - 2026-10-21
 ### Added
@@ -49,19 +58,28 @@ All notable changes to this project are documented here. Versions follow [Semant
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.3.0-alpha] - 2026-10-22
+里程碑 M4：Web 介面、帳號、設定存資料庫、服務管理、TUI。
+
 #### 新增
+- **設定存資料庫**（M4a）：`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`、`[[routes]]`、`[delivery]`、`[retention]` 在第一次啟動時匯入資料庫，之後在資料庫修改（Web 介面，或 `sip-faxd config import --force`）。修改不必重啟，下一通來電就套用；只有監聽位址、UDPTL port 範圍與 `[capture]` 需要重啟，會列為「等待重啟」。每次修改都由伺服器驗證，並記在稽核紀錄。註冊、Email、Webhook 的密碼以 `conf/secret.key` 加密存放；`sip-faxd config export` 以 TOML 輸出設定（加 `--include-secrets` 才含密碼）。
+- **帳號**（M4a）：管理員與座席兩種角色；密碼以 Argon2id 雜湊，至少 10 個字元；連續輸錯 5 次鎖定 15 分鐘。第一次啟動建立 `admin`，隨機密碼寫在 `conf/initial-admin-password`，第一次登入必須修改。`sip-faxd user add|passwd|disable|enable|list`。
+- **傳真指令**（M4a）：`sip-faxd fax list [--unread]`、`show`、`read`、`note`、`redeliver`（把失敗或已放棄的投遞重新排入）。
+- **TUI**（M4d）：`sip-faxd tui` 在終端機顯示傳真（可切換已讀、編輯備註）、進行中的通話與服務狀態，服務執行中時即時更新。
 - **服務管理**（M4d，Linux）：`sip-faxd start [-d]`、`stop [--force] [--timeout 秒數]`、`restart`、`status [--json]`（沒有在執行時回傳 3）、`logs [-f] [-n N]`。`start` 在背景啟動服務（獨立 session、以 `flock` 鎖定的 PID 檔、控制 socket 有回應才算就緒）並顯示 log；Ctrl+C 只停止顯示。偵測到由 systemd 管理時，`start`／`stop`／`restart` 提示改用 `systemctl`（`--ignore-systemd` 可略過）。systemd unit 請使用 `serve`。
 - **優雅停止**：`stop` 與 `SIGTERM` 對新的 INVITE 回 503，等進行中的傳真收完（`[service] stop_timeout_secs`，預設 300 秒）才結束剩下的通話；已收到的頁面照樣保留（`partial`、`hangup_code = shutdown`）。
 - 控制 socket `run/sip-faxd.sock`（權限 0600，一行一個 JSON：`status`、`calls`、`stop`、`reload`、`subscribe`）。
 - Log 檔 `logs/sip-faxd.log`，依大小或每天輪替，保留 `[log] keep` 份並以 gzip 壓縮（設定檔新增 `[log]`、`[service]` 選項）。
-- **Web 介面伺服器**（M4b）：HTTPS，監聽 `0.0.0.0:8443`；沒有提供憑證時使用自簽憑證（有效期 825 天，到期前 30 天自動更新，啟動時在 log 印出 SHA-256 指紋），也可以使用自己的憑證。`/api/v1` 提供登入、傳真（列表、詳細資料、已讀、備註、頁面預覽、下載 PDF／TIFF、重新投遞）、設定、帳號與狀態的 REST API，並以 WebSocket（`/api/v1/events`）即時推送更新。網頁畫面在 M4c 提供。
+- **Web 介面伺服器**（M4b）：HTTPS，監聽 `0.0.0.0:8443`；沒有提供憑證時使用自簽憑證（有效期 825 天，到期前 30 天自動更新，啟動時在 log 印出 SHA-256 指紋），也可以使用自己的憑證。`/api/v1` 提供登入、傳真（列表、詳細資料、已讀、備註、頁面預覽、下載 PDF／TIFF、重新投遞）、設定、帳號與狀態的 REST API，並以 WebSocket（`/api/v1/events`）即時推送更新。
 - **PNG 頁面預覽隨傳真一起產生**：在 `<名稱>.tif`、`<名稱>.pdf` 旁邊，每頁寫出 `<名稱>-p1.png`（整頁）與 `<名稱>-p1-thumb.png`（寬 300 px 的縮圖），清整時和 TIFF、PDF 一起刪除。
-- **Web 介面**（M4c），內建在 `sip-faxd` 執行檔中，提供繁體中文與英文：傳真列表（未讀加粗、篩選、搜尋號碼／對方識別／備註、捲動自動載入，接收中的傳真即時逐頁顯示，不必重新整理）、傳真內容（縮圖、可縮放的整頁預覽、下載 PDF／TIFF、切換已讀／未讀、備註編輯並在別人同時修改時提示、投遞狀態、重新投遞）；管理員另有設定（SIP、媒體、通話、擷取、中繼、投遞路由、投遞參數、保存期限；需要重啟才生效的設定會標示）、帳號管理與設定稽核紀錄；所有人都可看系統狀態。可以只用鍵盤操作。
+- **Web 介面**（M4c，使用說明見 `docs/web.md`），內建在 `sip-faxd` 執行檔中，提供繁體中文與英文：傳真列表（未讀加粗、篩選、搜尋號碼／對方識別／備註、捲動自動載入，接收中的傳真即時逐頁顯示，不必重新整理）、傳真內容（縮圖、可縮放的整頁預覽、下載 PDF／TIFF、切換已讀／未讀、備註編輯並在別人同時修改時提示、投遞狀態、重新投遞）；管理員另有設定（SIP、媒體、通話、擷取、中繼、投遞路由、投遞參數、保存期限；需要重啟才生效的設定會標示）、帳號管理與設定稽核紀錄；所有人都可看系統狀態。可以只用鍵盤操作。
 - `GET /api/v1/faxes` 新增 `q`：在發話／受話號碼、對方識別或備註中任何位置搜尋（不分大小寫）。`PUT /api/v1/auth/me` 設定自己帳號的介面語言。`GET /api/v1/config` 列出需要重啟才生效的設定（`restart_fields`）。
 
 #### 變更
 - **Web 介面預設開啟**，設定檔沒有 `[web]` 也會啟動：升級後的伺服器會開始監聽 TCP 8443。請在防火牆只開放給要使用介面的網段，或以 `[web] enabled = false` 關閉。
 - `[storage] preview_cache_mb` 不再使用（已沒有獨立的預覽快取），`config check` 會提示移除。
+- **從 0.2.0 升級**：0.3.0 第一次啟動時，設定檔的執行設定區段會複製到資料庫；之後再改設定檔中的這些區段不會生效（啟動 log 會提醒）。`conf/secret.key` 要和資料庫一起備份。
 
 ### [0.2.0-alpha] - 2026-10-21
 **新增**
