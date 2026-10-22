@@ -15,16 +15,16 @@ use crate::store::FaxStore;
 use crate::{ConnectOptions, open_sql};
 
 /// One table: its columns (the first is the key), whether `id` is an identity column.
-struct Table {
-    name: &'static str,
-    cols: &'static [(&'static str, Kind)],
-    identity: bool,
+pub(crate) struct Table {
+    pub(crate) name: &'static str,
+    pub(crate) cols: &'static [(&'static str, Kind)],
+    pub(crate) identity: bool,
 }
 
 use Kind::{Bool as B, Int as I, Str as S, Time as T};
 
 /// Every table of the schema except `schema_migrations`, parents before children.
-const TABLES: &[Table] = &[
+pub(crate) const TABLES: &[Table] = &[
     Table {
         name: "faxes",
         identity: true,
