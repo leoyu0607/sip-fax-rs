@@ -28,6 +28,9 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 - `[storage] preview_cache_mb` is no longer used (there is no separate preview cache any more); `config check` asks you to remove it.
 - **Upgrading from 0.2.0**: at the first start of 0.3.0 the runtime sections of the configuration file are copied into the database; from then on editing them in the file has no effect (the start log warns about it). Back up `conf/secret.key` together with the database.
 
+### Security
+- tokio updated to 1.54.1 ([RUSTSEC-2026-0384](https://rustsec.org/advisories/RUSTSEC-2026-0384): a race in `tokio::time::Interval` on the multi-threaded runtime could crash the server; 0.2.0 shipped the affected 1.54.0).
+
 ## [0.2.0-alpha] - 2026-10-21
 ### Added
 - **Fax records in a database** (M3): SQLite by default (built in, `data/sip-faxd.db`), or PostgreSQL, MySQL/MariaDB, Microsoft SQL Server. One row per call: ANI/DNIS (header sources configurable per trunk in `[trunks.numbers]`), hang-up direction and reason, status (receiving / received / partial / failed / no fax), live page count while receiving, file sizes, read/unread and notes (API for the coming UI).
@@ -80,6 +83,9 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 - **Web 介面預設開啟**，設定檔沒有 `[web]` 也會啟動：升級後的伺服器會開始監聽 TCP 8443。請在防火牆只開放給要使用介面的網段，或以 `[web] enabled = false` 關閉。
 - `[storage] preview_cache_mb` 不再使用（已沒有獨立的預覽快取），`config check` 會提示移除。
 - **從 0.2.0 升級**：0.3.0 第一次啟動時，設定檔的執行設定區段會複製到資料庫；之後再改設定檔中的這些區段不會生效（啟動 log 會提醒）。`conf/secret.key` 要和資料庫一起備份。
+
+#### 安全性
+- tokio 更新到 1.54.1（[RUSTSEC-2026-0384](https://rustsec.org/advisories/RUSTSEC-2026-0384)：多執行緒 runtime 上 `tokio::time::Interval` 的競態可能讓伺服器當掉；0.2.0 使用的就是受影響的 1.54.0）。
 
 ### [0.2.0-alpha] - 2026-10-21
 **新增**
