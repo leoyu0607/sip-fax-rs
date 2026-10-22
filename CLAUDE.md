@@ -35,6 +35,8 @@ scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
   2. Sonnet subagent（`model: "sonnet"`）依計畫實作並執行測試，報告放在 `docs/test-reports/M<n>.md`。
   3. Opus 審核：檢查是否有空斷言、過度 mock、漏測，以及涵蓋率門檻（協定 crate 85% 以上，其餘 70% 以上）。不合格就退回修正。
   4. 審核通過後才勾選里程碑。
+- **Subagent 只用在測試**（2026-10-22 使用者決定，為了節省額度）：功能開發、修 bug、整合、文件都由主 session 直接做，不要派 subagent（包括 Explore、Plan、general-purpose 等）。只有上面測試治理流程的第 2 步才派**一個** Sonnet subagent，prompt 要精簡、範圍明確；不要同時開多個 subagent，也不要用 Workflow 平行展開。
+- **每完成一個階段就 commit 並 push** 工作分支，並在 `docs/TODO.md` 對應段落記下進度與接手要點，讓另一個 agent 隨時能接手。
 - 協定解析器（SIP parser、IFP/PER、UDPTL、T.4）需要有 proptest 屬性測試和 cargo-fuzz 目標。
 - `sip-core` **不可依賴**任何 fax crate，因為它未來會拆成獨立專案。
 - 全面使用 rustls，禁止引入 OpenSSL 或 native-tls（`deny.toml` 會擋）。
