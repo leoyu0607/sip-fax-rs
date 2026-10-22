@@ -455,3 +455,23 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 - **取消快取上限**：PNG 和 TIFF／PDF 一樣依 `[retention] files_days` 保存，不再另外淘汰。`[storage] preview_cache_mb` 仍可解析（舊設定檔照常載入），但不再使用，`config check` 會提示移除。`Preview::with_cache_limit`／`trim_cache`／`with_clock` 刪除。
 - **清整**：刪除 TIFF 所在目錄中名稱完全符合 `<name>-p<數字>.png` 或 `<name>-p<數字>-thumb.png` 的檔案（`store::is_png_of`；同目錄裡 `<name>-2` 等其他傳真的檔案不會被刪），再刪 TIFF／PDF；舊版留下的 `cache/png/<id>/` 也一併刪除。
 - **代價**：每份傳真多出 2 × 頁數個檔案；整頁 PNG 是 1-bit，一頁約數十 KB。收完傳真到寫入最終紀錄之間多了轉檔時間（每頁數毫秒到數十毫秒）。
+## ADR-058：Web 前端的實作方式（2026-10-22，M4c）
+**背景**
+
+ADR-005 決定以 axum 加內嵌的 Svelte SPA 提供介面、只發佈一個執行檔；`docs/design/m4-web.md` §6 規定前端的頁面、i18n 與建置規則。實作時需要決定嵌入方式、路由、設定表單的產生方式，並補幾個後端端點。
+
+**決策**
+
+- **嵌入**：不用 `rust-embed`，改由 `web` crate 的 `build.rs` 走訪 `web-ui/dist`，為每個檔案產生 `include_bytes!` 與 content type（`$OUT_DIR/ui_assets.rs`）。不增加 Rust 依賴，內容在編譯時固定（`rust-embed` 的 debug 模式會在執行時讀磁碟）。沒有 `dist` 時嵌入「介面沒有建置」的說明頁並給 cargo warning；設 `SIPFAX_REQUIRE_WEB_UI=1`（CI 的 `build-musl`）時直接失敗。`scripts/package.sh` 確認執行檔確實含有這次 `dist` 的入口檔名。仍符合 ADR-005「一個執行檔」的決定。
+- **快取**：`assets/` 下的檔名含內容雜湊，回 `Cache-Control: public, max-age=31536000, immutable`；`index.html` 等其他檔案回 `no-cache`。
+- **路由**：以 URL fragment（`/#/faxes/12`）路由，伺服器只需提供 `/` 與檔案，`/api` 以外不存在的路徑仍回 API 格式的 404。
+- **前端依賴**（只在建置時使用，不進執行檔）：Svelte 5、Vite 8、TypeScript 6（typescript-eslint 尚不支援 7）、svelte-check、ESLint 10、vitest 5（jsdom、v8 coverage）、Playwright。執行時沒有任何第三方套件：路由、i18n、API client、WebSocket 重連都自己寫。`package-lock.json` 進 repo，CI 以 `npm ci` 安裝；Node 24。
+- **CSP**：維持 `default-src 'self'`，不放寬。Vite 關閉 modulepreload polyfill、`assetsInlineLimit = 0`，`index.html` 沒有 inline script；頁面不使用 `style` 屬性。
+- **設定表單**：前端有一份欄位定義表（`web-ui/src/lib/schema.ts`），決定每個欄位的輸入方式（文字、數字、勾選、選單、清單、秘密、鍵值），因為值為 `null` 的欄位無法從 JSON 判斷型別。驗證仍只由後端做（規格 §0），422 的錯誤依欄位路徑顯示在欄位旁。定義表沒有列出的欄位原樣保留、原樣送回。秘密欄位顯示「已設定／未設定」，沒有輸入新值時送回伺服器給的 `{"set": true, "ref": …}`（保留原值）。
+- **需要重啟的欄位**：新增 `fax_in::config::RESTART_FIELDS`（`restart_required` 可能回報的全部名稱，debug build 會檢查兩者一致），`GET /config` 以 `restart_fields` 回傳，表單在修改之前就標示。
+- **新增 API**：`GET /faxes?q=`（ani、dnis、remote_ident、note 任何位置，不分大小寫，`LOWER(col) LIKE ? ESCAPE '!'`，四種 DB 共用同一段 SQL）；`PUT /auth/me {locale}`（自己的介面語言，`null` 表示依瀏覽器）；`locale` 只接受 `zh-TW`、`en` 或 `null`（`/users` 一併檢查，否則 422 `bad_locale`）。
+- **語言**：帳號設定 → 這個瀏覽器上次的選擇（localStorage）→ 瀏覽器語言 → zh-TW。介面上方的語言選單只改這個瀏覽器；「我的帳號」頁可存進帳號。伺服器回的英文訊息與設定提醒（`warnings`）不直接顯示：錯誤依 `code` 翻譯，提醒收在預設收合的區塊。
+- **保留的秘密不重新加密**（M4c ⑥ 測試發現，修正 ADR-053 的行為）：送回 `{"set": true, "ref"}` 且 `ref` 與目前路徑相同時，DB 中的密文原樣保留（仍先解密一次，確認金鑰可用）；只有秘密換了位置（例如路由重新排序）才以新路徑重新加密。原本每次儲存都以新的 nonce 重新加密，改別的欄位也會讓密文改變。
+- **儲存後重讀區段**：設定表單儲存成功後以 `GET /config/{section}` 重讀，秘密欄位立刻顯示新的「已設定／未設定」，也不會在下一次儲存時再送出明文。
+- **`PUT /auth/me` 必須帶 `locale`**：沒有這個欄位回 400（`null` 才是改回依瀏覽器），避免空 body 把語言清掉。
+- **列表的即時事件在登入期間一直訂閱**（`App.svelte`），不在列表頁時新傳真進「有 N 份新傳真」。

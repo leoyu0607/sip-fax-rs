@@ -155,7 +155,7 @@ fn opt_text(q: &HashMap<String, String>, k: &str) -> Option<String> {
 /// silently list everything).
 fn list_query(q: &HashMap<String, String>) -> Result<(ListFilter, PageRequest), ApiError> {
     const KNOWN: &[&str] = &[
-        "is_read", "status", "from", "to", "ani", "dnis", "trunk", "cursor", "limit",
+        "is_read", "status", "from", "to", "ani", "dnis", "trunk", "q", "cursor", "limit",
     ];
     if let Some(k) = q.keys().find(|k| !KNOWN.contains(&k.as_str())) {
         return Err(ApiError::bad_request(format!("unknown parameter {k:?}")));
@@ -194,6 +194,7 @@ fn list_query(q: &HashMap<String, String>) -> Result<(ListFilter, PageRequest), 
         ani_prefix: opt_text(q, "ani"),
         dnis_prefix: opt_text(q, "dnis"),
         trunk: opt_text(q, "trunk"),
+        q: opt_text(q, "q"),
     };
     Ok((filter, PageRequest { cursor, limit }))
 }

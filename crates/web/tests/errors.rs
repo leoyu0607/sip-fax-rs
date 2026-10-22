@@ -65,7 +65,9 @@ async fn w10_every_kind_of_error_has_the_shape_and_leaks_nothing_about_the_serve
     let anon = reqwest::Client::new();
     let id = fax(&e, "w10@gw", "02", 5).await;
     let dd = e.data_dir.display().to_string();
-    let big = format!("{{\"x\":\"{}\"}}", "a".repeat(2 * 1024 * 1024));
+    // just over the limit: with much more, the server's 413 and close can come while the client
+    // is still writing, and the client then sees a reset instead of the answer
+    let big = format!("{{\"x\":\"{}\"}}", "a".repeat(web::BODY_LIMIT + 16));
 
     // (who, method, path, content type, body, expected status)
     /// (who, method, path, content type, body, expected status)
@@ -87,7 +89,15 @@ async fn w10_every_kind_of_error_has_the_shape_and_leaks_nothing_about_the_serve
             "".into(),
             404,
         ),
-        ("anon", Method::GET, "/".into(), None, "".into(), 404),
+        // "/" is the web interface; another path outside /api is not a file of it
+        (
+            "anon",
+            Method::GET,
+            "/no-such-page".into(),
+            None,
+            "".into(),
+            404,
+        ),
         (
             "anon",
             Method::GET,

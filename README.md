@@ -100,7 +100,7 @@ These commands need a unix system (Linux; macOS works for testing) because of fl
 
 ## Web interface
 
-On by default (also without a `[web]` table in the file): HTTPS on `0.0.0.0:8443`. Without a certificate of your own a self-signed one is made in `conf/tls/` at the first start (825 days, renewed 30 days before it ends); the start log shows its SHA-256 fingerprint so you can compare it with the browser's warning. At the first start the password of `admin` is in `conf/initial-admin-password`; it has to be changed at the first login. Turn the interface off with `[web] enabled = false`; see `[web]` in `conf/sip-faxd.toml.example` for the address, `http`, your own certificate and the session time. The API is under `/api/v1`; the browser pages follow in M4c.
+On by default (also without a `[web]` table in the file): HTTPS on `0.0.0.0:8443`. Without a certificate of your own a self-signed one is made in `conf/tls/` at the first start (825 days, renewed 30 days before it ends); the start log shows its SHA-256 fingerprint so you can compare it with the browser's warning. At the first start the password of `admin` is in `conf/initial-admin-password`; it has to be changed at the first login. Turn the interface off with `[web] enabled = false`; see `[web]` in `conf/sip-faxd.toml.example` for the address, `http`, your own certificate and the session time. Open `https://<server>:8443/` in a browser: the fax list with live receiving progress, the fax pages (preview, PDF/TIFF download, read flag, notes, deliveries), and for administrators the settings, accounts and audit log, in Traditional Chinese or English. The API is under `/api/v1`. [docs/web.md](docs/web.md) describes the pages (in Traditional Chinese). Building from source: run `npm ci && npm run build` in `web-ui/` before `cargo build`, or the binary shows a notice page instead of the interface.
 
 PNG previews of every page are written next to the TIFF and the PDF when a fax is received (`<name>-p1.png`, `<name>-p1-thumb.png`, ...) and are deleted with them.
 ## Fax records and the database
@@ -109,7 +109,7 @@ Every call is a row in the `faxes` table of the database named by `[database] ur
 
 **A database problem never costs a fax.** The fax and `result.json` are written as usual; the database writes wait in an in-memory queue and are retried with exponential backoff (1 s, 2 s, 4 s ... 60 s). A write that still fails is logged as an error, and `sip-faxd db backfill` restores it later from `logs/calls/*/result.json`. If the database is down when the server starts, the server starts anyway; a database that is *newer* than the program (or outdated while `auto_migrate = false`) stops the start.
 
-Retention: `[retention]` is copied into the database on the **first** start; after that the database decides (the web UI of a later release edits it there). A job runs every day at `run_at` (server local time): it deletes the TIFF/PDF files after `files_days` (the record stays, marked "files purged") and the records after `records_days`. `0` means never.
+Retention: `[retention]` is copied into the database on the **first** start; after that the database decides (edit it in the web interface, Settings → Retention). A job runs every day at `run_at` (server local time): it deletes the TIFF/PDF files after `files_days` (the record stays, marked "files purged") and the records after `records_days`. `0` means never.
 
 | Command | What it does |
 |---|---|

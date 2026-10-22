@@ -4,7 +4,11 @@
 /logs
 web-ui/node_modules
 web-ui/dist
+web-ui/coverage
+web-ui/test-results
+web-ui/playwright-report
 .DS_Store
 .codegraph/
 *.swp
 tools/target
+web-ui/.vitest

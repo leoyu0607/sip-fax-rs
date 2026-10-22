@@ -107,6 +107,8 @@ async fn list(State(st): State<AppState>, s: Session) -> Result<Json<Value>, Api
     Ok(Json(json!({
         "sections": sections.iter().map(section_json).collect::<Vec<_>>(),
         "status": status_json(&st.config.status()),
+        // what waits for a restart when it is changed (marked on the forms beforehand)
+        "restart_fields": runtime_config::RESTART_FIELDS,
     })))
 }
 

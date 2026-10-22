@@ -1151,6 +1151,24 @@ pub fn trunk_json_with_preset(value: serde_json::Value) -> Result<serde_json::Va
     Ok(merged)
 }
 
+/// Every name [`restart_required`] can report: what the settings pages mark as "needs a restart"
+/// before anything is changed (`capture` is the whole section).
+pub const RESTART_FIELDS: &[&str] = &[
+    "sip.bind",
+    "sip.transports",
+    "sip.advertised",
+    "sip.user_agent",
+    "sip.allow",
+    "sip.supported",
+    "media.address",
+    "media.audio_port",
+    "media.port_range",
+    "call.fax_session",
+    "call.reinvite_timeout_secs",
+    "call.max_491_retries",
+    "capture",
+];
+
 /// The settings of `now` that differ from `started` and cannot be applied while the server runs
 /// (the sockets, the UDPTL port pool, the SIP stack parameters and the capture writer are built
 /// once at start). Names are the keys of the configuration (`sip.bind`, `media.port_range`, ...).
@@ -1160,6 +1178,10 @@ pub fn restart_required(started: &FaxInConfig, now: &FaxInConfig) -> Vec<String>
     }
     let mut out = Vec::new();
     let mut check = |name: &str, a: serde_json::Value, b: serde_json::Value| {
+        debug_assert!(
+            RESTART_FIELDS.contains(&name),
+            "{name} missing from RESTART_FIELDS"
+        );
         if a != b {
             out.push(name.to_string());
         }

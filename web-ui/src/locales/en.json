@@ -1,0 +1,544 @@
+{
+  "app": {
+    "title": "sip-fax",
+    "loading": "Loading…"
+  },
+  "locale": {
+    "zh-TW": "繁體中文",
+    "en": "English"
+  },
+  "nav": {
+    "main": "Main menu",
+    "faxes": "Faxes",
+    "status": "Status",
+    "settings": "Settings",
+    "users": "Accounts",
+    "audit": "Audit log",
+    "language": "Language",
+    "logout": "Sign out"
+  },
+  "live": {
+    "on": "Live updates connected",
+    "off": "Live updates disconnected, reconnecting"
+  },
+  "common": {
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "retry": "Retry",
+    "actions": "Actions",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "login": {
+    "subtitle": "Please sign in",
+    "username": "User name",
+    "password": "Password",
+    "submit": "Sign in",
+    "signing_in": "Signing in…"
+  },
+  "password": {
+    "title": "Change password",
+    "forced": "This is your first sign-in: choose a new password first.",
+    "current": "Current password",
+    "new": "New password",
+    "again": "New password again",
+    "rules": "At least 10 characters, not the same as the user name.",
+    "mismatch": "The two new passwords differ",
+    "submit": "Change password",
+    "changed": "The password was changed"
+  },
+  "role": {
+    "admin": "Administrator",
+    "agent": "Agent"
+  },
+  "error": {
+    "unknown": "Something went wrong ({code})",
+    "network": "Cannot reach the server",
+    "bad_request": "The request is not valid",
+    "csrf": "The security check failed: reload the page",
+    "forbidden": "Not allowed",
+    "not_found": "Not found",
+    "method_not_allowed": "This operation is not supported",
+    "conflict": "Someone else changed this",
+    "invalid": "The settings are not valid",
+    "internal": "Internal server error",
+    "unavailable": "The database is not reachable, try again later",
+    "timeout": "The server did not answer in time",
+    "too_large": "Too large",
+    "too_long": "The text is too long",
+    "unsupported_media_type": "Unsupported format",
+    "unprocessable": "The content cannot be processed",
+    "origin": "Wrong origin",
+    "purged": "The files were removed by the retention policy",
+    "invalid_credentials": "Wrong user name or password",
+    "account_locked": "Too many failed sign-ins: try again in {minutes} min",
+    "rate_limited": "Too many attempts: try again in {seconds} s",
+    "account_disabled": "The account is disabled",
+    "unauthenticated": "Please sign in again",
+    "session_expired": "The session expired: sign in again",
+    "password_change_required": "Change your password first",
+    "password_too_short": "The password needs at least 10 characters",
+    "password_too_long": "The password is too long",
+    "password_same_as_username": "The password must not be the user name",
+    "wrong_password": "The current password is wrong",
+    "bad_username": "User names use letters, digits and . _ - (64 at most)",
+    "bad_role": "Unknown role",
+    "username_taken": "The user name is taken",
+    "last_admin": "The last administrator cannot be disabled, demoted or deleted",
+    "bad_locale": "Unsupported language"
+  },
+  "validation": {
+    "unknown": "Not valid ({code})",
+    "required": "Required",
+    "invalid": "Not valid",
+    "wrong_type": "Wrong type",
+    "unknown_field": "Unknown field",
+    "out_of_range": "Out of range",
+    "reversed": "The start of the range is above its end",
+    "empty": "Must not be empty",
+    "too_long": "Too long",
+    "duplicate": "Duplicate",
+    "not_last": "The default route must be the last one",
+    "unknown_preset": "Unknown preset",
+    "mismatch": "Does not agree with another setting",
+    "removed": "This setting was removed",
+    "secret_key": "The encryption key is not usable: secrets cannot be stored"
+  },
+  "faxes": {
+    "title": "Faxes",
+    "empty": "No faxes match",
+    "more": "Load more",
+    "new": "{count} new fax(es): click to show",
+    "read": {
+      "all": "All",
+      "unread": "Unread",
+      "read": "Read"
+    },
+    "filter": {
+      "read": "Read state",
+      "toggle": "Filter",
+      "q": "Search (numbers, remote ID, note)",
+      "status": "Status",
+      "any": "Any",
+      "from": "From",
+      "to": "To",
+      "ani": "Caller number starts with",
+      "dnis": "Called number starts with",
+      "trunk": "Trunk",
+      "apply": "Apply",
+      "clear": "Clear"
+    }
+  },
+  "fax": {
+    "title": "Fax from {ani}",
+    "back": "Back to the faxes",
+    "started_at": "Time",
+    "ended_at": "Ended",
+    "ani": "From",
+    "dnis": "To",
+    "remote_ident": "Remote ID (TSI)",
+    "trunk": "Trunk",
+    "pages": "Pages",
+    "note": "Note",
+    "status_label": "Status",
+    "read_label": "Read",
+    "read": "Read",
+    "unread": "Unread",
+    "unknown_number": "(no number)",
+    "mark_read": "Mark read",
+    "mark_unread": "Mark unread",
+    "mark_read_of": "Mark the fax of {time} read",
+    "mark_unread_of": "Mark the fax of {time} unread",
+    "receiving_page": "Receiving, page {page}",
+    "status": {
+      "receiving": "Receiving",
+      "received": "Received",
+      "partial": "Partial",
+      "failed": "Failed",
+      "no_fax": "No fax"
+    },
+    "download_pdf": "Download PDF",
+    "download_tiff": "Download TIFF",
+    "redeliver": "Deliver again",
+    "redelivered": "{count} delivery(ies) queued again",
+    "purged": "The files were removed on {at} by the retention policy; the record is kept.",
+    "no_pages": "No pages to show",
+    "pages_list": "Pages",
+    "page_n": "Page {page}",
+    "page_of": "Page {page} of {pages}",
+    "prev_page": "Previous page",
+    "next_page": "Next page",
+    "zoom": "Zoom",
+    "zoom_fit": "Fit width",
+    "note_save": "Save note",
+    "note_by": "Changed by {by} at {at}",
+    "note_conflict": "{by} changed the note meanwhile. Their version:",
+    "note_take_theirs": "Use their version",
+    "note_keep_mine": "Overwrite with mine",
+    "details": "Details",
+    "duration": "Duration",
+    "hangup_label": "End reason",
+    "sip_status": "SIP status",
+    "t30_code": "T.30 result code",
+    "resolution": "Resolution",
+    "resolution_value": {
+      "standard": "Standard",
+      "fine": "Fine",
+      "superfine": "Superfine"
+    },
+    "bit_rate": "Rate (bit/s)",
+    "compression": "Compression",
+    "ecm": "Error correction (ECM)",
+    "files": "Files",
+    "read_by": "Read state changed",
+    "call_id": "Call-ID",
+    "deliveries": "Deliveries",
+    "no_deliveries": "No deliveries (no route matched)",
+    "direction": {
+      "remote": "by the peer",
+      "local": "by us",
+      "system": "by the system"
+    },
+    "hangup": {
+      "completed": "Fax received",
+      "peer_hangup": "The peer hung up before the fax was complete",
+      "peer_hangup_no_fax": "The peer hung up, no page received",
+      "t30_failed": "The fax protocol (T.30) failed",
+      "no_fax_signal": "No fax signal after answering (maybe a voice call)",
+      "t38_rejected": "The peer refused T.38",
+      "caller_cancelled": "The caller cancelled before the answer",
+      "rejected": "The call was refused",
+      "ack_timeout": "No ACK after the answer",
+      "session_expired": "The SIP session expired",
+      "max_duration": "The call exceeded the longest duration",
+      "shutdown": "The service stopped",
+      "internal_error": "Internal error"
+    }
+  },
+  "delivery": {
+    "kind": "Kind",
+    "target": "Target",
+    "status_label": "Status",
+    "attempt": "Attempts",
+    "next_try": "Next try",
+    "last_error": "Last error",
+    "kind_value": {
+      "folder": "Folder",
+      "email": "E-mail",
+      "webhook": "Webhook"
+    },
+    "status": {
+      "pending": "Pending",
+      "done": "Done",
+      "failed": "Failed (will retry)",
+      "giving_up": "Given up"
+    }
+  },
+  "status": {
+    "title": "Status",
+    "service": "Service",
+    "state": "State",
+    "state_value": {
+      "running": "Running",
+      "stopping": "Stopping (waiting for calls)"
+    },
+    "version": "Version",
+    "started_at": "Started",
+    "uptime": "Uptime",
+    "listen": "SIP listeners",
+    "active_calls": "Calls in progress",
+    "database": "Database",
+    "db_ok": "OK",
+    "db_unavailable": "Not reachable",
+    "schema": "Schema version {n}",
+    "config": "Settings",
+    "config_source": {
+      "database": "Settings come from the database",
+      "file_fallback": "The database is not usable: the settings of the file are in use"
+    },
+    "trunks": "Trunk registration",
+    "trunk": "Trunk",
+    "registration_label": "Registration",
+    "registration": {
+      "none": "Not registering",
+      "unregistered": "Not registered yet",
+      "registering": "Registering",
+      "registered": "Registered",
+      "failed": "Failed",
+      "unknown": "Unknown"
+    }
+  },
+  "users": {
+    "title": "Accounts",
+    "username": "User name",
+    "display_name": "Display name",
+    "role": "Role",
+    "state": "State",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "must_change": "Must change password",
+    "last_login": "Last sign-in",
+    "you": "you",
+    "locale": "Language",
+    "locale_browser": "Browser default",
+    "edit": "Edit {name}",
+    "reset_password": "Reset password",
+    "reset_password_help": "Leave empty to keep it. A reset ends every session of the account.",
+    "must_change_next": "Must change the password at the next sign-in",
+    "new": "New account",
+    "initial_password": "Initial password",
+    "create": "Create account",
+    "created": "Account {name} created",
+    "delete_confirm": "Delete the account {name}?"
+  },
+  "account": {
+    "title": "My account",
+    "language": "Language"
+  },
+  "audit": {
+    "title": "Settings audit log",
+    "at": "Time",
+    "by": "By",
+    "section": "Section",
+    "action_label": "Action",
+    "details": "Details",
+    "before": "Before",
+    "after": "After",
+    "empty": "No entries",
+    "action": {
+      "create": "Created",
+      "update": "Changed",
+      "delete": "Deleted",
+      "import": "Imported"
+    }
+  },
+  "config": {
+    "title": "Settings",
+    "sections": "Sections",
+    "section": {
+      "sip": "SIP",
+      "media": "Media",
+      "call": "Calls",
+      "capture": "Call capture",
+      "trunks": "Trunks",
+      "routes": "Delivery routes",
+      "delivery": "Delivery",
+      "retention": "Retention"
+    },
+    "trunk_title": "Trunk: {name}",
+    "trunk_order": "Trunk order",
+    "trunks_help": "Calls are matched in this order: the first trunk whose allowed sources contain the source IP takes the call.",
+    "no_trunks": "No trunks configured",
+    "new_trunk": "New trunk name",
+    "new": "Not saved yet",
+    "order_saved": "Order saved",
+    "delete_trunk_confirm": "Delete the trunk {name}?",
+    "move_up_of": "Move {n} up",
+    "move_down_of": "Move {n} down",
+    "saved": "Saved: new calls use it",
+    "invalid": "Some fields are not valid: correct them and save again",
+    "conflict": "Someone else changed this section: reload it and edit again",
+    "reload": "Reload",
+    "unsaved": "Unsaved changes",
+    "warnings": "{count} warning(s)",
+    "restart_field": "Takes effect after a restart of the service",
+    "restart_required": "Takes effect after a restart: {fields}",
+    "pending_restart": "Waiting for a restart: {fields}",
+    "file_fallback": "The database is not usable: the file's settings are in use and cannot be changed now.",
+    "undecryptable": "These secrets cannot be decrypted, enter them again: {fields}",
+    "default_value": "(default)",
+    "one_per_line": "One per line",
+    "secret_set": "Set",
+    "secret_unset": "Not set",
+    "secret_new": "Type a new value to replace it",
+    "secret_clear": "Clear",
+    "routes_help": "Routes are tried in order; the first that matches runs all its deliveries. All conditions must hold; the default route matches everything and must be last.",
+    "route_n": "Route {n}",
+    "add_route": "Add route",
+    "remove_route": "Remove route",
+    "deliveries": "Deliveries",
+    "no_deliveries": "This route has no deliveries",
+    "remove_delivery": "Remove delivery",
+    "field": {
+      "sip": {
+        "bind": "Bind address and port",
+        "transports": "Transports",
+        "transports_help": "None ticked: opened as the trunks need.",
+        "advertised": "Advertised address (Via / Contact)",
+        "user_agent": "User-Agent",
+        "allow": "Allow header",
+        "supported": "Supported header",
+        "unknown_source": "Request from an unknown source"
+      },
+      "media": {
+        "address": "SDP address",
+        "audio_port": "Audio RTP port",
+        "port_range": "T.38 (UDPTL) port range",
+        "port_range_help": "Each call uses one even port: 30000-30999 allows 500 calls at once."
+      },
+      "call": {
+        "send_ringing": "Send 180 Ringing before answering",
+        "answer_delay_ms": "Answer delay (ms)",
+        "max_duration_secs": "Longest call (s)",
+        "fax_session": "Once T.38 is up",
+        "station_id": "Station ID (CSI)",
+        "reinvite_timeout_secs": "re-INVITE timeout (s)",
+        "max_491_retries": "491 retries"
+      },
+      "capture": {
+        "enabled": "Write call captures",
+        "dir": "Directory",
+        "keep": "Keep",
+        "udptl": "udptl.log content",
+        "udptl_help": "\"Full\" writes the fax image data to the log: for diagnosis only.",
+        "max_bytes_per_call": "Limit per call (bytes)"
+      },
+      "delivery": {
+        "catch_up_hours": "Catch-up at start (hours)",
+        "max_attempts": "Attempts per delivery"
+      },
+      "retention": {
+        "files_days": "Keep files (days, 0 = forever)",
+        "records_days": "Keep records (days, 0 = forever)",
+        "run_at": "Daily run (HH:MM, server time)"
+      },
+      "trunk": {
+        "name": "Name",
+        "preset": "Preset",
+        "peer": "Peer address",
+        "allowed_sources": "Allowed source IPs / CIDRs",
+        "allowed_sources_help": "Empty: only the IP of the peer.",
+        "transport": "Transport",
+        "t38_policy": "T.38 policy",
+        "initiate_after_secs": "Wait before our re-INVITE (s)",
+        "audio_codecs": "Audio codecs (in order)",
+        "numbers": {
+          "label": "Numbers",
+          "ani_sources": "Caller number from (in order)",
+          "dnis_sources": "Called number from (in order)",
+          "strip_plus": "Remove a leading +",
+          "ani_strip_prefix": "Remove from the caller number",
+          "dnis_strip_prefix": "Remove from the called number"
+        },
+        "fax": {
+          "label": "Fax capabilities",
+          "resolutions": "Resolutions",
+          "ecm": "Error correction (ECM) and MMR"
+        },
+        "t38": {
+          "label": "T.38 parameters",
+          "max_version": "Highest version",
+          "max_bit_rate": "Highest bit rate",
+          "rate_management": "Rate management",
+          "max_buffer": "MaxBuffer",
+          "max_datagram": "MaxDatagram",
+          "udp_ec": "UDP error correction",
+          "fec": "FEC supported",
+          "redundancy_depth": "Redundancy depth",
+          "fec_span": "FEC span",
+          "fec_entries": "FEC entries",
+          "fill_bit_removal": "Fill bit removal",
+          "transcoding_mmr": "MMR transcoding",
+          "transcoding_jbig": "JBIG transcoding"
+        },
+        "compat": {
+          "label": "Compatibility",
+          "accept_unknown_require": "Accept unknown Require",
+          "min_max_datagram": "Lowest MaxDatagram"
+        },
+        "register": {
+          "label": "Registration (REGISTER)",
+          "enabled": "Register at the peer",
+          "registrar": "Registrar",
+          "domain": "Domain",
+          "aor": "AoR",
+          "username": "User name",
+          "password": "Password",
+          "expires": "Expires (s)",
+          "backoff_initial_secs": "First retry after a failure (s)",
+          "backoff_max_secs": "Longest retry interval (s)"
+        }
+      },
+      "route": {
+        "name": "Name",
+        "dnis": "Called number (exact)",
+        "dnis_prefix": "Called number starts with",
+        "trunk": "Trunk name",
+        "default": "Default route (matches every fax)",
+        "deliver_partial": "Also deliver partial faxes"
+      },
+      "target": {
+        "folder": {
+          "dir": "Directory",
+          "filename": "File name template",
+          "filename_help": "Use {date} {time} {ani} {dnis} {id} {trunk} {pages} …; the extension is added.",
+          "formats": "Formats",
+          "create_dir": "Create the directory when missing"
+        },
+        "email": {
+          "host": "SMTP server",
+          "port": "Port",
+          "security": "Security",
+          "tls_insecure": "Accept any server certificate (testing only)",
+          "username": "User name",
+          "password": "Password",
+          "from": "From",
+          "to": "To",
+          "subject": "Subject template",
+          "body": "Body template",
+          "attachment_name": "Attachment name template",
+          "attach_tiff": "Also attach the TIFF",
+          "timeout_secs": "Timeout (s)"
+        },
+        "webhook": {
+          "url": "URL",
+          "secret": "HMAC key",
+          "signature_header": "Signature header",
+          "attach_pdf": "Attach the PDF (multipart)",
+          "headers": "Extra headers",
+          "timeout_secs": "Timeout (s)"
+        }
+      }
+    },
+    "option": {
+      "unknown_source": {
+        "drop": "Drop silently",
+        "reject": "Answer 403",
+        "log": "Handle as generic and log"
+      },
+      "fax_session": {
+        "t38": "Receive the fax",
+        "hold": "Hold the call only (testing)"
+      },
+      "keep": {
+        "all": "All calls",
+        "failed": "Failed calls only"
+      },
+      "udptl": {
+        "summary": "Summary",
+        "off": "Off",
+        "full": "Full (with image data)"
+      },
+      "t38_policy": {
+        "auto": "Auto",
+        "wait-peer": "Wait for the peer",
+        "initiate": "Initiate",
+        "audio-only": "Audio only"
+      },
+      "resolutions": {
+        "standard": "Standard",
+        "fine": "Fine"
+      },
+      "security": {
+        "starttls": "STARTTLS (587)",
+        "smtps": "SMTPS (465)",
+        "none": "None (25)"
+      }
+    }
+  }
+}

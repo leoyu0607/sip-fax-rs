@@ -105,16 +105,24 @@ fn duration_between(answered: Option<DateTime<Utc>>, ended: DateTime<Utc>) -> i3
 }
 
 /// Escape LIKE wildcards with `!` (portable `ESCAPE '!'`).
-fn like_prefix(p: &str) -> String {
-    let mut s = String::with_capacity(p.len() + 1);
+fn like_escape(p: &str) -> String {
+    let mut s = String::with_capacity(p.len() + 2);
     for c in p.chars() {
         if matches!(c, '%' | '_' | '!' | '[') {
             s.push('!');
         }
         s.push(c);
     }
-    s.push('%');
     s
+}
+
+fn like_prefix(p: &str) -> String {
+    format!("{}%", like_escape(p))
+}
+
+/// `%text%`, lower case (compared with `LOWER(column)`: PostgreSQL's LIKE is case sensitive).
+fn like_contains(p: &str) -> String {
+    format!("%{}%", like_escape(&p.to_lowercase()))
 }
 
 fn id_list(ids: &[i64]) -> String {
@@ -365,6 +373,17 @@ impl FaxStore for SqlStore {
         if let Some(t) = &filter.trunk {
             conds.push("trunk = ?".into());
             params.push(t.clone().into());
+        }
+        if let Some(q) = &filter.q {
+            let cols = ["ani", "dnis", "remote_ident", "note"];
+            conds.push(format!(
+                "({})",
+                cols.map(|c| format!("LOWER({c}) LIKE ? ESCAPE '!'"))
+                    .join(" OR ")
+            ));
+            for _ in cols {
+                params.push(like_contains(q).into());
+            }
         }
         if let Some(c) = page.cursor {
             conds.push("(started_at < ? OR (started_at = ? AND id < ?))".into());

@@ -107,7 +107,7 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 ## Web 介面
 
-預設開啟（設定檔沒有 `[web]` 也會啟動）：HTTPS，監聽 `0.0.0.0:8443`。沒有提供自己的憑證時，第一次啟動會在 `conf/tls/` 產生自簽憑證（有效期 825 天，到期前 30 天自動更新）；啟動 log 會印出 SHA-256 指紋，可以和瀏覽器的警告比對。第一次啟動時 `admin` 的密碼在 `conf/initial-admin-password`，第一次登入時必須修改。要關閉請設定 `[web] enabled = false`；位址、`http`、自己的憑證與 session 時間見 `conf/sip-faxd.toml.example` 的 `[web]`。API 在 `/api/v1`，網頁畫面在 M4c 提供。
+預設開啟（設定檔沒有 `[web]` 也會啟動）：HTTPS，監聽 `0.0.0.0:8443`。沒有提供自己的憑證時，第一次啟動會在 `conf/tls/` 產生自簽憑證（有效期 825 天，到期前 30 天自動更新）；啟動 log 會印出 SHA-256 指紋，可以和瀏覽器的警告比對。第一次啟動時 `admin` 的密碼在 `conf/initial-admin-password`，第一次登入時必須修改。要關閉請設定 `[web] enabled = false`；位址、`http`、自己的憑證與 session 時間見 `conf/sip-faxd.toml.example` 的 `[web]`。以瀏覽器開啟 `https://<伺服器>:8443/`：傳真列表（即時顯示接收進度）、傳真內容（預覽、下載 PDF／TIFF、已讀、備註、投遞），管理員另有設定、帳號與稽核紀錄；介面提供繁體中文與英文。API 在 `/api/v1`。各頁面的說明見 [docs/web.md](docs/web.md)。從原始碼建置時，請先在 `web-ui/` 執行 `npm ci && npm run build` 再 `cargo build`，否則執行檔只會顯示一頁說明，沒有介面。
 
 收到傳真時，每頁的 PNG 預覽會寫在 TIFF、PDF 旁邊（`<名稱>-p1.png`、`<名稱>-p1-thumb.png`……），清整時一起刪除。
 ## 傳真紀錄與資料庫
@@ -116,7 +116,7 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 **資料庫出問題不會害傳真收不到。** 傳真檔和 `result.json` 照常寫出；寫資料庫的動作放在記憶體佇列，以指數退避重試（1 秒、2 秒、4 秒…最長 60 秒）。仍然失敗的寫入會記成 error，之後可用 `sip-faxd db backfill` 從 `logs/calls/*/result.json` 補回。啟動時資料庫連不上，伺服器照樣啟動；但資料庫版本**比程式新**（或 `auto_migrate = false` 而版本過舊）時會拒絕啟動。
 
-清整：`[retention]` 只在**第一次**啟動時寫入資料庫，之後以資料庫為準（之後版本的 Web 介面會在資料庫修改）。每天在 `run_at`（伺服器本地時間）執行：超過 `files_days` 的 TIFF／PDF 檔案刪除（紀錄保留，標記「檔案已清除」），超過 `records_days` 的紀錄刪除。`0` 代表永遠不刪。
+清整：`[retention]` 只在**第一次**啟動時寫入資料庫，之後以資料庫為準（在 Web 介面的「設定 → 保存期限」修改）。每天在 `run_at`（伺服器本地時間）執行：超過 `files_days` 的 TIFF／PDF 檔案刪除（紀錄保留，標記「檔案已清除」），超過 `records_days` 的紀錄刪除。`0` 代表永遠不刪。
 
 | 指令 | 作用 |
 |---|---|

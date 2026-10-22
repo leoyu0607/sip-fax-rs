@@ -9,6 +9,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 if command -v cargo-deny >/dev/null; then cargo deny check; else echo "warn: cargo-deny not installed, skipping"; fi
 cargo test --workspace --all-targets
 cargo test --workspace --doc
+# U06: package.sh refuses a missing web-ui/dist and a binary without this dist
+scripts/test-package.sh
+# web-ui (the CI job of the same name): needs Node 24 and npm
+if command -v npm >/dev/null; then
+  (cd web-ui && npm ci --no-audit --no-fund && npm run lint && npm run check && npm run coverage && npm run build)
+else
+  echo "warn: npm not installed, skipping the web-ui checks"
+fi
 # Concurrent `cargo llvm-cov` runs share target/llvm-cov-target and wipe each other's profile data
 # (M2c: the likely cause of the one-off 83.5 % sip-core reading), so serialise them.
 cov_lock=target/.llvm-cov.lock
@@ -45,6 +53,8 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   scripts/e2e-docker.sh
   # M4b H01/H05/H08: the web certificate and TLS versions checked by openssl in the Rocky 9 image
   scripts/web-openssl-docker.sh
+  # M4c: Playwright E2E of the web interface against sip-faxd in the container (needs Node and Chromium)
+  if command -v npm >/dev/null; then scripts/e2e-web.sh; else echo "warn: npm not installed, skipping scripts/e2e-web.sh"; fi
 else
   echo "warn: docker not available, skipping tools/ SpanDSP e2e (scripts/e2e-docker.sh)"
 fi

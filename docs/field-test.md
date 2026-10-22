@@ -11,7 +11,7 @@
 - `./sip-faxd config check` 會顯示上述所有設定。
 - ECM 已支援但預設關閉（`[trunks.fax] ecm = false`），真機驗證後才會重新評估。這次試接**請維持關閉**。
 
-這一版還沒有 Web 管理介面（M4）。
+Web 介面：以瀏覽器開啟 `https://<伺服器>:8443/`，可以即時看到收進來的傳真、預覽與下載、標記已讀與寫備註；管理員可以修改設定與帳號。使用說明見壓縮檔內的 `docs/web.md`。
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
@@ -98,5 +98,5 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd
 ## 7. 已知限制（alpha）
 - 只支援 T.38。如果 CS210 拒絕 T.38、要求 G.711，這一版會掛斷，並在 `result.json` 記錄失敗原因。G.711 passthrough 在 M5 才會做。
 - ECM 預設關閉。發送端要求 ECM 時，傳送會以 non-ECM 完成。ECM 只和 SpanDSP 互通驗證過，還沒有和真實 gateway 測過。
-- 沒有 Web 管理介面；紀錄可以直接用 SQLite 工具查詢 `data/sip-faxd.db`（欄位說明見壓縮檔內的 `docs/database.md`）。
+- 紀錄也可以直接用 SQLite 工具查詢 `data/sip-faxd.db`（欄位說明見壓縮檔內的 `docs/database.md`）。
 - localTCF 時不會送 CFR。這是跟 SpanDSP 一致的行為，但還沒有用 CS210 驗證過，這正是這次試接要確認的項目之一。

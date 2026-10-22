@@ -8,7 +8,7 @@
 | M1 | ✅ | sip-core：message/transport/transaction/UAS dialog/SDP-T.38/re-INVITE | fax-sim 能完成 INVITE→200→ACK→re-INVITE(T.38)→BYE，包含重送情境 |
 | M2 | ✅ | t38 + t30（non-ECM）+ t4 → TIFF/PDF | 與 SpanDSP 互通，端到端收到多頁傳真 |
 | M3 | ✅ | store（4 種 DB）+ delivery（folder/email/webhook）+ ECM | 各 DB 在容器中的整合測試通過；投遞重試正確 |
-| M4 | 🟨 | Web 管理介面 + TUI + CLI 完整（M4a、M4b、M4d 完成） | 可查詢和下載傳真、管理路由與設定 |
+| M4 | ✅ | Web 管理介面 + TUI + CLI 完整（M4a–M4d） | 可查詢和下載傳真、管理路由與設定 |
 | M5 | ⬜ | fax-modem：G.711 passthrough | fax-sim 以 G.711 模式送傳真，可以成功接收 |
 | M6 | ⬜ | Gateway 互通強化（Sonus/AudioCodes 參數、SIP trace 回歸測試）、打包發佈 | 解壓後在 RHEL 9/10 可直接執行 |
 

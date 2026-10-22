@@ -48,6 +48,23 @@ pub enum HangupCode {
 }
 
 impl HangupCode {
+    /// Every code (the web interface has a text for each of them; a test lists them).
+    pub const ALL: [HangupCode; 13] = [
+        HangupCode::Completed,
+        HangupCode::PeerHangup,
+        HangupCode::PeerHangupNoFax,
+        HangupCode::T30Failed,
+        HangupCode::NoFaxSignal,
+        HangupCode::T38Rejected,
+        HangupCode::CallerCancelled,
+        HangupCode::Rejected,
+        HangupCode::AckTimeout,
+        HangupCode::SessionExpired,
+        HangupCode::MaxDuration,
+        HangupCode::Shutdown,
+        HangupCode::InternalError,
+    ];
+
     /// The text stored in `faxes.hangup_code`.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -273,5 +290,40 @@ fn t30_verdict(fax: Option<&crate::event::FaxReport>, pages: i32) -> Verdict {
             HangupDirection::Local,
             HangupCode::T30Failed,
         )),
+    }
+}
+
+#[cfg(test)]
+mod all_codes_tests {
+    use super::HangupCode;
+
+    /// Adding a variant fails to compile here until `ALL` (and so the web interface's list of
+    /// texts, test U02) is thought about.
+    fn index(c: HangupCode) -> usize {
+        match c {
+            HangupCode::Completed => 0,
+            HangupCode::PeerHangup => 1,
+            HangupCode::PeerHangupNoFax => 2,
+            HangupCode::T30Failed => 3,
+            HangupCode::NoFaxSignal => 4,
+            HangupCode::T38Rejected => 5,
+            HangupCode::CallerCancelled => 6,
+            HangupCode::Rejected => 7,
+            HangupCode::AckTimeout => 8,
+            HangupCode::SessionExpired => 9,
+            HangupCode::MaxDuration => 10,
+            HangupCode::Shutdown => 11,
+            HangupCode::InternalError => 12,
+        }
+    }
+
+    #[test]
+    fn all_lists_every_code_once_with_distinct_text() {
+        let mut seen = std::collections::BTreeSet::new();
+        for (i, c) in HangupCode::ALL.iter().enumerate() {
+            assert_eq!(index(*c), i, "ALL is in declaration order");
+            assert!(seen.insert(c.as_str()), "{} twice", c.as_str());
+        }
+        assert_eq!(seen.len(), 13);
     }
 }

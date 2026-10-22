@@ -61,6 +61,10 @@ pub struct UacConfig {
     /// With `fax`: a flag the caller sets to make the gateway hang up in the middle of the
     /// transfer (the transfer is cut off and we send BYE, after `peer_bye_wait`).
     pub hangup: Option<Arc<AtomicBool>>,
+    /// User part of the From URI (the calling number the server extracts; default `gw`).
+    pub from_user: String,
+    /// User part of the To and Request-URI (the called number; default `fax`).
+    pub to_user: String,
 }
 
 impl UacConfig {
@@ -79,6 +83,8 @@ impl UacConfig {
             t38_version: 0,
             rate_management: "transferredTCF",
             hangup: None,
+            from_user: "gw".into(),
+            to_user: "fax".into(),
         }
     }
 }
@@ -225,9 +231,9 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
     };
     let mut opts = InviteOptions::new(
         cfg.target,
-        uri("fax", cfg.target.to_string())?,
-        uri("gw", ip.clone())?,
-        uri("fax", cfg.target.to_string())?,
+        uri(&cfg.to_user, cfg.target.to_string())?,
+        uri(&cfg.from_user, ip.clone())?,
+        uri(&cfg.to_user, cfg.target.to_string())?,
         first_offer,
     );
     opts.transport = cfg.transport;
