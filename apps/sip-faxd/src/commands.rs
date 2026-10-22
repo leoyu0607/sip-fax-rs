@@ -421,6 +421,9 @@ pub fn copy_target(
             with_password(&url, &pw).map_err(|e| fail(format!("--to: {e}")))
         }
         (Some(url), None) => Ok(url),
+        (None, Some(_)) if password_stdin => Err(fail(
+            "--to-password-stdin goes with --to URL; a --to-config file has its own password",
+        )),
         (None, Some(file)) => match AppConfig::load(&file) {
             Ok(c) => Ok(c.database.url),
             Err(e) => Err(fail(format!("--to-config: {e}"))),
@@ -555,7 +558,16 @@ fn mask_secrets(msg: &str, url: &str) -> String {
 pub fn connection_hint(msg: &str) -> Option<&'static str> {
     let m = msg.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|n| m.contains(n));
-    if has(&[
+    if has(&["saslprep", "prohibitedcharacter"]) {
+        Some(
+            "PostgreSQL's password check (SCRAM, SASLprep) refuses a character of the password, such as an emoji: use letters, digits, punctuation or CJK characters in the password",
+        )
+    } else if has(&["cannot open database", "unknown database"]) {
+        // (before the password: SQL Server adds "The login failed" to a missing database)
+        Some(
+            "the database does not exist: create an empty database first (sip-faxd creates the tables, not the database)",
+        )
+    } else if has(&[
         "password authentication failed",
         "login failed",
         "access denied",
@@ -564,7 +576,7 @@ pub fn connection_hint(msg: &str) -> Option<&'static str> {
         Some(
             "the user name or the password is wrong (with the split [database] fields, write the password as it is)",
         )
-    } else if has(&["does not exist", "unknown database", "cannot open database"]) {
+    } else if has(&["does not exist"]) {
         Some(
             "the database does not exist: create an empty database first (sip-faxd creates the tables, not the database)",
         )
@@ -783,5 +795,58 @@ mod tests {
         for secret in ["mailpw-123", "urlpw-456", "tok-789", "hmac-secret-000"] {
             assert!(!text.contains(secret), "{secret} leaked:\n{text}");
         }
+    }
+
+    /// K03: the drivers' own messages (as seen on the real servers) get the right hint.
+    #[test]
+    fn k03_connection_hints_tell_the_causes_apart() {
+        let cases = [
+            // (message, a part of the hint)
+            (
+                "password authentication failed for user \"u\"",
+                "user name or the password",
+            ),
+            ("Login failed for user 'u'.", "user name or the password"),
+            (
+                "Access denied for user 'u'@'172.17.0.1' (using password: YES)",
+                "user name or the password",
+            ),
+            // SQL Server says "The login failed" with a missing database too: the database wins
+            (
+                "Cannot open database \"x\" requested by the login. The login failed.",
+                "database does not exist",
+            ),
+            (
+                "error returned from database: database \"x\" does not exist",
+                "database does not exist",
+            ),
+            ("Unknown database 'x'", "database does not exist"),
+            (
+                "error with configuration: Failed to saslprep password: Error(ProhibitedCharacter('x'))",
+                "SASLprep",
+            ),
+            (
+                "invalid peer certificate: UnknownIssuer",
+                "trust_server_certificate",
+            ),
+            (
+                "An error occurred during the attempt of performing I/O: Connection refused (os error 111)",
+                "nothing listens",
+            ),
+            (
+                "failed to lookup address information: Name or service not known",
+                "cannot be resolved",
+            ),
+            (
+                "pool timed out while waiting for an open connection",
+                "firewall",
+            ),
+            ("no answer within 15 s", "firewall"),
+        ];
+        for (msg, want) in cases {
+            let h = connection_hint(msg).unwrap_or_else(|| panic!("no hint for {msg:?}"));
+            assert!(h.contains(want), "{msg:?} -> {h}");
+        }
+        assert_eq!(connection_hint("something else entirely"), None);
     }
 }

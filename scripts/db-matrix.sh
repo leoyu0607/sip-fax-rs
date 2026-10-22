@@ -61,6 +61,13 @@ for be in "${BACKENDS[@]}"; do
   else
     echo "FAILED: $be r04"; FAIL=1
   fi
+  # M4f D02/K01-K04/P01: accounts with awkward passwords, `sip-faxd db check`, `db copy` into this server
+  echo "=== M4f (db check, split-field password, db copy) on $be ==="
+  if SIP_FAXD_TEST_DB="$url" SIP_FAXD_TEST_DB_CONTAINER="$name" cargo test -p sip-faxd --test m4f_server -- --nocapture --test-threads=1 2>&1 | tee "target/db-matrix-$be-m4f.log" | tail -n 8; then
+    grep -q "test result: ok. 4 passed" "target/db-matrix-$be-m4f.log" && ! grep -q "skipped" "target/db-matrix-$be-m4f.log" && echo "PASSED: $be m4f" || { echo "FAILED: $be m4f"; FAIL=1; }
+  else
+    echo "FAILED: $be m4f"; FAIL=1
+  fi
 done
 if [ -z "${KEEP:-}" ]; then for n in "${STARTED[@]}"; do docker rm -f "$n" >/dev/null 2>&1; done; fi
 exit $FAIL

@@ -158,7 +158,16 @@
 - [x] [Opus] 撰寫 `docs/test-plans/M4f.md`
 - [x] [Any] 實作：`apps/sip-faxd/src/settings.rs`（`DatabaseFile` → `DatabaseSection`）、`crates/store/src/check.rs`（`check_url`）、`db check`、`db copy --to-password-stdin`／`--to-config`、`config check` 與啟動 log 的訊息（`commands::NO_TRUNK`）、Web 的「沒有中繼」橫幅（`App.svelte`）、`conf/sip-faxd.toml.example` 拆出 `conf/runtime.toml.example`（打包時一起放）；文件：field-test、IT 手冊、database.md、web.md、兩份 README、CHANGELOG 中英
   - 2026-10-22 手動驗證：PostgreSQL 建立密碼 `p@ss:w/rd#1 中%` 的帳號，分欄位與 `--password-stdin` 都能連線；`db check` 對錯密碼、不存在的資料庫、關閉的 port、不存在的 SQLite 檔各給正確提示；`db copy --to-password-stdin` 成功
-- [ ] [Sonnet] 依計畫實作 D01–D05、K01–K04、P01–P02、F01–F05 並寫 `docs/test-reports/M4f.md`
+- [~] [Sonnet] 交接（2026-10-23，使用者額度用盡，由另一位 agent 接手）。報告 `docs/test-reports/M4f.md`（標示未完成，§9 空）
+  - 已完成且通過：D01、D03、D04（`apps/sip-faxd/src/settings.rs::m4f_tests`）；D05、K01–K04（SQLite／關閉的 port／解析不到的主機）、P01、P02、F01–F04（`apps/sip-faxd/tests/m4f_cli.rs`）；D02、K01–K04、P01 的伺服器部分（`apps/sip-faxd/tests/m4f_server.rs`，db-matrix 四種都過，CI `db-matrix` 新增 step）；store 層 `crates/store/src/tests/check_tests.rs`；F02 真傳真（`tools/fax-sim/tests/e2e_m4f.rs`）；F05（`web-ui/e2e/setup.spec.ts` 6 個案例，e2e-web 實例 `c`）
+  - 沒有 ignore 任何測試。未解：`scripts/e2e-web.sh` 最後一次執行 `access.spec.ts` U18（`toBeFocused`）失敗，前一次通過，疑似不穩定，需重跑確認；MySQL 的 R04（既有）在 db-matrix 偶爾逾時
+  - 執行結果：fmt、clippy、deny、`cargo test --workspace`（1102 通過）、db-matrix 四種、`e2e_m4f`（Docker）、web-ui lint／check／coverage、store 涵蓋率 81.53% 都通過（細節見報告 §7）
+  - 修掉的產品問題：`--to-password-stdin` 搭配 `--to-config` 被靜默接受；MSSQL 資料庫不存在被提示成密碼錯誤；新增 PostgreSQL emoji 密碼（SASLprep，sqlx 限制，未修）的提示。報告 §3 另列 5 個觀察到但沒修的小問題
+  - 下一步：① 重跑 `scripts/e2e-web.sh` 確認 U18 是否不穩定；② 跑完整 `scripts/ci-local.sh`；③ 推送後確認 CI 全綠（尤其 db-matrix 新 step）；④ Opus 審核報告
+- [ ] [Any] `docs/database.md` 與 `docs/manual/it.md` 要明白寫：sip-faxd 需要自己專用的資料庫（不要與其他系統共用；`users`、`sessions`、`settings`、`schema_migrations` 等通用表名可能衝突，MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 會悄悄沿用別的系統的表）。使用者 2026-10-22 決定：只要求專用資料庫，不做衝突檢查，不加表名前綴
+- [ ] [Opus] 審核 `docs/test-reports/M4f.md`（已依現況寫成，標示未完成）
+- [ ] [Any] 合併順序：先把 `m4e-db-copy`（審核已通過；確認其 CI run 39794768007 為綠）合進 main，再合 `m4f-config`，然後依 CLAUDE.md 發版檢查清單發 v0.4.0-alpha
+- 備註：RUSTSEC-2026-0381/0382/0383（rustls-webpki、webpki-roots、webpki-root-certs，2026-10-19/20）已於 2026-10-23 檢查：main、m4e、m4f、v0.2.0、v0.3.0 的 lock 檔都已是修正版（0.103.16、1.0.10），不需處理
 - [ ] [Opus] 審核
 
 ### 文件（優先級在功能開發之後）
