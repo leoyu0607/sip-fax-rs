@@ -268,6 +268,16 @@ Web「設定 → 保存期限」：
 ./sip-faxd config export --include-secrets > /backup/sip-faxd-secrets.toml     # 含明文密碼，請妥善保管
 ```
 
+### 換資料庫
+
+例如一開始用內建的 SQLite，之後改用 MSSQL（任何兩種資料庫之間都可以）：
+
+1. 在新的資料庫伺服器建立一個空的資料庫（程式只建立資料表，不建立資料庫）。
+2. 停止服務：`./sip-faxd stop`（或 `systemctl stop sip-faxd`）。服務執行中時 `db copy` 會拒絕。
+3. 複製：`./sip-faxd db copy --to "mssql://user:pass@host:1433/faxdb?trust_server_certificate=true"`。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
+4. 把設定檔的 `[database] url` 改成新的資料庫，**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
+5. 資料庫只存傳真檔案的**路徑**（`tiff_path`、`pdf_path`，相對於 `[storage] data_dir`），檔案本身在 `data/faxes/`。只換資料庫、不換機器時檔案不用動；同時搬到另一台機器或目錄時，把 `data/faxes/` 一起複製過去，並讓 `data_dir` 指向它（相對路徑，目錄換了也有效）。原本的資料庫留著當備份即可。
+
 **還原**：停止服務，放回上表的檔案，再啟動。只有設定、沒有資料庫時，可在新的資料庫以 `./sip-faxd config import --force --file /backup/sip-faxd-secrets.toml` 匯入（含密碼的版本；不含密碼的版本匯入後要在 Web 重新輸入密碼），再重啟。
 
 ## 12. 升級

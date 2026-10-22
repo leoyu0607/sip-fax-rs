@@ -342,6 +342,47 @@ pub async fn db_migrate(cfg: &AppConfig, base: &Path) -> ExitCode {
     }
 }
 
+/// `sip-faxd db copy --to URL` (ADR-059): every row into another, empty database.
+pub async fn db_copy(cfg: &AppConfig, base: &Path, to: &str) -> ExitCode {
+    // nothing may change in the source while it is copied
+    #[cfg(unix)]
+    if let Some(pid) = crate::service::pidfile::running_pid(&cfg.service.pid_path(base)) {
+        return fail(format!(
+            "the service is running (pid {pid}): stop it first (`sip-faxd stop` or `systemctl stop`)"
+        ));
+    }
+    let from = cfg.database_url(base);
+    // a relative SQLite path of the target is relative to the executable, like [database] url
+    let to_url = crate::settings::resolve_database_url(to, base);
+    if let Err(e) = store::backend_for_url(&to_url) {
+        return fail(format!("--to: {e}"));
+    }
+    println!(
+        "copying {} -> {}",
+        mask_url(&cfg.database.url),
+        mask_url(to)
+    );
+    let mut progress = |table: &str, rows: u64| println!("  {table:<18} {rows:>9} rows");
+    match store::copy_database(&from, &to_url, &mut progress).await {
+        Ok(r) => {
+            let total: u64 = r.tables.iter().map(|(_, n)| n).sum();
+            println!(
+                "done: {total} rows from {} into {} (schema version {}) in {:.1} s, verified",
+                r.from.name(),
+                r.to.name(),
+                r.schema,
+                r.elapsed.as_secs_f64()
+            );
+            println!(
+                "next: set [database] url = \"{}\" in the configuration file (keep conf/secret.key), then start the service",
+                mask_url(to)
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(format!("db copy: {e}")),
+    }
+}
+
 /// `sip-faxd db backfill`
 pub async fn db_backfill(cfg: &AppConfig, base: &Path, dir: Option<PathBuf>) -> ExitCode {
     let db = Db::new(cfg, base);

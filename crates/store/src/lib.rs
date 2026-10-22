@@ -10,6 +10,7 @@
 pub mod admin;
 mod backend;
 pub mod clock;
+pub mod copy;
 pub mod db;
 pub mod error;
 pub mod migrate;
@@ -28,6 +29,7 @@ pub use admin::{
     UserUpdate,
 };
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use copy::{CopyReport, copy_database};
 pub use db::BackendKind;
 pub use error::{Error, Result};
 pub use migrate::{MigrateReport, latest_version};
@@ -109,6 +111,37 @@ pub async fn test_record_schema_version(url: &str, version: i32) -> Result<()> {
         .await?;
     st.close().await;
     Ok(())
+}
+
+/// Test support: the number of rows of every copied table, in copy order (the schema must be
+/// current; nothing is migrated or written).
+#[doc(hidden)]
+pub async fn test_row_counts(url: &str) -> Result<Vec<(&'static str, u64)>> {
+    let st = open_sql(url, &ConnectOptions::default()).await?;
+    let mut out = Vec::new();
+    for name in copy::table_names() {
+        let rows = st
+            .raw()
+            .query(
+                &format!("SELECT COUNT(*) FROM {name}"),
+                &[],
+                &[db::Kind::Int],
+            )
+            .await;
+        let n = match rows {
+            Ok(r) => match r.first().and_then(|r| r.first()) {
+                Some(db::Val::I(Some(n))) => *n as u64,
+                _ => 0,
+            },
+            Err(e) => {
+                st.close().await;
+                return Err(e);
+            }
+        };
+        out.push((name, n));
+    }
+    st.close().await;
+    Ok(out)
 }
 
 /// Connect with default options (auto-migrate on).

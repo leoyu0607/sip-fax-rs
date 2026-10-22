@@ -209,6 +209,16 @@ enum DbAction {
         #[command(flatten)]
         config: ConfigArg,
     },
+    /// Copy every row of this database (`[database] url`) into another, empty database, e.g. from
+    /// SQLite to SQL Server. The service must be stopped. Afterwards set `[database] url` to the
+    /// target and start the service again.
+    Copy {
+        /// The target database URL (same forms as `[database] url`).
+        #[arg(long, value_name = "URL")]
+        to: String,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
 }
 
 fn exe_dir() -> PathBuf {
@@ -298,6 +308,11 @@ fn main() -> ExitCode {
             action: DbAction::Backfill { dir, config },
         }) => with_runtime(&config_path(&config), |cfg| async move {
             commands::db_backfill(&cfg, &exe_dir(), dir).await
+        }),
+        Some(Command::Db {
+            action: DbAction::Copy { to, config },
+        }) => with_runtime(&config_path(&config), |cfg| async move {
+            commands::db_copy(&cfg, &exe_dir(), &to).await
         }),
         Some(Command::Purge { dry_run, config }) => {
             with_runtime(&config_path(&config), |cfg| async move {

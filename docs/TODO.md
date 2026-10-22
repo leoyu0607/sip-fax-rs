@@ -144,6 +144,15 @@
 - [x] [Any] CI 新增 `web-ui` job（M4c ⑤；2026-10-22 已套用為必要檢查，連同 `e2e-web`）
 - [x] [Opus] 審核 M4 測試報告：分期為 `docs/test-reports/M4a.md`、`M4b.md`、`M4c.md`、`M4d.md`，各自審核通過（2026-10-22）
 
+## M4e — 換資料庫（`sip-faxd db copy`）
+> 2026-10-22 使用者同意：SQLite 之後想改用 MSSQL 時，要能把全部資料（含已讀、備註、投遞、帳號）搬過去。ADR-059；測試計畫 `docs/test-plans/M4e.md`；分支 `m4e-db-copy`。
+- [x] [Opus] 撰寫 `docs/test-plans/M4e.md`（含設計摘要）
+- [x] [Any] 實作：`crates/store/src/copy.rs`（`copy_database`）、CLI `sip-faxd db copy --to <URL>`（`apps/sip-faxd/src/commands.rs::db_copy`）；文件：`docs/database.md`「換資料庫」、`docs/manual/it.md` §11、CHANGELOG 中英
+  - 2026-10-22 手動驗證：SQLite → PostgreSQL／MSSQL／MySQL，再從 MSSQL、MySQL 複製回 SQLite，七個表逐列與原始相同；複製後 PostgreSQL、MSSQL 新增帳號的 id 接續（2）
+- [x] [Sonnet] 依計畫實作 C01–C13 並寫 `docs/test-reports/M4e.md`（DB 矩陣四種 DB 全過、C12 在 Docker 內以 SpanDSP 收傳真後搬到 PostgreSQL；沒有找到產品錯誤；store 涵蓋率 83.08%）
+  - 測試：`crates/store/src/tests/copy_tests.rs`（C01–C06、C10、C13）、`apps/sip-faxd/tests/m4e_cli.rs`（C07–C09、C11）、`tools/fax-sim/tests/e2e_m4e.rs`（C12；`scripts/e2e-docker.sh` 會起 PostgreSQL 容器，CI 的 `e2e-spandsp` 有 postgres service）
+- [x] [Opus] 審核（2026-10-22 通過，報告 §9；審核時補上檔案路徑存相對於 `data_dir`、換機器要連 `data/faxes/` 一起搬的說明）
+
 ### 文件（優先級在功能開發之後）
 > 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。
 - [x] [Any] `CHANGELOG.md` 補上 M4a（設定存 DB、帳號、`config`／`user`／`fax` CLI）與 TUI，中英兩段（v0.3.0-alpha）

@@ -2994,6 +2994,7 @@ dependencies = [
  "fax-in",
  "flate2",
  "ratatui",
+ "reqwest",
  "runtime-config",
  "rustix",
  "serde",
