@@ -119,6 +119,13 @@
 - [ ] [Any] CI 新增 `web-ui` job
 - [ ] [Opus] 審核 docs/test-reports/M4.md
 
+### 文件（優先級在功能開發之後）
+> 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。
+- [ ] [Any] `CHANGELOG.md` 的 `[Unreleased]` 補上 M4a（設定存 DB、帳號與 session、`config`／`user`／`fax` CLI）與 TUI，中英兩段都要補；下次發版前完成
+- [ ] [Opus] 座席使用手冊 `docs/manual/agent.md`：看傳真、篩選未讀、已讀、備註、投遞狀態（TUI；M4c 之後是 Web，Web 完成後定稿）
+- [ ] [Opus] IT 安裝維運手冊 `docs/manual/it.md`：安裝（RHEL 9/10）、設定檔、資料庫、gateway 試接、`start/stop/status/logs`、systemd、log 輪替、帳號、備份與還原（`config export/import`）、疑難排解
+- [ ] [Any] release 時把兩份手冊轉成 PDF；正式 release 的 PDF 要含截圖
+
 ## M5 — G.711 passthrough
 - [ ] [Opus] 撰寫 docs/test-plans/M5.md
 - [ ] [Sonnet] fax-modem：CNG/CED、V.21 HDLC、V.27ter、V.29、V.17（接收方向優先）
