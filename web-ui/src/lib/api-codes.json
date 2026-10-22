@@ -70,6 +70,7 @@
     "out_of_range",
     "removed",
     "required",
+    "reversed",
     "secret_key",
     "too_long",
     "unknown_field",

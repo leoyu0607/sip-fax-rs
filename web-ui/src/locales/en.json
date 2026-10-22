@@ -99,6 +99,7 @@
     "wrong_type": "Wrong type",
     "unknown_field": "Unknown field",
     "out_of_range": "Out of range",
+    "reversed": "The start of the range is above its end",
     "empty": "Must not be empty",
     "too_long": "Too long",
     "duplicate": "Duplicate",

@@ -53,6 +53,8 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   scripts/e2e-docker.sh
   # M4b H01/H05/H08: the web certificate and TLS versions checked by openssl in the Rocky 9 image
   scripts/web-openssl-docker.sh
+  # M4c: Playwright E2E of the web interface against sip-faxd in the container (needs Node and Chromium)
+  if command -v npm >/dev/null; then scripts/e2e-web.sh; else echo "warn: npm not installed, skipping scripts/e2e-web.sh"; fi
 else
   echo "warn: docker not available, skipping tools/ SpanDSP e2e (scripts/e2e-docker.sh)"
 fi

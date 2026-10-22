@@ -105,6 +105,7 @@ add('validation', [
   ['wrong_type', '類型不正確', 'Wrong type'],
   ['unknown_field', '不認得的欄位', 'Unknown field'],
   ['out_of_range', '超出允許的範圍', 'Out of range'],
+  ['reversed', '範圍的起點大於終點', 'The start of the range is above its end'],
   ['empty', '不能是空的', 'Must not be empty'],
   ['too_long', '太長', 'Too long'],
   ['duplicate', '重複', 'Duplicate'],

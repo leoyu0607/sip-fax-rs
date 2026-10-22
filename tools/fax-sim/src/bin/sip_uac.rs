@@ -1,5 +1,5 @@
 //! `sip-uac --target 127.0.0.1:5060 --mode gateway|server|initial [--transport udp|tcp]
-//!          [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]`
+//!          [--from NUMBER] [--to NUMBER] [--ident TSI] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]`
 //!
 //! Places one simulated gateway call into a SIP fax server (see `fax_sim::sip_uac`) and prints
 //! what the server answered. With `--fax` the gateway really sends the TIFF over T.38
@@ -14,7 +14,7 @@ use t38::ErrorRecovery;
 fn usage() -> ! {
     eprintln!(
         "usage: sip-uac --target ip:port --mode gateway|server|initial [--transport udp|tcp] \
-         [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]"
+         [--from NUMBER] [--to NUMBER] [--ident TSI] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]"
     );
     std::process::exit(2);
 }
@@ -27,6 +27,7 @@ async fn main() {
     let mut fax: Option<FaxTx> = None;
     let (mut redundancy, mut loss, mut seed, mut version) = (3u8, 0u32, 1u64, 0u8);
     let mut ecm = false;
+    let (mut from_user, mut to_user, mut ident) = (None::<String>, None::<String>, None::<String>);
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match (a.as_str(), args.next()) {
@@ -52,18 +53,30 @@ async fn main() {
             ("--seed", Some(v)) => seed = v.parse().unwrap_or_else(|_| usage()),
             ("--version", Some(v)) => version = v.parse().unwrap_or_else(|_| usage()),
             ("--ecm", Some(v)) => ecm = v == "on",
+            ("--from", Some(v)) => from_user = Some(v),
+            ("--to", Some(v)) => to_user = Some(v),
+            ("--ident", Some(v)) => ident = Some(v),
             _ => usage(),
         }
     }
     let Some(target) = target else { usage() };
     let mut cfg = UacConfig::new(target, mode);
     cfg.transport = transport;
+    if let Some(v) = from_user {
+        cfg.from_user = v;
+    }
+    if let Some(v) = to_user {
+        cfg.to_user = v;
+    }
     if let Some(mut f) = fax {
         f.recovery = ErrorRecovery::Redundancy { depth: redundancy };
         f.loss_permille = loss;
         f.seed = seed;
         f.version = version;
         f.ecm = ecm;
+        if let Some(v) = ident {
+            f.ident = v;
+        }
         cfg.t38_version = version;
         cfg.fax = Some(f);
     }

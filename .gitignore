@@ -11,3 +11,4 @@ web-ui/playwright-report
 .codegraph/
 *.swp
 tools/target
+web-ui/.vitest

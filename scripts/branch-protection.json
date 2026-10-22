@@ -11,6 +11,7 @@
       "smoke-rhel (almalinux:10)",
       "e2e-spandsp",
       "web-ui",
+      "e2e-web",
       "db-matrix (postgres)",
       "db-matrix (mysql)",
       "db-matrix (mariadb)",

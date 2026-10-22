@@ -65,11 +65,15 @@
           fax = { ...fax, is_read: Boolean(d.is_read), read_changed_by: (d.by as string) ?? null, read_changed_at: (d.at as string) ?? null };
           return;
         case 'fax.note_changed':
-          // someone else saved: take it unless the user is typing (then saving shows the conflict)
-          fax = { ...fax, note: (d.note as string | null) ?? null, note_updated_by: (d.by as string) ?? null, note_updated_at: (d.at as string) ?? null };
-          if (!noteDirty || note === (fax.note ?? '')) {
-            note = fax.note ?? '';
-            noteBase = fax.note_updated_at;
+          // someone else saved: take it unless the user is typing (then saving shows the conflict).
+          // (dirty is judged before `fax` changes: afterwards every saved note looks edited)
+          {
+            const typing = noteDirty;
+            fax = { ...fax, note: (d.note as string | null) ?? null, note_updated_by: (d.by as string) ?? null, note_updated_at: (d.at as string) ?? null };
+            if (!typing) {
+              note = fax.note ?? '';
+              noteBase = fax.note_updated_at;
+            }
           }
           return;
         default:

@@ -99,6 +99,7 @@
     "wrong_type": "類型不正確",
     "unknown_field": "不認得的欄位",
     "out_of_range": "超出允許的範圍",
+    "reversed": "範圍的起點大於終點",
     "empty": "不能是空的",
     "too_long": "太長",
     "duplicate": "重複",

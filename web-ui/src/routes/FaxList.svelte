@@ -5,7 +5,6 @@
   import { EMPTY_FILTER, FAX_STATUSES, isEmpty } from '../lib/faxes';
   import { faxList } from '../lib/faxlist.svelte';
   import { fmt, t } from '../lib/i18n.svelte';
-  import { onEvent, onResync } from '../lib/live.svelte';
   import FaxStatus from '../components/FaxStatus.svelte';
 
   let sentinel = $state<HTMLElement | null>(null);
@@ -15,21 +14,12 @@
   // the form edits a copy; the list changes on submit
   let draft = $state({ ...faxList.filter });
 
-  function scrolled(): boolean {
-    return window.scrollY > 80;
-  }
-
   onMount(() => {
     if (!faxList.loaded) faxList.reload();
     else tick().then(() => window.scrollTo(0, faxList.scrollY));
-    const offEvent = onEvent((e) => {
-      if (e.type.startsWith('fax.')) faxList.event(e, scrolled());
-    });
-    const offResync = onResync(() => faxList.reload());
+    // (the events are followed by App.svelte, also while another page is open)
     return () => {
       faxList.scrollY = window.scrollY;
-      offEvent();
-      offResync();
     };
   });
 

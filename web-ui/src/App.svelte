@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { setOnUnauthenticated } from './lib/api';
   import { i18n, LOCALES, t, type Locale } from './lib/i18n.svelte';
-  import { live, startLive, stopLive } from './lib/live.svelte';
+  import { faxList } from './lib/faxlist.svelte';
+  import { live, onEvent, onResync, startLive, stopLive } from './lib/live.svelte';
   import { ADMIN_PAGES, href } from './lib/route';
   import { ended, logout, restore, router, session, storeLocale } from './lib/session.svelte';
   import Login from './routes/Login.svelte';
@@ -28,6 +29,23 @@
     if (signedIn) startLive();
     else stopLive();
     return () => stopLive();
+  });
+
+  // The fax list follows the events while someone is signed in, not only while its page is
+  // open: coming back to it shows what arrived meanwhile (new faxes wait behind the banner).
+  $effect(() => {
+    if (!signedIn) return;
+    faxList.loaded = false;
+    const offEvent = onEvent((e) => {
+      if (e.type.startsWith('fax.')) faxList.event(e, router.route.page !== 'faxes' || window.scrollY > 80);
+    });
+    const offResync = onResync(() => {
+      if (faxList.loaded) faxList.reload();
+    });
+    return () => {
+      offEvent();
+      offResync();
+    };
   });
 
   const page = $derived(router.route.page);

@@ -144,8 +144,15 @@ pub fn from_api(
                 // re-encrypt under the context of the new place: the context is bound to the path
                 Some(old) => match secrets
                     .decrypt(&context(section, &r), &old)
-                    .and_then(|plain| secrets.encrypt(&context(section, &path), &plain))
-                {
+                    .and_then(|plain| {
+                        // the same place: the stored text stays as it is (it still has to
+                        // decrypt); only a secret that moved is encrypted again
+                        if r == path {
+                            Ok(old.clone())
+                        } else {
+                            secrets.encrypt(&context(section, &path), &plain)
+                        }
+                    }) {
                     Ok(enc) => applied.push((path, Some(enc), Some("***".into()))),
                     Err(e) => {
                         errs.push(FieldError::new(

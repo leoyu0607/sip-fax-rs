@@ -9,6 +9,7 @@
     newRoute,
     type DeliveryKind,
   } from '../lib/schema';
+  import { fieldErrorText } from '../lib/errors';
   import FieldInput from './FieldInput.svelte';
 
   let {
@@ -55,6 +56,10 @@
             <button type="button" class="small danger" onclick={() => set('routes', routes.filter((_, k) => k !== i))}>{t('config.remove_route')}</button>
           </div>
         </div>
+        <!-- the server reports a route (the match conditions) and a delivery as a whole -->
+        {#if errors[`routes[${i}]`] !== undefined}
+          <p id="route-{i}-err" class="error small" role="alert">{fieldErrorText(errors[`routes[${i}]`])}</p>
+        {/if}
         {#each ROUTE_FIELDS as f (f.key)}
           <FieldInput field={f} {body} path={joinPath(`routes[${i}]`, f.key)} labels="config.field.route" section="" {errors} restartFields={[]} onchange={set} />
         {/each}
@@ -71,6 +76,9 @@
                 </select>
                 <button type="button" class="small danger" onclick={() => set(`routes[${i}].deliveries`, deliveries(r).filter((_, k) => k !== j))}>{t('config.remove_delivery')}</button>
               </div>
+              {#if errors[`routes[${i}].deliveries[${j}]`] !== undefined}
+                <p id="route-{i}-delivery-{j}-err" class="error small" role="alert">{fieldErrorText(errors[`routes[${i}].deliveries[${j}]`])}</p>
+              {/if}
               {#each DELIVERY_FIELDS[kind] ?? [] as f (f.key)}
                 <FieldInput field={f} {body} path={joinPath(`routes[${i}].deliveries[${j}]`, f.key)} labels="config.field.target.{kind}" section="" {errors} restartFields={[]} onchange={set} />
               {/each}

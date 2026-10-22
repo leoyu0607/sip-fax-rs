@@ -54,6 +54,7 @@ const VALIDATION_CODES: &[&str] = &[
     "wrong_type",
     "unknown_field",
     "out_of_range",
+    "reversed",
     "empty",
     "too_long",
     "duplicate",
@@ -204,6 +205,46 @@ fn second_literals(src: &str, call: &str) -> Vec<String> {
     out
 }
 
+/// The literals that are the value of a block (`{ "code" }`) in the statements that start with
+/// `keyword` (`let code = if ... { "a" } else { "b" };`): the codes a validator picks by `if`.
+fn block_literals_after(src: &str, keyword: &str) -> Vec<String> {
+    let b = src.as_bytes();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = src[from..].find(keyword) {
+        let mut i = from + at + keyword.len();
+        from = i;
+        let mut depth = 0i32;
+        let mut prev_sig = b' ';
+        while i < b.len() {
+            match b[i] {
+                b'"' => {
+                    let end = skip_string(b, i);
+                    let lit = &src[i + 1..end - 1];
+                    if prev_sig == b'{'
+                        && !lit.is_empty()
+                        && lit.bytes().all(|c| c.is_ascii_lowercase() || c == b'_')
+                    {
+                        out.push(lit.to_string());
+                    }
+                    prev_sig = b'"';
+                    i = end;
+                    continue;
+                }
+                b'(' | b'[' | b'{' => depth += 1,
+                b')' | b']' | b'}' => depth -= 1,
+                b';' if depth <= 0 => break,
+                _ => {}
+            }
+            if !b[i].is_ascii_whitespace() {
+                prev_sig = b[i];
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
 /// The `=> "literal"` arms of every `fn <name>(` body in `src`.
 fn arms_of_fn(src: &str, name: &str) -> Vec<String> {
     let pat = format!("fn {name}(");
@@ -290,6 +331,8 @@ fn u02_every_code_in_the_source_is_in_the_list() {
     }
     for (_, s) in sources("runtime-config") {
         found_fields.extend(second_literals(&s, "FieldError::new("));
+        // codes chosen by an if-chain before the call (`let code = if .. { "reversed" } ..`)
+        found_fields.extend(block_literals_after(&s, "let code ="));
     }
     // the scanner finds what it should: a few codes that must be there
     for c in [
@@ -304,7 +347,14 @@ fn u02_every_code_in_the_source_is_in_the_list() {
             "the scan missed {c}: {found_errors:?}"
         );
     }
-    for c in ["out_of_range", "required", "empty"] {
+    for c in [
+        "out_of_range",
+        "required",
+        "empty",
+        "reversed",
+        "not_last",
+        "unknown_preset",
+    ] {
         assert!(
             found_fields.contains(c),
             "the scan missed {c}: {found_fields:?}"
