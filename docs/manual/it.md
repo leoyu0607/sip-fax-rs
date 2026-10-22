@@ -49,12 +49,12 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd     # 非 root 也能監聽 5060
 
 ### 3.1 兩種設定
 
-| 種類 | 區段 | 存放與修改 |
+| 種類 | 內容 | 存放與修改 |
 |---|---|---|
-| 啟動設定 | `[log]`、`[database]`、`[storage]`、`[web]`、`[service]` | 永遠讀設定檔；修改後要重啟 |
-| 執行設定 | `[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`、`[[routes]]`、`[delivery]`、`[retention]` | **第一次啟動時**從設定檔匯入資料庫，之後以資料庫為準，在 Web 介面「設定」修改 |
+| 啟動設定 | `[database]`、`[web]`、`[storage]`、`[log]`、`[service]` | 設定檔 `conf/sip-faxd.toml`；修改後要重啟 |
+| 執行設定 | SIP、媒體、通話、通話擷取、中繼、投遞路由、投遞參數、保存期限 | 存在資料庫，在 Web 介面「設定」修改 |
 
-執行設定匯入資料庫後，再改設定檔中的這些區段**不會生效**，啟動 log 會以 warning 提醒。要以設定檔整份取代資料庫的內容，用 `./sip-faxd config import --force`（會記稽核，之後重啟服務）。
+設定檔**只放啟動設定**。第一次啟動時，資料庫以預設值建立執行設定（沒有中繼）；之後在 Web 介面設定。
 
 執行設定在 Web 介面修改後，**下一通來電就套用**，不必重啟；只有 SIP 監聽位址與傳輸協定、對外位址、媒體位址與埠範圍、`[call] fax_session`、重送逾時與 491 重試次數、`[capture]` 需要重啟。介面會標示這些欄位，儲存後列在「等待重啟」。
 
@@ -62,32 +62,25 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd     # 非 root 也能監聽 5060
 
 ![設定：中繼](images/settings-trunk.png)
 
+**以腳本設定**：照 `conf/runtime.toml.example`（說明每個選項）寫一個檔案，以 `./sip-faxd config import --file <檔案>` 匯入（資料庫已有設定時加 `--force` 取代，會記稽核，之後重啟服務）。`./sip-faxd config export` 以同樣格式輸出資料庫中的設定，可以拿一台設好的機器當範本。
+
+**舊設定檔**：0.2／0.3 的設定檔裡若還有 `[sip]`、`[[trunks]]` 等區段，資料庫還沒有執行設定時會匯入一次；之後不再使用，啟動 log 與 `config check` 會提示可以刪除。
+
 ### 3.2 第一次的設定
 
-編輯 `conf/sip-faxd.toml`，最少要改：
+1. 設定檔：預設的 SQLite 不用改；使用其他資料庫時見 3.4。檢查：
 
-```toml
-[sip]
-bind = "0.0.0.0:5060"
-advertised = "<本機對 gateway 的 IP>:5060"   # 寫進 Via、Contact、SDP，一定要正確
+   ```sh
+   ./sip-faxd config check
+   ./sip-faxd db check
+   ```
 
-[media]
-port_range = "30000-30999"                   # T.38 使用的 UDP 埠範圍，每通電話一個偶數埠
+2. 啟動（第 6 節），以 `admin` 與 `conf/initial-admin-password` 的密碼登入 Web 介面（第 4 節）。
+3. 「設定 → SIP」：**對外位址**填 `<本機對 gateway 的 IP>:5060`（寫進 Via、Contact、SDP，一定要正確）。
+4. 「設定 → 中繼」新增中繼：名稱、預設組合（一般 gateway 用 `generic`，中華電信 CS210 用 `cht-cs210`）、對端位址 `<gateway 的 IP>:5060`；有多個來源 IP 時填「允許的來源 IP／CIDR」（預設只允許對端位址的 IP）。
+5. 「設定 → 媒體」：T.38 埠範圍（預設 `30000-30999`，每通電話一個偶數埠）。
 
-[[trunks]]
-name = "gw"
-preset = "generic"                           # 中華電信 CS210 用 "cht-cs210"
-peer = "<gateway 的 IP>:5060"
-# allowed_sources = ["<gateway IP>", "<另一個來源 IP 或 CIDR>"]   # 預設只允許 peer 的 IP
-```
-
-檢查設定：
-
-```sh
-./sip-faxd config check
-```
-
-會列出每個區段的實際值（密碼以 `***` 顯示），以及資料庫中的執行設定是否一致。
+沒有任何中繼時，所有來電都會被拒絕；Web 上方與啟動 log 都會提示。
 
 ### 3.3 Gateway 對接要點
 
@@ -101,19 +94,26 @@ peer = "<gateway 的 IP>:5060"
 
 ### 3.4 資料庫
 
+預設是內建的 SQLite（`data/sip-faxd.db`），不用設定。使用 PostgreSQL、MySQL／MariaDB 或 SQL Server 時，先建立一個**空的資料庫**（程式只建立資料表），再分欄位填寫，**密碼原樣填，不用編碼**：
+
 ```toml
 [database]
-url = "sqlite://data/sip-faxd.db"                    # 預設
-# url = "postgres://user:password@host:5432/faxdb"
-# url = "mysql://user:password@host:3306/faxdb"     # MariaDB 也用 mysql://
-# url = "mssql://user:password@host:1433/faxdb?trust_server_certificate=true"
+type = "mssql"                  # sqlite | postgres | mysql | mariadb | mssql
+host = "10.1.2.3"
+# port = 1433                   # 省略時：postgres 5432、mysql／mariadb 3306、mssql 1433
+name = "faxdb"
+user = "fax"
+password = "p@ss:w/rd#1"
+# password_file = "conf/db-password"   # 改從檔案讀（第一行），設定檔就不放密碼；請 chmod 600
+trust_server_certificate = true        # 只有 mssql：伺服器是自簽憑證時
 auto_migrate = true
 ```
 
-- 密碼中的特殊字元要 percent-encode（`@` 寫成 `%40`）。
+- 也可以寫成一個 URL：`url = "postgres://user:password@host:5432/faxdb"`，這時密碼中的特殊字元要 percent-encode（`@` 寫成 `%40`）。`url` 與分欄位不能同時使用。
+- **測試連線**：`./sip-faxd db check`。只連線、不修改資料庫，顯示資料庫類型、伺服器版本、資料表版本是否相符；連不上時會說明原因（主機連不到、帳密錯誤、資料庫不存在、憑證不被信任），並回傳非 0。要測試另一個資料庫：`./sip-faxd db check --url "mssql://fax@host:1433/faxdb" --password-stdin`（密碼從標準輸入讀，不用編碼）。
 - 啟動時自動建立或升級資料表（`auto_migrate = true`）；設為 `false` 時要先執行 `./sip-faxd db migrate`。
 - **資料庫中斷不影響收傳真**：寫入會排隊重試；仍未寫入的通話留在 `logs/calls/*/result.json`，恢復後以 `./sip-faxd db backfill` 補回。
-- 資料表說明見 `docs/database.md`。
+- 換資料庫見第 11 節「換資料庫」；資料表說明見 `docs/database.md`。
 
 ## 4. Web 介面
 
@@ -274,8 +274,8 @@ Web「設定 → 保存期限」：
 
 1. 在新的資料庫伺服器建立一個空的資料庫（程式只建立資料表，不建立資料庫）。
 2. 停止服務：`./sip-faxd stop`（或 `systemctl stop sip-faxd`）。服務執行中時 `db copy` 會拒絕。
-3. 複製：`./sip-faxd db copy --to "mssql://user:pass@host:1433/faxdb?trust_server_certificate=true"`。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
-4. 把設定檔的 `[database] url` 改成新的資料庫，**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
+3. 先測試新的資料庫：`./sip-faxd db check --url "mssql://fax@host:1433/faxdb?trust_server_certificate=true" --password-stdin`。再複製：`./sip-faxd db copy --to "mssql://fax@host:1433/faxdb?trust_server_certificate=true" --to-password-stdin`（密碼從標準輸入讀，不用編碼），或把新資料庫寫在另一個設定檔的 `[database]`（分欄位），以 `--to-config <檔案>` 指定。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
+4. 把設定檔的 `[database]` 改成新的資料庫（分欄位或 URL），**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
 5. 資料庫只存傳真檔案的**路徑**（`tiff_path`、`pdf_path`，相對於 `[storage] data_dir`），檔案本身在 `data/faxes/`。只換資料庫、不換機器時檔案不用動；同時搬到另一台機器或目錄時，把 `data/faxes/` 一起複製過去，並讓 `data_dir` 指向它（相對路徑，目錄換了也有效）。原本的資料庫留著當備份即可。
 
 **還原**：停止服務，放回上表的檔案，再啟動。只有設定、沒有資料庫時，可在新的資料庫以 `./sip-faxd config import --force --file /backup/sip-faxd-secrets.toml` 匯入（含密碼的版本；不含密碼的版本匯入後要在 Web 重新輸入密碼），再重啟。

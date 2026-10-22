@@ -766,3 +766,13 @@ dl.details dd {
   border-radius: var(--radius);
   font-size: 0.8rem;
 }
+
+.setup-banner {
+  border-radius: 0;
+  text-align: center;
+}
+
+.setup-banner a {
+  margin-left: 0.5rem;
+  font-weight: 600;
+}

@@ -10,6 +10,7 @@ publish = false
 clap = { workspace = true }
 fax-in = { workspace = true }
 store = { path = "../../crates/store" }
+percent-encoding = { workspace = true }
 runtime-config = { path = "../../crates/runtime-config" }
 accounts = { path = "../../crates/accounts" }
 delivery = { path = "../../crates/delivery" }

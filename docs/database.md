@@ -6,7 +6,25 @@
 - 規格：`docs/design/m3-store.md`
 - Migration 檔：`crates/store/migrations/<backend>/NNNN_name.sql`，編譯時嵌入執行檔，只能往前升級
 
-## 連線 URL
+## 連線設定
+
+`[database]` 可以分欄位填寫（建議，密碼原樣填，不用編碼），或寫一個 URL：
+
+```toml
+[database]
+type = "postgres"          # sqlite | postgres | mysql | mariadb | mssql
+host = "db.example.local"
+port = 5432                # 省略時依類型：5432／3306／1433
+name = "faxdb"
+user = "fax"
+password = "p@ss:w/rd#1"   # 或 password_file = "conf/db-password"（第一行）
+# trust_server_certificate = true   # 只有 mssql
+# SQLite：type = "sqlite"、path = "data/sip-faxd.db"
+```
+
+程式依欄位組出下表的 URL（帳號、密碼自動 percent-encode）。`url` 與分欄位不能同時使用；`./sip-faxd db check` 測試連線。
+
+### 連線 URL
 
 | 資料庫 | URL 範例 |
 |---|---|
@@ -16,7 +34,7 @@
 | MariaDB | `mariadb://user:pass@host:3306/dbname`（等同 `mysql://`） |
 | MSSQL | `mssql://user:pass@host:1433/dbname?encrypt=required&trust_server_certificate=false` |
 
-- 帳號、密碼含特殊字元時請做 percent-encoding（例如 `@` 寫成 `%40`）。
+- 直接寫 URL 時，帳號、密碼含特殊字元要做 percent-encoding（例如 `@` 寫成 `%40`）；分欄位寫法不需要。
 - MSSQL 的 `encrypt` 可為 `off`、`on`、`required`（預設）、`not_supported`；自簽憑證可加 `trust_server_certificate=true`。
 - 所有後端都用 rustls，不使用 OpenSSL。PostgreSQL / MySQL 的 TLS 選項沿用 sqlx（例如 `?sslmode=require`）。
 - 資料庫需先建好（空的即可），程式只建立資料表，不建立資料庫。
@@ -28,8 +46,8 @@
 
 1. 在新的資料庫伺服器建立一個空的資料庫（程式只建立資料表，不建立資料庫）。
 2. 停止服務：`./sip-faxd stop`（或 `systemctl stop sip-faxd`）。服務執行中時 `db copy` 會拒絕。
-3. 複製：`./sip-faxd db copy --to "mssql://user:pass@host:1433/faxdb?trust_server_certificate=true"`。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
-4. 把設定檔的 `[database] url` 改成新的資料庫，**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
+3. 先測試新的資料庫：`./sip-faxd db check --url "mssql://fax@host:1433/faxdb?trust_server_certificate=true" --password-stdin`。再複製：`./sip-faxd db copy --to "mssql://fax@host:1433/faxdb?trust_server_certificate=true" --to-password-stdin`（密碼從標準輸入讀，不用編碼），或把新資料庫寫在另一個設定檔的 `[database]`（分欄位），以 `--to-config <檔案>` 指定。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
+4. 把設定檔的 `[database]` 改成新的資料庫（分欄位或 URL），**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
 5. 資料庫只存傳真檔案的**路徑**（`tiff_path`、`pdf_path`，相對於 `[storage] data_dir`），檔案本身在 `data/faxes/`。只換資料庫、不換機器時檔案不用動；同時搬到另一台機器或目錄時，把 `data/faxes/` 一起複製過去，並讓 `data_dir` 指向它（相對路徑，目錄換了也有效）。原本的資料庫留著當備份即可。
 
 ## 時間

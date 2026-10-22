@@ -9,6 +9,7 @@
 
 pub mod admin;
 mod backend;
+pub mod check;
 pub mod clock;
 pub mod copy;
 pub mod db;
@@ -28,6 +29,7 @@ pub use admin::{
     AdminStore, ConfigAudit, ConfigAuditRow, ConfigRow, NewSession, NewUser, SessionRow, UserRow,
     UserUpdate,
 };
+pub use check::{CheckReport, check_url};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use copy::{CopyReport, copy_database};
 pub use db::BackendKind;

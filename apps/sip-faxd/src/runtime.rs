@@ -275,7 +275,7 @@ fn log_boot(boot: &Boot) {
             "the runtime configuration of the configuration file was imported into the database"
         ),
         Boot::FromDatabase { ignored } if !ignored.is_empty() => tracing::warn!(
-            "these sections of the configuration file are managed by the database now, the values in the file have no effect (change them in the web interface, or with `sip-faxd config import --force`): {}",
+            "these sections of the configuration file are not used (the settings live in the database: change them in the web interface) and can be removed from the file: {}",
             ignored.join(", ")
         ),
         _ => {}

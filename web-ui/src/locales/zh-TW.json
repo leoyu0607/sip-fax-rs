@@ -239,6 +239,11 @@
       "giving_up": "已放棄"
     }
   },
+  "setup": {
+    "no_trunk_admin": "尚未設定中繼（trunk）：所有來電都會被拒絕。",
+    "go_trunks": "前往 設定 → 中繼",
+    "no_trunk_agent": "尚未設定電話線路，無法接收傳真，請聯絡管理員。"
+  },
   "status": {
     "title": "系統狀態",
     "service": "服務",

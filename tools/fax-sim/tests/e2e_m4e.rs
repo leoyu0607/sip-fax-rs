@@ -148,7 +148,7 @@ async fn c12_a_real_fax_moves_from_sqlite_to_postgresql_with_read_note_previews_
         out.contains("from sqlite into postgres") && out.contains("verified"),
         "{out}"
     );
-    assert!(out.contains("next: set [database] url"), "{out}");
+    assert!(out.contains("next: point [database] of the configuration file at"), "{out}");
     let counts = store::test_row_counts(&pg_url).await.unwrap();
     assert_eq!(counts[0], ("faxes", 1), "{counts:?}");
     assert!(counts.iter().find(|(t, _)| *t == "users").unwrap().1 >= 1);

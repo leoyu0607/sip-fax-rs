@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { setOnUnauthenticated } from './lib/api';
+  import { get, setOnUnauthenticated, type Status } from './lib/api';
   import { i18n, LOCALES, t, type Locale } from './lib/i18n.svelte';
   import { faxList } from './lib/faxlist.svelte';
   import { live, onEvent, onResync, startLive, stopLive } from './lib/live.svelte';
@@ -46,6 +46,22 @@
       offEvent();
       offResync();
     };
+  });
+
+  // no trunk yet (a new installation): every call is refused, say so on every page
+  let trunks = $state<number | null>(null);
+  $effect(() => {
+    if (!signedIn) {
+      trunks = null;
+      return;
+    }
+    get<Status>('/status')
+      .then((s) => (trunks = s.service.trunks.length))
+      .catch(() => undefined);
+    return onEvent((e) => {
+      const d = e.data as { trunks?: unknown[] } | undefined;
+      if (e.type === 'status.changed' && Array.isArray(d?.trunks)) trunks = d.trunks.length;
+    });
   });
 
   const page = $derived(router.route.page);
@@ -115,6 +131,17 @@
       <button type="button" class="link" onclick={() => logout()}>{t('nav.logout')}</button>
     </div>
   </header>
+  {#if trunks === 0}
+    <div class="notice restart setup-banner" role="alert">
+      <span aria-hidden="true">⚠</span>
+      {#if session.isAdmin}
+        {t('setup.no_trunk_admin')}
+        <a href={href({ page: 'settings', section: 'trunks' })}>{t('setup.go_trunks')}</a>
+      {:else}
+        {t('setup.no_trunk_agent')}
+      {/if}
+    </div>
+  {/if}
   <main id="main">
     {#if forbidden}
       <section class="page"><h1>{t('error.forbidden')}</h1></section>

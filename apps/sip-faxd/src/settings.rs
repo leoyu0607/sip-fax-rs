@@ -12,28 +12,247 @@ use serde::Deserialize;
 // `[log]` and `[service]` live with the service management code (M4d).
 pub use crate::service::config::{LogSection, ServiceSection};
 
-/// `[database]`
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
+/// `[database]`, as the rest of the program uses it: one URL, whichever way the file wrote it
+/// (`url = ...`, or the fields `type`, `host`, `port`, `name`, `user`, `password` /
+/// `password_file`, `trust_server_certificate`, `path`; ADR-060).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatabaseSection {
-    /// `sqlite://path`, `postgres://...`, `mysql://...` (or `mariadb://`), `mssql://...`. A
-    /// relative SQLite path is relative to the executable directory.
+    /// `sqlite://path`, `postgres://...`, `mysql://...` (or `mariadb://`), `mssql://...`, with the
+    /// password in it (show it with `mask_url`). A relative SQLite path is relative to the
+    /// executable directory.
     pub url: String,
     /// Apply pending migrations at start (default). With `false` an outdated schema stops the
     /// start and `sip-faxd db migrate` has to be run by hand.
     pub auto_migrate: bool,
     /// Connections in the pool.
     pub max_connections: u32,
+    /// Things to fix that do not stop the start (a password file others can read).
+    pub warnings: Vec<String>,
 }
 
 impl Default for DatabaseSection {
     fn default() -> Self {
         DatabaseSection {
-            url: "sqlite://data/sip-faxd.db".into(),
+            url: DEFAULT_DATABASE_URL.into(),
             auto_migrate: true,
             max_connections: 5,
+            warnings: Vec::new(),
         }
     }
+}
+
+/// The database when `[database]` names none.
+pub const DEFAULT_DATABASE_URL: &str = "sqlite://data/sip-faxd.db";
+
+/// `[database]` as written in the file.
+#[derive(Deserialize, Debug, Default)]
+#[serde(default, deny_unknown_fields)]
+struct DatabaseFile {
+    url: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    host: Option<String>,
+    port: Option<u16>,
+    name: Option<String>,
+    user: Option<String>,
+    password: Option<String>,
+    password_file: Option<PathBuf>,
+    trust_server_certificate: Option<bool>,
+    path: Option<String>,
+    auto_migrate: Option<bool>,
+    max_connections: Option<u32>,
+}
+
+/// Percent-encoding of a user name or password in a URL: everything but letters and digits.
+const USERINFO: &percent_encoding::AsciiSet = percent_encoding::NON_ALPHANUMERIC;
+
+fn enc(s: &str) -> String {
+    percent_encoding::utf8_percent_encode(s, USERINFO).to_string()
+}
+
+impl DatabaseFile {
+    /// The URL (and warnings); `base` resolves a relative `password_file`.
+    fn into_section(self, base: &Path) -> Result<DatabaseSection, String> {
+        let mut warnings = Vec::new();
+        let url = match (&self.url, &self.kind) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "[database] url and type: write either the url or the fields, not both".into(),
+                );
+            }
+            (Some(u), None) => {
+                if let Some(f) = self.split_field() {
+                    return Err(format!(
+                        "[database] {f}: only with type = ... (the url already says it)"
+                    ));
+                }
+                u.clone()
+            }
+            (None, Some(kind)) => self.build(kind, base, &mut warnings)?,
+            (None, None) => {
+                if let Some(f) = self.split_field() {
+                    return Err(format!(
+                        "[database] {f}: needs type = \"sqlite\" | \"postgres\" | \"mysql\" | \"mariadb\" | \"mssql\""
+                    ));
+                }
+                DEFAULT_DATABASE_URL.into()
+            }
+        };
+        Ok(DatabaseSection {
+            url,
+            auto_migrate: self.auto_migrate.unwrap_or(true),
+            max_connections: self.max_connections.unwrap_or(5),
+            warnings,
+        })
+    }
+
+    /// The first split field that is set (they need `type`).
+    fn split_field(&self) -> Option<&'static str> {
+        [
+            ("host", self.host.is_some()),
+            ("port", self.port.is_some()),
+            ("name", self.name.is_some()),
+            ("user", self.user.is_some()),
+            ("password", self.password.is_some()),
+            ("password_file", self.password_file.is_some()),
+            (
+                "trust_server_certificate",
+                self.trust_server_certificate.is_some(),
+            ),
+            ("path", self.path.is_some()),
+        ]
+        .into_iter()
+        .find(|(_, set)| *set)
+        .map(|(f, _)| f)
+    }
+
+    fn build(&self, kind: &str, base: &Path, warnings: &mut Vec<String>) -> Result<String, String> {
+        let (scheme, port) = match kind {
+            "sqlite" => {
+                for (f, set) in [
+                    ("host", self.host.is_some()),
+                    ("port", self.port.is_some()),
+                    ("name", self.name.is_some()),
+                    ("user", self.user.is_some()),
+                    ("password", self.password.is_some()),
+                    ("password_file", self.password_file.is_some()),
+                    (
+                        "trust_server_certificate",
+                        self.trust_server_certificate.is_some(),
+                    ),
+                ] {
+                    if set {
+                        return Err(format!(
+                            "[database] {f}: not used with type = \"sqlite\" (it has path)"
+                        ));
+                    }
+                }
+                let path = self.path.as_deref().unwrap_or("data/sip-faxd.db");
+                if path.trim().is_empty() {
+                    return Err("[database] path: empty".into());
+                }
+                return Ok(format!("sqlite://{path}"));
+            }
+            "postgres" | "postgresql" => ("postgres", 5432),
+            "mysql" => ("mysql", 3306),
+            "mariadb" => ("mariadb", 3306),
+            "mssql" | "sqlserver" => ("mssql", 1433),
+            other => {
+                return Err(format!(
+                    "[database] type: unknown {other:?} (sqlite, postgres, mysql, mariadb or mssql)"
+                ));
+            }
+        };
+        if self.path.is_some() {
+            return Err(format!(
+                "[database] path: only with type = \"sqlite\" (use host and name for {kind})"
+            ));
+        }
+        if self.trust_server_certificate.is_some() && scheme != "mssql" {
+            return Err("[database] trust_server_certificate: only with type = \"mssql\"".into());
+        }
+        let host = self
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .ok_or_else(|| format!("[database] host: required with type = \"{kind}\""))?;
+        let name = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| {
+                format!("[database] name: required with type = \"{kind}\" (the database name)")
+            })?;
+        let password = match (&self.password, &self.password_file) {
+            (Some(_), Some(_)) => {
+                return Err("[database] password and password_file: give one of them".into());
+            }
+            (Some(p), None) => Some(p.clone()),
+            (None, Some(f)) => Some(read_password_file(&resolve(base, f), warnings)?),
+            (None, None) => None,
+        };
+        if password.is_some() && self.user.is_none() {
+            return Err("[database] user: required with a password".into());
+        }
+        let userinfo = match (&self.user, &password) {
+            (Some(u), Some(p)) => format!("{}:{}@", enc(u), enc(p)),
+            (Some(u), None) => format!("{}@", enc(u)),
+            _ => String::new(),
+        };
+        // an IPv6 address goes in brackets
+        let host = if host.contains(':') && !host.starts_with('[') {
+            format!("[{host}]")
+        } else {
+            host.to_string()
+        };
+        let mut url = format!(
+            "{scheme}://{userinfo}{host}:{}/{}",
+            self.port.unwrap_or(port),
+            enc(name)
+        );
+        if self.trust_server_certificate == Some(true) {
+            url.push_str("?trust_server_certificate=true");
+        }
+        Ok(url)
+    }
+}
+
+/// The first line of a password file, without the line end.
+fn read_password_file(path: &Path, warnings: &mut Vec<String>) -> Result<String, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        format!(
+            "[database] password_file: cannot read {}: {e}",
+            path.display()
+        )
+    })?;
+    let pw = text
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('\r')
+        .to_string();
+    if pw.is_empty() {
+        return Err(format!(
+            "[database] password_file: {} is empty",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(m) = std::fs::metadata(path)
+            && m.permissions().mode() & 0o077 != 0
+        {
+            warnings.push(format!(
+                "[database] password_file: {} can be read by other users (mode {:o}); chmod 600 it",
+                path.display(),
+                m.permissions().mode() & 0o777
+            ));
+        }
+    }
+    Ok(pw)
 }
 
 pub use runtime_config::{DeliverySection, RetentionSection};
@@ -87,7 +306,9 @@ impl AppConfig {
         let log = section(&mut table, "log", path)?;
         let service = section(&mut table, "service", path)?;
         let web = section(&mut table, "web", path)?;
-        let database: DatabaseSection = section(&mut table, "database", path)?;
+        let database = section::<DatabaseFile>(&mut table, "database", path)?
+            .into_section(&crate::exe_dir())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         let file =
             RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
         let conf_dir = match path.parent() {
@@ -250,9 +471,37 @@ mod tests {
 
     #[test]
     fn the_example_configuration_file_parses_and_documents_every_new_option() {
-        let text = include_str!("../../../conf/sip-faxd.toml.example");
-        let c = parse(text).expect("conf/sip-faxd.toml.example is valid");
+        let startup = include_str!("../../../conf/sip-faxd.toml.example");
+        let runtime = include_str!("../../../conf/runtime.toml.example");
+        let c = parse(startup).expect("conf/sip-faxd.toml.example is valid");
         assert!(c.database.auto_migrate);
+        // the configuration file holds the startup settings only (ADR-060) ...
+        assert!(c.file_sections.is_empty(), "{:?}", c.file_sections);
+        // ... and the runtime example is a file `config import --file` reads
+        let r = parse(runtime).expect("conf/runtime.toml.example is valid");
+        assert!(!r.file_sections.is_empty());
+        for (file, keys) in [
+            (
+                startup,
+                &[
+                    "[database]",
+                    "type",
+                    "path",
+                    "password_file",
+                    "trust_server_certificate",
+                    "db check",
+                ][..],
+            ),
+            (
+                runtime,
+                &["[sip]", "[[trunks]]", "config import --file"][..],
+            ),
+        ] {
+            for key in keys {
+                assert!(file.contains(key), "the example does not mention {key}");
+            }
+        }
+        let text = format!("{startup}{runtime}");
         for key in [
             "[database]",
             "auto_migrate",
@@ -412,7 +661,7 @@ mod routes_tests {
 
     #[test]
     fn f06_the_routes_in_the_example_file_are_valid_once_uncommented() {
-        let text = include_str!("../../../conf/sip-faxd.toml.example");
+        let text = include_str!("../../../conf/runtime.toml.example");
         let begin = text.find("# routes-example-begin").expect("begin marker");
         let end = text.find("# routes-example-end").expect("end marker");
         let routes: String = text[begin..end]

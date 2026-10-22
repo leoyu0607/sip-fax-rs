@@ -239,6 +239,11 @@
       "giving_up": "Given up"
     }
   },
+  "setup": {
+    "no_trunk_admin": "No trunk is configured: every call is refused.",
+    "go_trunks": "Go to Settings → Trunks",
+    "no_trunk_agent": "No line is configured yet, faxes cannot be received: contact your administrator."
+  },
   "status": {
     "title": "Status",
     "service": "Service",

@@ -153,6 +153,14 @@
   - 測試：`crates/store/src/tests/copy_tests.rs`（C01–C06、C10、C13）、`apps/sip-faxd/tests/m4e_cli.rs`（C07–C09、C11）、`tools/fax-sim/tests/e2e_m4e.rs`（C12；`scripts/e2e-docker.sh` 會起 PostgreSQL 容器，CI 的 `e2e-spandsp` 有 postgres service）
 - [x] [Opus] 審核（2026-10-22 通過，報告 §9；審核時補上檔案路徑存相對於 `data_dir`、換機器要連 `data/faxes/` 一起搬的說明）
 
+## M4f — 設定簡化：資料庫分欄位、`db check`、設定檔只留啟動設定
+> 2026-10-22 使用者決定（ADR-060）：① 資料庫帳密不必百分比編碼（分欄位、`password_file`）；② 單純測試連線的指令；③ 設定檔只放啟動設定，執行設定在 Web；保留舊設定檔的相容匯入。測試計畫 `docs/test-plans/M4f.md`；分支 `m4f-config`（從 `m4e-db-copy` 開出）。
+- [x] [Opus] 撰寫 `docs/test-plans/M4f.md`
+- [x] [Any] 實作：`apps/sip-faxd/src/settings.rs`（`DatabaseFile` → `DatabaseSection`）、`crates/store/src/check.rs`（`check_url`）、`db check`、`db copy --to-password-stdin`／`--to-config`、`config check` 與啟動 log 的訊息（`commands::NO_TRUNK`）、Web 的「沒有中繼」橫幅（`App.svelte`）、`conf/sip-faxd.toml.example` 拆出 `conf/runtime.toml.example`（打包時一起放）；文件：field-test、IT 手冊、database.md、web.md、兩份 README、CHANGELOG 中英
+  - 2026-10-22 手動驗證：PostgreSQL 建立密碼 `p@ss:w/rd#1 中%` 的帳號，分欄位與 `--password-stdin` 都能連線；`db check` 對錯密碼、不存在的資料庫、關閉的 port、不存在的 SQLite 檔各給正確提示；`db copy --to-password-stdin` 成功
+- [ ] [Sonnet] 依計畫實作 D01–D05、K01–K04、P01–P02、F01–F05 並寫 `docs/test-reports/M4f.md`
+- [ ] [Opus] 審核
+
 ### 文件（優先級在功能開發之後）
 > 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。
 - [x] [Any] `CHANGELOG.md` 補上 M4a（設定存 DB、帳號、`config`／`user`／`fax` CLI）與 TUI，中英兩段（v0.3.0-alpha）

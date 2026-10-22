@@ -214,14 +214,39 @@ enum DbAction {
     /// target and start the service again.
     Copy {
         /// The target database URL (same forms as `[database] url`).
+        #[arg(
+            long,
+            value_name = "URL",
+            conflicts_with = "to_config",
+            required_unless_present = "to_config"
+        )]
+        to: Option<String>,
+        /// Read the password of the --to URL from stdin (one line, as it is: no percent-encoding).
+        /// The URL then has a user but no password (`mssql://sa@host:1433/faxdb`).
+        #[arg(long, requires = "to")]
+        to_password_stdin: bool,
+        /// Take the target from the [database] table of another configuration file (any of its
+        /// forms: url, or type / host / name / user / password / password_file).
+        #[arg(long, value_name = "FILE")]
+        to_config: Option<PathBuf>,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+    /// Test the connection: connect, show the server and schema versions, change nothing.
+    Check {
+        /// Test this URL instead of [database] of the configuration file.
         #[arg(long, value_name = "URL")]
-        to: String,
+        url: Option<String>,
+        /// Read the password of --url from stdin (one line, as it is: no percent-encoding).
+        #[arg(long, requires = "url")]
+        password_stdin: bool,
         #[command(flatten)]
         config: ConfigArg,
     },
 }
 
-fn exe_dir() -> PathBuf {
+/// The directory of the executable: relative paths of the configuration are relative to it.
+pub(crate) fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(Path::to_path_buf))
@@ -310,10 +335,37 @@ fn main() -> ExitCode {
             commands::db_backfill(&cfg, &exe_dir(), dir).await
         }),
         Some(Command::Db {
-            action: DbAction::Copy { to, config },
+            action:
+                DbAction::Copy {
+                    to,
+                    to_password_stdin,
+                    to_config,
+                    config,
+                },
         }) => with_runtime(&config_path(&config), |cfg| async move {
-            commands::db_copy(&cfg, &exe_dir(), &to).await
+            let target = match commands::copy_target(to, to_password_stdin, to_config) {
+                Ok(t) => t,
+                Err(code) => return code,
+            };
+            commands::db_copy(&cfg, &exe_dir(), &target).await
         }),
+        Some(Command::Db {
+            action:
+                DbAction::Check {
+                    url,
+                    password_stdin,
+                    config,
+                },
+        }) => {
+            let path = config_path(&config);
+            match url {
+                // another database: the configuration file is not needed
+                Some(u) => commands::db_check_url(u, password_stdin),
+                None => with_runtime(&path, |cfg| async move {
+                    commands::db_check(&cfg, &exe_dir()).await
+                }),
+            }
+        }
         Some(Command::Purge { dry_run, config }) => {
             with_runtime(&config_path(&config), |cfg| async move {
                 commands::purge(&cfg, &exe_dir(), dry_run).await
@@ -542,8 +594,15 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
     // lives in the database from the first start on (ADR-051); the file only seeds it.
     let rt = runtime::Runtime::start(&cfg, db.clone(), db_ready).await;
     let live = rt.current();
+    if live.trunks.is_empty() {
+        tracing::warn!("{}", commands::NO_TRUNK);
+    }
     let fax_cfg = live.to_fax_in(&cfg.fax_in.storage);
-    for w in fax_cfg.warnings() {
+    for w in fax_cfg
+        .warnings()
+        .into_iter()
+        .chain(cfg.database.warnings.iter().cloned())
+    {
         tracing::warn!("{w}");
     }
     let data_dir = cfg.data_dir(&base);

@@ -1,7 +1,8 @@
-# sip-faxd configuration example.
+# sip-faxd configuration file (example).
 #
-# Copy this file to conf/sip-faxd.toml (next to the executable) and edit it.
-# Check it with:   ./sip-faxd config check
+# Copy this file to conf/sip-faxd.toml (next to the executable) and edit it: usually only
+# [database] (and [web]) need a change.
+# Check it with:   ./sip-faxd config check        (and the database with ./sip-faxd db check)
 # Run it with:     ./sip-faxd start            (background; shows the log, Ctrl+C only stops the display)
 #                  ./sip-faxd serve            (foreground; this is what a systemd unit runs)
 #                  (both accept --config /path/to/file.toml)
@@ -9,23 +10,100 @@
 # Every section rejects unknown keys, so a misspelled option is reported as an error.
 # Relative paths are relative to the directory of the sip-faxd executable.
 #
-# WHERE THE SETTINGS LIVE (ADR-051)
-#   Startup settings, always read from this file:
-#     [log]  [database]  [storage]            (and [web] / [service] from M4b / M4d)
-#   Runtime settings, kept in the DATABASE:
-#     [sip] [media] [call] [capture] [delivery] [retention] [[routes]] [[trunks]]
-#   The tables of the runtime settings below are only a starting point: at the FIRST start,
-#   when the database has no runtime configuration yet, they are imported into it. After that
-#   the database decides: changing them here has no effect (the start logs a warning that
-#   names the tables), change them in the web interface, or replace the database's copy with
-#   `sip-faxd config import --force`. `sip-faxd config export` prints what the database holds
-#   (add --include-secrets for passwords and HMAC keys, which are otherwise left out).
-#   Secrets (trunk registration passwords, e-mail passwords, webhook HMAC keys) are stored
-#   encrypted with conf/secret.key (created at the first start; keep a backup of it together
-#   with the database: without it the secrets must be entered again).
-#   [sip] bind / transports / advertised and [media] port_range / address / audio_port,
-#   [call] fax_session, and all of [capture] only take effect after a restart; everything
-#   else applies to the next call (the next fax, the next purge) without one.
+# WHERE THE SETTINGS LIVE (ADR-051, ADR-060)
+#   This file holds the STARTUP settings only: [database] [web] [storage] [log] [service].
+#   Everything else (SIP, media, calls, capture, trunks, delivery routes, delivery, retention)
+#   lives in the DATABASE and is changed in the web interface (Settings) at
+#   https://<server>:8443/ ; the first start stores the defaults (without any trunk: calls are
+#   refused until a trunk is added). To set them up by script instead, write them in a separate
+#   file (conf/runtime.toml.example documents every option) and run
+#   `sip-faxd config import --file <file>`; `sip-faxd config export` prints what the database
+#   holds, as such a file. Secrets (registration, e-mail and webhook passwords) are stored
+#   encrypted with conf/secret.key (created at the first start; back it up with the database).
+#   An older file that still has runtime sections keeps working: they are imported once, while
+#   the database has none, and can be removed afterwards.
+
+# ---------------------------------------------------------------------------------------
+# [database]  where the fax records (list, status, pages, ANI / DNIS ...) are kept
+# ---------------------------------------------------------------------------------------
+# One row per incoming call, created when the call starts (fax_status "receiving", pages
+# counting up while the fax arrives) and completed when it ends. docs/database.md describes
+# the tables. A database that is down never stops a fax from being received: the writes are
+# queued in memory and retried (1 s, 2 s, 4 s ... up to 60 s); what still fails is kept as
+# result.json and restored by `sip-faxd db backfill`.
+[database]
+# SQLite is the default: built in, nothing to install, the file below is created at the first
+# start. For PostgreSQL, MySQL / MariaDB or SQL Server create an EMPTY database first (sip-faxd
+# creates the tables, not the database) and fill in the fields: the password exactly as it is,
+# no encoding needed. Test the connection with `./sip-faxd db check`; `config check` shows the
+# result with the password hidden.
+type = "sqlite"                 # sqlite | postgres | mysql | mariadb | mssql
+path = "data/sip-faxd.db"       # sqlite only (relative: to the executable directory)
+#
+# type = "mssql"
+# host = "10.1.2.3"             # host name or IP address
+# port = 1433                   # default: postgres 5432, mysql / mariadb 3306, mssql 1433
+# name = "faxdb"                # the database
+# user = "fax"
+# password = "p@ss:w/rd#1"      # as it is; or, to keep it out of this file:
+# password_file = "conf/db-password"   # its first line (make it chmod 600)
+# trust_server_certificate = true      # mssql with a self-signed certificate
+#
+# Instead of the fields, one URL also works (then special characters in the password must be
+# percent-encoded, @ is %40):
+#   url = "postgres://user:password@host:5432/faxdb"
+#   url = "mssql://user:password@host:1433/faxdb?trust_server_certificate=true"
+# Moving to another database later: `./sip-faxd db copy --to ...` (docs/database.md).
+# Create / upgrade the tables when the server starts (default). With false the server refuses
+# to start on an outdated schema until you run `sip-faxd db migrate`. A database that is NEWER
+# than this program is always refused.
+auto_migrate = true
+# Connections in the pool.
+max_connections = 5
+
+# ---------------------------------------------------------------------------------------
+# [web]  the web interface (M4b)
+# ---------------------------------------------------------------------------------------
+[web]
+# On by default, also without a [web] table in the file; `enabled = false` turns it off.
+enabled = true
+
+# Address and port of the web interface.
+# bind = "0.0.0.0:8443"
+
+# "https" (default) or "http". With "http" on an address other machines can reach, passwords
+# and faxes travel unencrypted (a warning is logged at every start).
+# scheme = "https"
+
+# Your own certificate (PEM chain) and private key, relative to the executable's directory.
+# Leave both out to use a self-signed certificate: it is made at the first start in
+# conf/tls/self-signed.crt / .key (ECDSA P-256, valid 825 days, the longest macOS and iOS
+# accept) and made again automatically when it ends within 30 days. Its SHA-256 fingerprint is
+# logged at every start, to compare with what the browser shows.
+# cert = "conf/tls/web.crt"
+# key = "conf/tls/web.key"
+
+# Extra names (host names or IP addresses) for the self-signed certificate. It always names the
+# host name, localhost, 127.0.0.1 and the bind address (every address of the machine when the
+# bind address is 0.0.0.0).
+# tls_names = ["fax.example.com", "192.0.2.10"]
+
+# A session ends after this many hours without a request (and always after 7 days).
+# session_idle_hours = 8
+
+# ---------------------------------------------------------------------------------------
+# [storage]  where received faxes are written
+# ---------------------------------------------------------------------------------------
+[storage]
+# Every received fax is written as <data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif (multi-page
+# TIFF Class F, CCITT G4) and a .pdf with the same name (UTC date of the call; characters in
+# the Call-ID that are unsafe in file names are replaced). A fax that broke off after some
+# pages is still written and flagged "partial": true in result.json. A relative path is
+# relative to the directory of the sip-faxd executable.
+data_dir = "data"
+# Next to every <name>.tif / <name>.pdf the PNG previews of the web interface are written:
+# <name>-p1.png (the whole page), <name>-p1-thumb.png (300 px wide), ... one pair per page.
+# They are deleted together with the TIFF and the PDF ([retention] files_days).
 
 # ---------------------------------------------------------------------------------------
 # [log]  application logging: a rotating file, and stderr while running in the foreground
@@ -71,357 +149,3 @@ level = "info"
 # `start` waits this long for the service to answer on the control socket; then it shows the
 # last 50 log lines and gives up.
 # start_timeout_secs = 30
-
-# ---------------------------------------------------------------------------------------
-# [web]  the web interface (M4b)
-# ---------------------------------------------------------------------------------------
-[web]
-# On by default, also without a [web] table in the file; `enabled = false` turns it off.
-enabled = true
-
-# Address and port of the web interface.
-# bind = "0.0.0.0:8443"
-
-# "https" (default) or "http". With "http" on an address other machines can reach, passwords
-# and faxes travel unencrypted (a warning is logged at every start).
-# scheme = "https"
-
-# Your own certificate (PEM chain) and private key, relative to the executable's directory.
-# Leave both out to use a self-signed certificate: it is made at the first start in
-# conf/tls/self-signed.crt / .key (ECDSA P-256, valid 825 days, the longest macOS and iOS
-# accept) and made again automatically when it ends within 30 days. Its SHA-256 fingerprint is
-# logged at every start, to compare with what the browser shows.
-# cert = "conf/tls/web.crt"
-# key = "conf/tls/web.key"
-
-# Extra names (host names or IP addresses) for the self-signed certificate. It always names the
-# host name, localhost, 127.0.0.1 and the bind address (every address of the machine when the
-# bind address is 0.0.0.0).
-# tls_names = ["fax.example.com", "192.0.2.10"]
-
-# A session ends after this many hours without a request (and always after 7 days).
-# session_idle_hours = 8
-
-# ---------------------------------------------------------------------------------------
-# [sip]  the SIP listener
-# ---------------------------------------------------------------------------------------
-[sip]
-# Address and port to bind. The same port number is used for UDP and TCP.
-bind = "0.0.0.0:5060"
-
-# Transports to open: "udp" and/or "tcp". If omitted, the union of the trunks' transports
-# is opened (UDP when there are no trunks).
-# transports = ["udp"]
-
-# Host (and optionally port) written into Via and Contact, and used for the SDP address when
-# [media] address is not set. Needed when bind is a wildcard address or the host is behind NAT.
-advertised = "192.0.2.10:5060"
-
-# User-Agent / Server header value.
-# user_agent = "sip-faxd"
-
-# Allow / Supported headers we send (defaults: "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE"
-# and "timer").
-# allow = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, UPDATE"
-# supported = "timer"
-
-# What to do with a request whose source IP is in no trunk's allowed_sources:
-#   "drop"   - discard silently (default; reveals nothing to scanners)
-#   "reject" - answer 403 Forbidden
-#   "log"    - handle the call with the "generic" profile and log a warning. Useful for the
-#              very first call from a new peer, when its address is not known yet.
-unknown_source = "drop"
-
-# ---------------------------------------------------------------------------------------
-# [media]  what our SDP says (the audio port is a placeholder until G.711 passthrough, M5)
-# ---------------------------------------------------------------------------------------
-[media]
-# Address in c= and o=. Default: the host of [sip] advertised, else the bind IP.
-# address = "192.0.2.10"
-# RTP port in the audio answer.
-audio_port = 20000
-# UDP ports for T.38 (UDPTL), "low-high". Each call is given one EVEN port of the range for
-# its whole duration and returns it when the call ends, so "30000-30999" allows 500
-# simultaneous calls. When no port is free a new call is answered with 503 Service
-# Unavailable and the error is logged. Open this range (UDP) in the firewall.
-# (The old single-port option `t38_port` was removed; it is rejected with an error.)
-port_range = "30000-30999"
-
-# ---------------------------------------------------------------------------------------
-# [call]  call handling
-# ---------------------------------------------------------------------------------------
-[call]
-# Send 180 Ringing before answering.
-send_ringing = true
-# Wait this long after the 180 before sending 200 OK (milliseconds).
-answer_delay_ms = 0
-# Longest a call may last: a fax session still running after this many seconds is aborted
-# (pages received so far are kept) and we send BYE (recorded as a failure: "max_duration").
-# An audio call that never reaches T.38 is ended the same way.
-max_duration_secs = 3600
-# What runs once T.38 is established:
-#   "t38"  - receive the fax (T.30 over T.38) and write TIFF and PDF (default)
-#   "hold" - only hold the call until the peer hangs up; for signalling tests
-# fax_session = "t38"
-# Our station identification, sent as CSI in the DIS (up to 20 characters; empty sends none).
-# station_id = "+886 2 1234 5678"
-# Our T.38 re-INVITE must get a final answer within this many seconds.
-reinvite_timeout_secs = 32
-# How often a re-INVITE answered with 491 (glare) is retried.
-max_491_retries = 3
-
-# ---------------------------------------------------------------------------------------
-# [storage]  where received faxes are written
-# ---------------------------------------------------------------------------------------
-[storage]
-# Every received fax is written as <data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif (multi-page
-# TIFF Class F, CCITT G4) and a .pdf with the same name (UTC date of the call; characters in
-# the Call-ID that are unsafe in file names are replaced). A fax that broke off after some
-# pages is still written and flagged "partial": true in result.json. A relative path is
-# relative to the directory of the sip-faxd executable.
-data_dir = "data"
-# Next to every <name>.tif / <name>.pdf the PNG previews of the web interface are written:
-# <name>-p1.png (the whole page), <name>-p1-thumb.png (300 px wide), ... one pair per page.
-# They are deleted together with the TIFF and the PDF ([retention] files_days).
-
-# ---------------------------------------------------------------------------------------
-# [database]  where the fax records (list, status, pages, ANI / DNIS ...) are kept
-# ---------------------------------------------------------------------------------------
-# One row per incoming call, created when the call starts (fax_status "receiving", pages
-# counting up while the fax arrives) and completed when it ends. docs/database.md describes
-# the tables. A database that is down never stops a fax from being received: the writes are
-# queued in memory and retried (1 s, 2 s, 4 s ... up to 60 s); what still fails is kept as
-# result.json and restored by `sip-faxd db backfill`.
-[database]
-# SQLite (the default, built in, nothing to install), PostgreSQL, MySQL / MariaDB or SQL Server:
-#   url = "sqlite://data/sip-faxd.db"            (relative: to the executable directory)
-#   url = "postgres://user:password@host:5432/faxdb"
-#   url = "mysql://user:password@host:3306/faxdb"       (also "mariadb://")
-#   url = "mssql://user:password@host:1433/faxdb?trust_server_certificate=true"
-# Percent-encode special characters in the password (@ is %40). `config check` shows the URL
-# with the password hidden.
-url = "sqlite://data/sip-faxd.db"
-# Create / upgrade the tables when the server starts (default). With false the server refuses
-# to start on an outdated schema until you run `sip-faxd db migrate`. A database that is NEWER
-# than this program is always refused.
-auto_migrate = true
-# Connections in the pool.
-max_connections = 5
-
-# ---------------------------------------------------------------------------------------
-# [retention]  how long files and records are kept
-# ---------------------------------------------------------------------------------------
-# These values are written to the database on the FIRST start only; from then on the database
-# is the master (the web interface of a later release changes it there) and editing this file
-# has no effect. A job runs every day at run_at; `sip-faxd purge --dry-run` shows what it would
-# delete, `sip-faxd purge` runs it now.
-[retention]
-# Delete the TIFF / PDF files (and PNG previews) after this many days; the record stays, marked
-# "files purged". 0 = never.
-files_days = 90
-# Delete the record itself after this many days (not less than files_days). 0 = never.
-records_days = 365
-# Time of the daily run, HH:MM, local time of the server.
-run_at = "03:17"
-
-# ---------------------------------------------------------------------------------------
-# [[routes]]  delivery of received faxes: folder, e-mail, webhook
-# ---------------------------------------------------------------------------------------
-# Without any [[routes]] a received fax is only stored (files + database record). With routes,
-# every fax that ends as `received` is delivered as soon as its record is in the database.
-# The routes are tried in order; the FIRST one that matches is used (all of its deliveries run).
-# A route matches when ALL of its conditions hold: dnis (exact called number), dnis_prefix,
-# trunk (name). `default = true` matches everything and must be the last route.
-#   deliver_partial = true   also deliver faxes that broke off after some pages (default false)
-# Failed deliveries are retried after 1, 5, 15, 60 minutes and then every 4 hours, at most
-# [delivery] max_attempts times; the queue is the delivery_attempts table, so a restart simply
-# continues. A delivery that fails never affects the fax or the record. Delivery is
-# at-least-once: after a crash a fax can arrive twice (a folder delivery of identical content is
-# idempotent; webhooks carry the record id so the receiver can drop duplicates).
-# `sip-faxd config check` shows the routes with passwords, webhook secrets and URL credentials
-# hidden. Placeholders in file names, subjects and bodies: {date} {time} {ani} {dnis} {id}
-# {trunk} {pages} {call_id} {status} {duration} {started_at} {ended_at} {resolution} {tsi}
-# ({date}/{time} are in the server's local time zone).
-#
-# routes-example-begin
-# [[routes]]
-# name = "sales"                      # optional, for logs
-# dnis_prefix = "2557"
-# deliver_partial = true
-#
-# [[routes.deliveries]]               # copy the files into a directory (written atomically)
-# kind = "folder"
-# dir = "/srv/fax-inbox"              # created when missing (create_dir = false: retry instead)
-# filename = "{date}_{ani}_{id}"      # the extension is added: .pdf and .tif
-# formats = ["pdf", "tiff"]           # default: both
-#
-# [[routes.deliveries]]               # e-mail with the PDF attached
-# kind = "email"
-# host = "smtp.example.com"
-# security = "starttls"               # starttls (default, port 587) | smtps (465) | none (25, no AUTH)
-# username = "fax"
-# password = "secret"
-# from = "Fax <fax@example.com>"
-# to = ["ops@example.com", "Sales <sales@example.com>"]
-# subject = "Fax from {ani} ({pages} pages)"
-# attach_tiff = false                 # also attach the TIFF
-#
-# [[routes.deliveries]]               # POST the record as JSON
-# kind = "webhook"
-# url = "https://example.com/fax-hook"
-# secret = "hmac-key"                 # adds X-Sipfax-Signature: sha256=<HMAC-SHA256 of the body>
-# attach_pdf = false                  # true: multipart/form-data with the PDF
-#
-# [[routes]]
-# default = true                      # everything else; must be the last route
-# [[routes.deliveries]]
-# kind = "folder"
-# dir = "/srv/fax-unrouted"
-# routes-example-end
-
-# ---------------------------------------------------------------------------------------
-# [delivery]  how the delivery engine runs (the routes are above)
-# ---------------------------------------------------------------------------------------
-[delivery]
-# At start, queue the deliveries of finished faxes that started at most this many hours ago
-# and have none yet: repairs a crash between "stored" and "queued", and delivers the calls that
-# `sip-faxd db backfill` restored (backfill itself never delivers). 0 = off.
-catch_up_hours = 24
-# Attempts per delivery before it is given up (status giving_up).
-max_attempts = 10
-
-# ---------------------------------------------------------------------------------------
-# [capture]  per-call capture: <dir>/<call-id>/sip.log, udptl.log and result.json
-# ---------------------------------------------------------------------------------------
-[capture]
-# Write captures. sip.log holds every SIP message of the call with a UTC timestamp, the
-# direction (RECV from / SEND to), the peer address, the transport and the raw message.
-# udptl.log has one line per UDPTL datagram, see "udptl" below. result.json is the call result, including the fax
-# report (T.30 result code, pages, rate, ECM, TSI, bad lines per page, file paths, UDPTL counters);
-# `sip-faxd db backfill` restores calls that are missing from the database from these files.
-enabled = true
-dir = "logs/calls"
-# "all"    - keep every call
-# "failed" - keep only calls that ended with a failure (the capture is held in memory until
-#            the call ends)
-keep = "all"
-# What udptl.log records:
-#   "summary" - (default) per datagram: UTC timestamp, RX or TX, UDPTL sequence number, length
-#               and the decoded IFP packet: indicator name, or data type + field types with
-#               their lengths. T.30 control frames (DIS, DCS, CFR, MCF, DCN, ...) are shown
-#               in hex (and as one "frame=..." at the end of each frame). Image data is NEVER
-#               recorded.
-#   "off"     - no udptl.log
-#   "full"    - every datagram in full hex.
-#               WARNING: this stores the CONTENT of every received fax (the image data) in
-#               logs/calls/, in addition to the TIFF/PDF. Use it only to diagnose a problem,
-#               and make sure the log directory is protected and cleaned up.
-udptl = "summary"
-# Upper bound of the stored text per call, separately for sip.log and udptl.log; further
-# messages are counted, not stored.
-max_bytes_per_call = 1048576
-
-# ---------------------------------------------------------------------------------------
-# [[trunks]]  one entry per upstream peer (gateway, carrier switch, SBC)
-# ---------------------------------------------------------------------------------------
-# A trunk starts from a preset and overrides single options. Presets:
-#   "generic"   - tolerant defaults: T.38 policy "auto", UDP, our own re-INVITE after 3 s
-#   "cht-cs210" - Chunghwa Telecom CS210. There is no specification: today this is "generic"
-#                 plus UDP; it will be tuned from real call captures (milestone M6).
-#
-# The first trunk whose allowed_sources contain the source IP of an INVITE handles the call.
-
-[[trunks]]
-# Unique name (appears in logs and in the call result).
-name = "cht"
-preset = "cht-cs210"
-# The peer's address "host:port" (a fixed IP is expected; host names are resolved at start-up).
-peer = "203.0.113.10:5060"
-# Source IPs / CIDRs calls may come from. Default: the IP of `peer`.
-# allowed_sources = ["203.0.113.10", "203.0.113.64/28"]
-# "udp" or "tcp".
-# transport = "udp"
-
-# How T.38 gets established:
-#   "auto"      - T.38 in the initial INVITE, a T.38 re-INVITE from the peer, or our own
-#                 re-INVITE initiate_after_secs after the ACK (default)
-#   "wait-peer" - like auto but we never send the re-INVITE ourselves
-#   "initiate"  - like auto; the emphasis is on our own re-INVITE (identical on the wire for
-#                 now; CNG detection comes later)
-#   "audio-only"- stay on G.711: T.38 offers get 488 (G.711 passthrough itself is not
-#                 implemented yet, so such a call is recorded as a failure when it ends)
-# t38_policy = "auto"
-# Seconds to wait after the ACK before our own T.38 re-INVITE (auto / initiate).
-# initiate_after_secs = 3
-# Audio codecs we answer with, in preference order (PCMU, PCMA).
-# audio_codecs = ["PCMU", "PCMA"]
-
-# T.38 parameters we advertise (answers copy RateManagement and UdpEC from the peer's offer).
-[trunks.t38]
-# max_version = 0            # highest T38FaxVersion (0-3)
-# max_bit_rate = 14400       # T38MaxBitRate
-# rate_management = "transferredTCF"   # our own offers: "transferredTCF" or "localTCF"
-# max_buffer = 1800          # T38FaxMaxBuffer
-# max_datagram = 260         # T38FaxMaxDatagram
-# udp_ec = "redundancy"      # our own offers: "redundancy", "fec" or "none"
-# fec = false                # we can do UDPTL FEC (else an offered FEC is answered with redundancy)
-# redundancy_depth = 3       # UDPTL: packets repeated in each datagram when redundancy is in force
-# fec_span = 3               # UDPTL: packets per parity entry when FEC is in force ...
-# fec_entries = 3            # ... and parity entries per datagram
-# fill_bit_removal = false
-# transcoding_mmr = false
-# transcoding_jbig = false
-
-[trunks.fax]
-# What the DIS advertises (ITU-T T.30 Annex A). The sender chooses within it.
-# resolutions = ["standard", "fine"]   # vertical resolutions offered: "standard" (3.85 l/mm) and/or "fine" (7.7 l/mm).
-#                                      # Must not be empty. T.30 cannot say "fine only": standard is the
-#                                      # base resolution of every terminal, so ["fine"] offers fine (bit 15).
-# ecm = false                          # error correction mode (DIS bit 27) and, with it, MMR (T.6, bit 31).
-#                                      # Off by default until verified against a real gateway; set true to test ECM.
-
-# Where the calling (ANI) and called (DNIS) number of the call list come from.
-[trunks.numbers]
-# Headers to look at, first one that carries a number wins:
-# ani_sources = ["pai", "rpid", "from"]   # P-Asserted-Identity, Remote-Party-ID, From
-# dnis_sources = ["ruri", "to"]           # Request-URI, To; "diversion" (the originally dialled number
-#                                         # of a forwarded call) can be added
-# A caller who hides the number (From "anonymous", Privacy: id) is stored as "anonymous", no number.
-# The AudioCodes gateway puts the numbers in From and the Request-URI (the defaults work).
-# The Chunghwa Telecom CS210 is not known yet: check a first capture and adjust.
-# strip_plus = false           # remove a leading "+" from both numbers
-# ani_strip_prefix = "+886"    # remove this prefix from the calling number (e.g. the country code)
-# dnis_strip_prefix = "+886"   # ... and from the called number
-# (spaces, "-", "." and parentheses are always removed from the numbers)
-
-# Tolerance switches for peers without a specification.
-[trunks.compat]
-# Accept INVITEs whose Require lists option tags we do not know (default: answer 420 with
-# an Unsupported header).
-# accept_unknown_require = false
-# Floor for the peer's T38FaxMaxDatagram: smaller offered values are raised to this value
-# and a warning is logged.
-# min_max_datagram = 72
-
-# REGISTER at the peer (only if the peer requires it).
-[trunks.register]
-# enabled = false
-# registrar = "203.0.113.10:5060"     # default: peer
-# domain = "example.com"              # request-URI / AoR domain; default: the registrar host
-# aor = "sip:fax@example.com"         # default: sip:<username>@<domain>
-# username = "fax"
-# password = "secret"
-# expires = 3600                      # seconds; refreshed 10 % (at least 30 s) before it ends
-# backoff_initial_secs = 5            # first retry delay after a failed REGISTER ...
-# backoff_max_secs = 300              # ... doubling up to this value
-
-# A second trunk, e.g. an enterprise gateway that offers audio first and sends the T.38
-# re-INVITE itself:
-#
-# [[trunks]]
-# name = "gw-hq"
-# preset = "generic"
-# peer = "198.51.100.20:5060"
-# t38_policy = "wait-peer"
-# [trunks.compat]
-# accept_unknown_require = true

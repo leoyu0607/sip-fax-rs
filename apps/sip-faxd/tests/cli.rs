@@ -80,7 +80,7 @@ fn b05_serve_with_an_invalid_config_exits_non_zero_with_a_clear_message() {
     );
 }
 
-/// B05 (M1d): `config check` accepts the shipped example and prints the trunk.
+/// B05 (M1d): `config check` accepts the shipped example.
 #[test]
 fn b05_config_check_accepts_the_example_config() {
     let out = bin()
@@ -95,8 +95,11 @@ fn b05_config_check_accepts_the_example_config() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(stdout.contains("configuration OK"), "{stdout}");
-    assert!(stdout.contains("trunk cht: preset cht-cs210"), "{stdout}");
-    assert!(stdout.contains("peer 203.0.113.10:5060"), "{stdout}");
+    // the startup settings only (ADR-060): the runtime ones live in the database
+    assert!(
+        stdout.contains("none in this file, they live in the database"),
+        "{stdout}"
+    );
     assert!(
         !stdout.contains("warning:"),
         "the example has no warnings: {stdout}"
