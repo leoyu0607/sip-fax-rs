@@ -330,3 +330,45 @@ async fn k09_changing_the_registration_deregisters_the_old_one_and_registers_the
     fx.shutdown().await;
     task.abort();
 }
+
+/// M07 (`status`): the registration view taken at start follows the running configuration, and
+/// shows the state as one line of text.
+#[tokio::test]
+async fn m07_the_registration_view_follows_apply_config_and_outlives_the_controller() {
+    let (raddr, mut rx, task) = registrar().await;
+    let port = free_port();
+    let (fx, _ev) = FaxIn::start(reg_cfg(raddr, port, "fax1", ""), StartOptions::default())
+        .await
+        .unwrap();
+    let view = fx.registration_view();
+    let _ = next(&mut rx).await;
+    let mut seen = Vec::new();
+    for _ in 0..50 {
+        seen = view.snapshot();
+        if seen == [("reg".to_string(), "registered".to_string())] {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(seen, [("reg".to_string(), "registered".to_string())]);
+    // switched off while running: the same view no longer lists the trunk
+    let mut off = reg_cfg(raddr, port, "fax1", "");
+    off.trunks[0].register.enabled = false;
+    fx.apply_config(off).await.unwrap();
+    assert!(view.snapshot().is_empty(), "{:?}", view.snapshot());
+    // and on again with another account: listed again, from `registering` on
+    fx.apply_config(reg_cfg(raddr, port, "fax2", ""))
+        .await
+        .unwrap();
+    let st = view.snapshot();
+    assert_eq!(st.len(), 1, "{st:?}");
+    assert_eq!(st[0].0, "reg");
+    assert!(
+        ["registering", "registered", "not started"].contains(&st[0].1.as_str()),
+        "{st:?}"
+    );
+    // a view kept beyond the shutdown answers (empty) instead of failing
+    fx.shutdown().await;
+    assert!(view.snapshot().is_empty());
+    task.abort();
+}

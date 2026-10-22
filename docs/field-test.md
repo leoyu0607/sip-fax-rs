@@ -67,9 +67,16 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd
 
 ## 4. 啟動
 ```sh
-RUST_LOG=info,sip_core=debug ./sip-faxd serve
+./sip-faxd start        # 在背景啟動，等服務就緒後顯示 log；Ctrl+C 只停止顯示，服務繼續執行
+./sip-faxd status       # 是否在執行、pid、監聽位址、進行中的通話數（沒有在執行時回傳 3）
+./sip-faxd logs -f      # 之後要再看 log：logs/sip-faxd.log（自動輪替，舊檔以 gzip 壓縮）
+./sip-faxd stop         # 等進行中的傳真收完再停止（最多 300 秒，期間新的來電回 503）
+./sip-faxd stop --force # 要馬上停止時：立刻結束通話，已收到的頁面照樣寫出（partial）
 ```
-程式在前景執行，log 輸出到 stderr。要長時間測試的話，可以用 `nohup` 或 `tmux` 執行。
+- 長時間測試直接用 `start` 即可，不需要 `nohup` 或 `tmux`。`restart` 等於 `stop` 再 `start`。
+- 要看更詳細的 SIP log：`RUST_LOG=info,sip_core=debug ./sip-faxd start`（環境變數會傳給背景程序）。
+- **用 systemd 管理時**：unit 的 `ExecStart` 使用前景的 `serve`（`ExecStart=/opt/sip-faxd/sip-faxd serve`），並設定 `TimeoutStopSec=330`（要大於 `[service] stop_timeout_secs`，預設 300 秒，否則 systemd 會在傳真收完前強制終止）。停止請用 `systemctl stop sip-faxd`（等同 `stop`：新來電回 503、等通話結束）。這時 `sip-faxd start`／`stop`／`restart` 會提示改用 `systemctl`；`sip-faxd status` 與 `logs` 照常可用。
+- 要在前景除錯：`./sip-faxd serve`，log 同時輸出到 stderr 與 `logs/sip-faxd.log`，Ctrl+C 與 `stop` 相同（再按一次 Ctrl+C 就是強制結束）。
 
 ## 5. 結果在哪裡
 | 路徑 | 內容 |

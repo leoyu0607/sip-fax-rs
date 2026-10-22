@@ -225,6 +225,46 @@ impl Runtime {
     }
 }
 
+/// `reload` on the control socket: the database's runtime configuration, applied to the running
+/// server (the same path as a change made in the web interface).
+pub struct ConfigReloader(pub Arc<ConfigService>);
+
+#[async_trait]
+impl crate::service::hub::Reloader for ConfigReloader {
+    async fn reload(&self) -> Result<String, String> {
+        let out = self.0.reload().await.map_err(|e| e.to_string())?;
+        Ok(reload_message(&out))
+    }
+}
+
+/// One line for the operator about a [`ConfigService::reload`].
+pub fn reload_message(out: &runtime_config::ReloadOutcome) -> String {
+    let mut msg = if out.changed {
+        "the runtime configuration was reloaded from the database and applied".to_string()
+    } else {
+        "the runtime configuration in the database is unchanged".to_string()
+    };
+    if !out.applied.trunks_changed.is_empty() {
+        msg.push_str(&format!(
+            "; trunks changed: {}",
+            out.applied.trunks_changed.join(", ")
+        ));
+    }
+    if !out.applied.registrations_restarted.is_empty() {
+        msg.push_str(&format!(
+            "; registrations restarted: {}",
+            out.applied.registrations_restarted.join(", ")
+        ));
+    }
+    if !out.pending_restart.is_empty() {
+        msg.push_str(&format!(
+            "; waiting for a restart: {}",
+            out.pending_restart.join(", ")
+        ));
+    }
+    msg
+}
+
 fn log_boot(boot: &Boot) {
     match boot {
         Boot::Imported(rep) => tracing::info!(

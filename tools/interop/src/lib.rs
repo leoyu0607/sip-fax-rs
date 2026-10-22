@@ -109,9 +109,59 @@ pub struct FaxdOptions {
     pub real_fax: bool,
     /// Data directory for received faxes (default: `<scratch>/data`).
     pub data_dir: Option<PathBuf>,
-    /// `[database] url` (default: a SQLite file `fax.db` in the scratch directory, so that every
+    /// `[database] url` (default: a SQLite file `fax.db` of its own in the temp dir, so that every
     /// instance has its own database).
     pub database_url: Option<String>,
+    /// Write the log to `<scratch>/logs/sip-faxd.log` (default: no log file, stderr only).
+    pub log_file: bool,
+    /// Extra lines inside `[log]` (rotation settings).
+    pub log_extra: String,
+    /// Extra lines inside `[service]` (`stop_timeout_secs`, ...).
+    pub service: String,
+}
+
+/// A configuration written to disk, not started yet.
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    /// SIP port (UDP and TCP).
+    pub port: u16,
+    /// Scratch directory of this instance.
+    pub dir: PathBuf,
+    /// Capture directory (`logs/calls`).
+    pub calls_dir: PathBuf,
+    /// Data directory.
+    pub data_dir: PathBuf,
+    /// `[database] url`.
+    pub db_url: String,
+    /// The configuration file.
+    pub config_path: PathBuf,
+    /// `[service] pid_file`.
+    pub pid_file: PathBuf,
+    /// `[service] socket`.
+    pub socket: PathBuf,
+    /// `[log] file` (`None`: file logging off).
+    pub log_path: Option<PathBuf>,
+}
+
+/// `sip-faxd <args> --config <config>` as a command to run or spawn (no `RUST_LOG`).
+pub fn faxd_command(args: &[&str], config: &Path) -> Command {
+    let mut c = Command::new(faxd_binary());
+    c.args(args)
+        .arg("--config")
+        .arg(config)
+        .env_remove("RUST_LOG")
+        .env_remove("INVOCATION_ID");
+    c
+}
+
+/// Runs `sip-faxd <args> --config <config>` to the end: exit code, stdout, stderr.
+pub fn faxd_cli(args: &[&str], config: &Path) -> (Option<i32>, String, String) {
+    let out = faxd_command(args, config).output().expect("run sip-faxd");
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
 }
 
 /// A running `sip-faxd serve`.
@@ -129,26 +179,62 @@ pub struct Faxd {
     pub db_url: String,
     /// The configuration file the server was started with.
     pub config_path: PathBuf,
+    /// `[service] pid_file`.
+    pub pid_file: PathBuf,
+    /// `[service] socket`.
+    pub socket: PathBuf,
+    /// `[log] file`, when the options asked for one.
+    pub log_path: Option<PathBuf>,
     log: Arc<Mutex<Vec<String>>>,
 }
 
 impl Faxd {
-    /// Builds the binary if needed, writes the configuration and waits until it is ready.
-    pub fn start(name: &str, opts: &FaxdOptions) -> Faxd {
-        let bin = faxd_binary();
+    /// Writes the configuration (and creates the scratch directory) without starting anything.
+    pub fn prepare(name: &str, opts: &FaxdOptions) -> Prepared {
         let dir = scratch(name);
         let port = opts.port.unwrap_or_else(free_port);
         let calls_dir = dir.join("calls");
         let data_dir = opts.data_dir.clone().unwrap_or_else(|| dir.join("data"));
-        let db_url = opts
-            .database_url
-            .clone()
-            .unwrap_or_else(|| format!("sqlite://{}/fax.db", dir.display()));
+        let db_url = opts.database_url.clone().unwrap_or_else(|| {
+            // Not in the scratch dir: on a Docker Desktop bind mount the file locks SQLite
+            // relies on do not work between processes, and after a restart of the service a
+            // reader could keep seeing an old WAL (M4d M06).
+            let db_dir = std::env::temp_dir().join(format!("sf{}-{name}-db", std::process::id()));
+            let _ = std::fs::remove_dir_all(&db_dir);
+            std::fs::create_dir_all(&db_dir).expect("create the database dir");
+            format!("sqlite://{}/fax.db", db_dir.display())
+        });
+        // unix socket paths are limited to about 100 bytes: keep the socket short
+        static NEXT_SOCKET: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let socket_no = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let socket =
+            std::env::temp_dir().join(format!("sf{}-{}.sock", std::process::id(), socket_no));
+        // The PID file too: `flock` on a Docker Desktop bind mount does not exclude another
+        // process, so a running service would look stopped there.
+        let pid_file = std::env::temp_dir()
+            .join(format!("sf{}-{}-run", std::process::id(), socket_no))
+            .join("sip-faxd.pid");
+        // The log goes to the temp dir, not to the scratch dir: on a Docker Desktop bind mount
+        // inode numbers are not stable, and `logs -f` recognises a rotation by the inode.
+        let log_path = opts.log_file.then(|| {
+            std::env::temp_dir()
+                .join(format!("sf{}-{}-logs", std::process::id(), socket_no))
+                .join("sip-faxd.log")
+        });
+        let log_line = match &log_path {
+            Some(p) => format!("file = {:?}", p.display().to_string()),
+            None => "file = \"\"".to_string(),
+        };
         let cfg = format!(
-            "[log]\nlevel = \"debug\"\n\n[sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
+            "[log]\nlevel = \"debug\"\n{log_line}\n{}\n\n[service]\npid_file = {:?}\nsocket = {:?}\n{}\n\n\
+             [sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
              [call]\n{}\n{}\n\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
              [database]\nurl = {:?}\n\n\
              [[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}\n\n{}\n",
+            opts.log_extra,
+            pid_file.display().to_string(),
+            socket.display().to_string(),
+            opts.service,
             opts.sip,
             opts.call,
             if opts.real_fax {
@@ -170,6 +256,33 @@ impl Faxd {
         );
         let cfg_path = dir.join("sip-faxd.toml");
         std::fs::write(&cfg_path, cfg).expect("write config");
+        Prepared {
+            port,
+            dir,
+            calls_dir,
+            data_dir,
+            db_url,
+            config_path: cfg_path,
+            pid_file,
+            socket,
+            log_path,
+        }
+    }
+
+    /// Builds the binary if needed, writes the configuration and waits until it is ready.
+    pub fn start(name: &str, opts: &FaxdOptions) -> Faxd {
+        let bin = faxd_binary();
+        let Prepared {
+            port,
+            dir,
+            calls_dir,
+            data_dir,
+            db_url,
+            config_path: cfg_path,
+            pid_file,
+            socket,
+            log_path,
+        } = Faxd::prepare(name, opts);
         let mut child = Command::new(&bin)
             .args(["serve", "--config"])
             .arg(&cfg_path)
@@ -209,6 +322,9 @@ impl Faxd {
             data_dir,
             db_url,
             config_path: cfg_path,
+            pid_file,
+            socket,
+            log_path,
             log,
         }
     }

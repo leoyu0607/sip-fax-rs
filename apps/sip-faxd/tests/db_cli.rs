@@ -40,11 +40,24 @@ fn config(dir: &Path, extra: &str) -> PathBuf {
          [storage]\ndata_dir = {data:?}\n\
          [capture]\ndir = {calls:?}\n\
          [database]\nurl = {url:?}\n\
+         [log]\nfile = \"\"\n\
+         [service]\npid_file = {pid:?}\nsocket = {sock:?}\n\
          {extra}\n\
          [[trunks]]\nname = \"local\"\nallowed_sources = [\"127.0.0.0/8\"]\n",
         data = dir.join("data").display().to_string().replace('\\', "/"),
         calls = dir.join("calls").display().to_string().replace('\\', "/"),
         url = url_of(dir),
+        // the run state belongs to the test, not to the default `run/` next to the executable
+        pid = dir
+            .join("sip-faxd.pid")
+            .display()
+            .to_string()
+            .replace('\\', "/"),
+        sock = dir
+            .join("sip-faxd.sock")
+            .display()
+            .to_string()
+            .replace('\\', "/"),
     );
     let p = dir.join("sip-faxd.toml");
     std::fs::write(&p, text).unwrap();

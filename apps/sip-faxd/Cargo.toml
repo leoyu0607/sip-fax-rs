@@ -21,6 +21,12 @@ tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+flate2 = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

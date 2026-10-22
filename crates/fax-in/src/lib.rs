@@ -33,7 +33,7 @@ mod timefmt;
 pub mod trunk;
 
 pub use config::{ConfigError, FaxInConfig, FaxSessionKind};
-pub use controller::{FaxIn, StartError, StartOptions};
+pub use controller::{DrainProgress, FaxIn, RegistrationView, StartError, StartOptions};
 pub use event::{
     ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, FaxReport, ReportSink, T38Negotiated,
     T38Path, UdptlCounters,
