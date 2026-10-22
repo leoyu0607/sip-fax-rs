@@ -4,6 +4,7 @@
 //! the connection-loss half of S11.
 
 mod admin_tests;
+mod check_tests;
 mod copy_tests;
 mod preview_tests;
 mod purge_tests;

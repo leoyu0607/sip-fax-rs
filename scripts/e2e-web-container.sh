@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Runs INSIDE the test container (started by scripts/e2e-web.sh): two sip-faxd instances with the
+# Runs INSIDE the test container (started by scripts/e2e-web.sh): three sip-faxd instances with the
 # web interface, their accounts (made with the CLI) and the source TIFFs for the SpanDSP sender.
 #   instance a: web http  on 0.0.0.0:8080, SIP 127.0.0.1:5060 (UDP), database /tmp/e2e/a/fax.db
 #   instance b: web https on 0.0.0.0:8443 (self-signed), SIP 127.0.0.1:5061, /tmp/e2e/b/fax.db
+#   instance c: web http  on 0.0.0.0:8081, SIP 127.0.0.1:5062, /tmp/e2e/c/fax.db: a new installation
+#               without any trunk (M4f F05: the "no trunk" banner)
 set -euo pipefail
 BIN=/work/target/docker/debug
 FAXD=$BIN/sip-faxd
@@ -11,7 +13,7 @@ for p in /tmp/e2e/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null || tru
 sleep 1
 rm -rf /tmp/e2e && mkdir -p /tmp/e2e
 
-instance() {   # name sip-port web-bind scheme media-range
+instance() {   # name sip-port web-bind scheme media-range [notrunk]
   local d=/tmp/e2e/$1
   mkdir -p "$d/run" "$d/data"
   cat > "$d/sip-faxd.toml" <<EOF
@@ -46,11 +48,15 @@ enabled = false
 
 [database]
 url = "sqlite://$d/fax.db"
+EOF
+  if [ "${6:-}" != "notrunk" ]; then
+    cat >> "$d/sip-faxd.toml" <<EOF
 
 [[trunks]]
 name = "gw"
 allowed_sources = ["127.0.0.0/8"]
 EOF
+  fi
   local cfg=$d/sip-faxd.toml
   # accounts first: with a user in the table the server does not make its own `admin`
   add() { printf '%s\n' "$PW" | $FAXD user add "$@" --password-stdin --config "$cfg" >/dev/null; }
@@ -69,6 +75,7 @@ EOF
 
 instance a 5060 0.0.0.0:8080 http 31000-31199
 instance b 5061 0.0.0.0:8443 https 31200-31399
+instance c 5062 0.0.0.0:8081 http 31400-31599 notrunk
 
 # 1, 3 pages: tall fine pages so that each page takes SpanDSP a few seconds (the page counter
 # of the list can be watched); a short one-page fax for the tests that only need a record

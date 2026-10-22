@@ -9,6 +9,7 @@
 
 pub mod admin;
 mod backend;
+pub mod check;
 pub mod clock;
 pub mod copy;
 pub mod db;
@@ -28,6 +29,7 @@ pub use admin::{
     AdminStore, ConfigAudit, ConfigAuditRow, ConfigRow, NewSession, NewUser, SessionRow, UserRow,
     UserUpdate,
 };
+pub use check::{CheckReport, check_url};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use copy::{CopyReport, copy_database};
 pub use db::BackendKind;
@@ -111,6 +113,61 @@ pub async fn test_record_schema_version(url: &str, version: i32) -> Result<()> {
         .await?;
     st.close().await;
     Ok(())
+}
+
+/// Test support: the versions in `schema_migrations`, oldest first; `None` when the table does not
+/// exist (read-only: nothing is migrated or created).
+#[doc(hidden)]
+pub async fn test_schema_versions(url: &str) -> Result<Option<Vec<i32>>> {
+    let st = open_sql(url, &ConnectOptions::default()).await?;
+    let r = async {
+        let be = st.raw();
+        if current_version_exists(be).await? {
+            let rows = be
+                .query(
+                    "SELECT version FROM schema_migrations ORDER BY version",
+                    &[],
+                    &[db::Kind::Int],
+                )
+                .await?;
+            Ok(Some(
+                rows.iter()
+                    .filter_map(|r| match r.first() {
+                        Some(db::Val::I(Some(v))) => Some(*v as i32),
+                        _ => None,
+                    })
+                    .collect(),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+    .await;
+    st.close().await;
+    r
+}
+
+async fn current_version_exists(be: &dyn db::Backend) -> Result<bool> {
+    Ok(!be
+        .query(migrate::exists_sql(be.kind()), &[], &[db::Kind::Str])
+        .await?
+        .is_empty())
+}
+
+/// Test support: remove `version` from `schema_migrations`, as a database that was last upgraded
+/// by an older sip-faxd looks like (the tables stay).
+#[doc(hidden)]
+pub async fn test_forget_schema_version(url: &str, version: i32) -> Result<()> {
+    let st = open_sql(url, &ConnectOptions::default()).await?;
+    let r = st
+        .raw()
+        .execute(
+            "DELETE FROM schema_migrations WHERE version = ?",
+            &[db::Val::from(version)],
+        )
+        .await;
+    st.close().await;
+    r.map(|_| ())
 }
 
 /// Test support: the number of rows of every copied table, in copy order (the schema must be

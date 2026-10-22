@@ -2993,6 +2993,7 @@ dependencies = [
  "delivery",
  "fax-in",
  "flate2",
+ "percent-encoding",
  "ratatui",
  "reqwest",
  "runtime-config",

@@ -378,7 +378,7 @@ async fn c11_output_has_the_rows_per_table_masks_the_password_and_tells_the_next
         .find(|l| l.starts_with("next:"))
         .unwrap_or_else(|| panic!("{text}"));
     assert!(
-        hint.contains("[database] url") && hint.contains(&target),
+        hint.contains("[database]") && hint.contains(&target),
         "{hint}"
     );
     assert!(

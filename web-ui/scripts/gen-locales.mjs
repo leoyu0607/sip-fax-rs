@@ -21,7 +21,13 @@ add('nav', [
   ['users', '帳號', 'Accounts'],
   ['audit', '稽核紀錄', 'Audit log'],
   ['language', '語言', 'Language'],
+  ['theme', '外觀', 'Theme'],
   ['logout', '登出', 'Sign out'],
+]);
+add('theme', [
+  ['system', '跟隨系統', 'System'],
+  ['light', '明亮', 'Light'],
+  ['dark', '深色', 'Dark'],
 ]);
 add('live', [
   ['on', '即時更新已連線', 'Live updates connected'],
@@ -228,6 +234,11 @@ add('delivery', [
   ['status.done', '完成', 'Done'],
   ['status.failed', '失敗（會重試）', 'Failed (will retry)'],
   ['status.giving_up', '已放棄', 'Given up'],
+]);
+add('setup', [
+  ['no_trunk_admin', '尚未設定中繼（trunk）：所有來電都會被拒絕。', 'No trunk is configured: every call is refused.'],
+  ['go_trunks', '前往 設定 → 中繼', 'Go to Settings → Trunks'],
+  ['no_trunk_agent', '尚未設定電話線路，無法接收傳真，請聯絡管理員。', 'No line is configured yet, faxes cannot be received: contact your administrator.'],
 ]);
 add('status', [
   ['title', '系統狀態', 'Status'],

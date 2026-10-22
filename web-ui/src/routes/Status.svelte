@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { get, type Status } from '../lib/api';
+  import { liveUptime } from '../lib/clock';
   import { errorText } from '../lib/errors';
   import { fmt, formatDuration, t } from '../lib/i18n.svelte';
   import { onEvent } from '../lib/live.svelte';
@@ -8,10 +9,14 @@
 
   let status = $state<Status | null>(null);
   let error = $state<unknown>(null);
+  // the uptime counts on between two reads of the status (performance.now(): not moved by clock changes)
+  let loadedAt = $state(0);
+  let now = $state(0);
 
   async function load() {
     try {
       status = await get<Status>('/status');
+      loadedAt = now = performance.now();
       error = null;
     } catch (e) {
       error = e;
@@ -33,9 +38,11 @@
     });
     // the uptime and the database state are not pushed
     const timer = setInterval(load, 30_000);
+    const tick = setInterval(() => (now = performance.now()), 1000);
     return () => {
       off();
       clearInterval(timer);
+      clearInterval(tick);
     };
   });
 
@@ -59,7 +66,7 @@
           <dd><span class="badge status-{status.service.state === 'running' ? 'received' : 'partial'}"><span aria-hidden="true">{status.service.state === 'running' ? '✓' : '◐'}</span> {t(`status.state_value.${status.service.state}`)}</span></dd>
           <dt>{t('status.version')}</dt><dd>{status.service.version}</dd>
           <dt>{t('status.started_at')}</dt><dd>{fmt(status.service.started_at)}</dd>
-          <dt>{t('status.uptime')}</dt><dd>{formatDuration(status.service.uptime_secs)}</dd>
+          <dt>{t('status.uptime')}</dt><dd id="uptime">{formatDuration(liveUptime(status.service.uptime_secs, loadedAt, now))}</dd>
           <dt>{t('status.listen')}</dt><dd class="mono">{status.service.listen.join(', ')}</dd>
           <dt>{t('status.active_calls')}</dt><dd>{status.service.active_calls}</dd>
         </dl>

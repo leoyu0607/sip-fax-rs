@@ -204,6 +204,16 @@ jobs:
           export SIP_FAXD_TEST_DB_CONTAINER=$(docker ps -q --filter "ancestor=${{ matrix.image }}" | head -1)
           echo "service container: $SIP_FAXD_TEST_DB_CONTAINER"
           cargo test -p store -- --test-threads=4
+      # M4f: an account whose password has every awkward character, written field by field, and
+      # `sip-faxd db check` / `db copy` on this server (the account is made with `docker exec`)
+      - name: db check and split-field passwords on ${{ matrix.db }} (M4f D02, K01-K04, P01)
+        env:
+          SIP_FAXD_TEST_DB: ${{ matrix.url }}
+        run: |
+          export SIP_FAXD_TEST_DB_CONTAINER=$(docker ps -q --filter "ancestor=${{ matrix.image }}" | head -1)
+          cargo test -p sip-faxd --test m4f_server -- --nocapture --test-threads=1 | tee m4f.log
+          grep -q "test result: ok. 4 passed" m4f.log
+          ! grep -q skipped m4f.log
 
   # M4c: the web interface (spec docs/design/m4-web.md 6): lint, svelte-check, vitest with the
   # coverage gate, production build

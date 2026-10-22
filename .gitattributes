@@ -1,0 +1,2 @@
+# LF everywhere: the scripts and tests also run in Linux containers from a Windows checkout
+* text=auto eol=lf

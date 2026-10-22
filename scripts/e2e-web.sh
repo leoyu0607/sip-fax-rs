@@ -19,6 +19,7 @@ IMAGE="${E2E_IMAGE:-sip-fax-rs-test:rocky9}"
 NAME="${E2E_CONTAINER:-sipfax-e2e-web}"
 HTTP_PORT="${E2E_HTTP_PORT:-18080}"
 HTTPS_PORT="${E2E_HTTPS_PORT:-18443}"
+NOTRUNK_PORT="${E2E_NOTRUNK_PORT:-18081}"
 
 # the interface is embedded in the binary: build it first
 (cd web-ui && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build)
@@ -38,7 +39,7 @@ cleanup() {
 trap cleanup EXIT
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --platform linux/amd64 \
-  -p "127.0.0.1:$HTTP_PORT:8080" -p "127.0.0.1:$HTTPS_PORT:8443" \
+  -p "127.0.0.1:$HTTP_PORT:8080" -p "127.0.0.1:$HTTPS_PORT:8443" -p "127.0.0.1:$NOTRUNK_PORT:8081" \
   -v "$HOST_PWD":/work \
   -v sip-fax-rs-cargo-registry:/usr/local/cargo/registry \
   -e CARGO_TARGET_DIR=/work/target/docker \
@@ -53,4 +54,5 @@ cd web-ui
 export E2E_CONTAINER="$NAME"
 export E2E_HTTP_URL="http://127.0.0.1:$HTTP_PORT"
 export E2E_HTTPS_URL="https://127.0.0.1:$HTTPS_PORT"
+export E2E_NOTRUNK_URL="http://127.0.0.1:$NOTRUNK_PORT"
 npx playwright test "$@"

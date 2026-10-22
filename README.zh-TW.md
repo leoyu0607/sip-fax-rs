@@ -54,20 +54,29 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 ## 設定
 
-`sip-faxd` 讀取 TOML 設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）。[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) 說明所有選項：SIP 監聽、每個上游的 `[[trunks]]` 設定（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、選用的 REGISTER），以及每通來電的 SIP／UDPTL 擷取和傳真輸出目錄。
+設定檔（預設為執行檔旁的 `conf/sip-faxd.toml`，可用 `--config` 指定）**只放啟動設定**：`[database]`、`[web]`、`[storage]`、`[log]`、`[service]`（[`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example)）。使用內建的 SQLite 時什麼都不用改。其他資料庫分欄位填寫，密碼原樣填，不用百分比編碼，也可以從檔案讀：
 
-```sh
-./sip-faxd config check --config conf/sip-faxd.toml   # 驗證設定（會顯示資料庫、清整、傳真與號碼設定）
-./sip-faxd serve --config conf/sip-faxd.toml          # 執行
+```toml
+[database]
+type = "mssql"                  # sqlite | postgres | mysql | mariadb | mssql
+host = "10.1.2.3"
+name = "faxdb"
+user = "fax"
+password = "p@ss:w/rd#1"        # 或 password_file = "conf/db-password"
+trust_server_certificate = true
 ```
 
-除了 SIP 相關設定，設定檔還有 `[database]`（`url`、`auto_migrate`、`max_connections`）、`[retention]`（`files_days`、`records_days`、`run_at`）、`[[routes]]` 與 `[delivery]`（見[投遞](#投遞)），以及每個 trunk 的 `[trunks.fax]`（`resolutions`、`ecm`）和 `[trunks.numbers]`（進線號碼與撥打號碼取自哪個 header：`ani_sources`、`dnis_sources`、`strip_plus`、`ani_strip_prefix`、`dnis_strip_prefix`）。
+```sh
+./sip-faxd config check     # 驗證設定檔（密碼以 *** 顯示）
+./sip-faxd db check         # 測試資料庫連線：伺服器版本、資料表版本；不做任何修改
+./sip-faxd serve            # 在前景執行（或用下面的 start／stop／status）
+```
 
-**執行設定改存資料庫（M4a、ADR-051）。** 只有 `[log]`、`[database]`、`[storage]`（之後還有 `[web]`、`[service]`）永遠從設定檔讀取。`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`、`[[routes]]`、`[delivery]`、`[retention]` 在第一次啟動時匯入資料庫，之後以資料庫為準（設定檔中不再生效的區段，啟動時會以 warning 列出）。修改後不必重啟，下一通來電就套用；只有監聽位址、UDPTL port 範圍與 `[capture]` 需要重啟。秘密資料（註冊、Email、Webhook 的密碼）以 `conf/secret.key` 加密後存放。
+**其餘設定都存在資料庫，在 Web 介面的「設定」修改**：SIP 監聽與對外位址、每個上游的中繼（內建 preset `generic` 與 `cht-cs210`、來源 IP 白名單、T.38 策略、註冊、傳真能力、號碼來源）、通話處理、每通來電的擷取、投遞路由與保存期限（ADR-051、ADR-060）。第一次啟動以預設值建立，沒有任何中繼：新增中繼之前所有來電都會被拒絕（Web 介面與 log 都會提示）。修改後不必重啟，下一通來電就套用；只有監聽位址、UDPTL port 範圍與擷取需要重啟。秘密資料（註冊、Email、Webhook 的密碼）以 `conf/secret.key` 加密後存放。舊的設定檔裡若還有這些區段照樣可用：資料庫還沒有設定時匯入一次，之後可以刪除。
 
 ```sh
-./sip-faxd config export [--include-secrets]      # 把資料庫中的執行設定輸出成 TOML（備份用）
-./sip-faxd config import [--force] [--file PATH]  # 把設定檔的執行區段寫入資料庫
+./sip-faxd config export [--include-secrets]      # 把資料庫中的設定輸出成 TOML（備份、範本）
+./sip-faxd config import [--force] --file PATH    # 以腳本設定（conf/runtime.toml.example 說明每個選項）
 ./sip-faxd user add alice --role agent            # 帳號：add | passwd | disable | enable | list
 ./sip-faxd fax list --unread                      # 傳真：list | show | read | note | redeliver
 ```
@@ -112,21 +121,23 @@ cd sip-fax-rs-<version>-linux-x86_64
 收到傳真時，每頁的 PNG 預覽會寫在 TIFF、PDF 旁邊（`<名稱>-p1.png`、`<名稱>-p1-thumb.png`……），清整時一起刪除。
 ## 傳真紀錄與資料庫
 
-每通來電在 `[database] url` 指定的資料庫的 `faxes` 資料表有一筆紀錄（預設為 SQLite 檔案 `data/sip-faxd.db`；也可用 `postgres://`、`mysql://`／`mariadb://`、`mssql://`，見 [docs/database.md](docs/database.md)）。通話開始時就建立紀錄（`fax_status = receiving`），對方每送完一頁，`pages` 就加一，通話結束時補齊：狀態（`received`、`partial`、`failed`、`no_fax`）、誰掛斷與原因（`hangup_direction`、`hangup_code`）、進線號碼（ANI）與撥打號碼（DNIS）、檔案路徑與大小，以及協商出來的解析度、速率、編碼和 ECM。來源不在任何 trunk 白名單的電話會被擋掉，不寫入紀錄。
+每通來電在 `[database]` 指定的資料庫的 `faxes` 資料表有一筆紀錄（預設為 SQLite 檔案 `data/sip-faxd.db`；也可用 PostgreSQL、MySQL／MariaDB、SQL Server，見 [docs/database.md](docs/database.md)）。通話開始時就建立紀錄（`fax_status = receiving`），對方每送完一頁，`pages` 就加一，通話結束時補齊：狀態（`received`、`partial`、`failed`、`no_fax`）、誰掛斷與原因（`hangup_direction`、`hangup_code`）、進線號碼（ANI）與撥打號碼（DNIS）、檔案路徑與大小，以及協商出來的解析度、速率、編碼和 ECM。來源不在任何 trunk 白名單的電話會被擋掉，不寫入紀錄。
 
 **資料庫出問題不會害傳真收不到。** 傳真檔和 `result.json` 照常寫出；寫資料庫的動作放在記憶體佇列，以指數退避重試（1 秒、2 秒、4 秒…最長 60 秒）。仍然失敗的寫入會記成 error，之後可用 `sip-faxd db backfill` 從 `logs/calls/*/result.json` 補回。啟動時資料庫連不上，伺服器照樣啟動；但資料庫版本**比程式新**（或 `auto_migrate = false` 而版本過舊）時會拒絕啟動。
 
-清整：`[retention]` 只在**第一次**啟動時寫入資料庫，之後以資料庫為準（在 Web 介面的「設定 → 保存期限」修改）。每天在 `run_at`（伺服器本地時間）執行：超過 `files_days` 的 TIFF／PDF 檔案刪除（紀錄保留，標記「檔案已清除」），超過 `records_days` 的紀錄刪除。`0` 代表永遠不刪。
+清整（Web 介面的「設定 → 保存期限」）：每天在 `run_at`（伺服器本地時間）執行：超過 `files_days` 的 TIFF／PDF 檔案刪除（紀錄保留，標記「檔案已清除」），超過 `records_days` 的紀錄刪除。`0` 代表永遠不刪。
 
 | 指令 | 作用 |
 |---|---|
 | `sip-faxd db migrate` | 建立或升級資料表結構（多台同時執行也安全；MySQL/MariaDB 的 migration 失敗後可以重跑） |
 | `sip-faxd db backfill [--dir DIR]` | 把 `logs/calls/*/result.json` 裡資料庫沒有的通話補進去 |
 | `sip-faxd purge [--dry-run]` | 立刻執行清整；`--dry-run` 只計數、不刪除 |
+| `sip-faxd db check [--url URL [--password-stdin]]` | 測試連線：伺服器版本、資料表版本；不做任何修改 |
+| `sip-faxd db copy --to URL`（或 `--to-config 檔案`） | 換資料庫，也可以換成另一種（例如 SQLite 改用 SQL Server）：全部資料表連同 id 複製到空的資料庫；服務必須先停止 |
 
 ## 投遞
 
-設定檔有 `[[routes]]` 時，每份結果為 `received` 的傳真，在紀錄寫入資料庫後立刻投遞（中途斷線的 `partial` 只有路由設 `deliver_partial = true` 才投遞；`failed`、`no_fax` 永不投遞）。路由依序比對，**第一條符合的**生效；條件為 `dnis`（完全相同）、`dnis_prefix`、`trunk`（寫了幾個就要全部符合），或 `default = true`（其餘全部，必須是最後一條）。每條路由有一個以上的投遞：
+設定了投遞路由時（Web 介面的「設定 → 投遞路由」；下方是 `config import` 的檔案格式），每份結果為 `received` 的傳真，在紀錄寫入資料庫後立刻投遞（中途斷線的 `partial` 只有路由設 `deliver_partial = true` 才投遞；`failed`、`no_fax` 永不投遞）。路由依序比對，**第一條符合的**生效；條件為 `dnis`（完全相同）、`dnis_prefix`、`trunk`（寫了幾個就要全部符合），或 `default = true`（其餘全部，必須是最後一條）。每條路由有一個以上的投遞：
 
 ```toml
 [[routes]]

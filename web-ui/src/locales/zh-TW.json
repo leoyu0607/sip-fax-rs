@@ -15,7 +15,8 @@
     "users": "帳號",
     "audit": "稽核紀錄",
     "language": "語言",
-    "logout": "登出"
+    "logout": "登出",
+    "theme": "外觀"
   },
   "live": {
     "on": "即時更新已連線",
@@ -238,6 +239,11 @@
       "failed": "失敗（會重試）",
       "giving_up": "已放棄"
     }
+  },
+  "setup": {
+    "no_trunk_admin": "尚未設定中繼（trunk）：所有來電都會被拒絕。",
+    "go_trunks": "前往 設定 → 中繼",
+    "no_trunk_agent": "尚未設定電話線路，無法接收傳真，請聯絡管理員。"
   },
   "status": {
     "title": "系統狀態",
@@ -540,5 +546,10 @@
         "none": "不加密（25）"
       }
     }
+  },
+  "theme": {
+    "system": "跟隨系統",
+    "light": "明亮",
+    "dark": "深色"
   }
 }

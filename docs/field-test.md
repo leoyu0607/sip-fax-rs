@@ -4,7 +4,7 @@
 
 0.3.0 新增的功能（M4）：
 - **Web 介面**（預設開啟，HTTPS 8443）：即時看到收進來的傳真（接收中會逐頁顯示）、預覽與下載、已讀與備註；管理員可以在網頁上修改設定與帳號。使用說明見壓縮檔內的 `docs/web.md`。
-- **設定存資料庫**：第一次啟動時把設定檔的內容匯入資料庫，之後在 Web 介面修改，大部分設定不必重啟就套用（見第 2 節）。
+- **設定在 Web 介面**：設定檔只剩資料庫等啟動設定；SIP、中繼、投遞等在 Web 設定，存在資料庫，大部分不必重啟就套用（見第 2 節）。資料庫可以分欄位填寫，`./sip-faxd db check` 測試連線，`./sip-faxd db copy` 換資料庫。
 - **服務管理**：`./sip-faxd start|stop|restart|status|logs`，以及終端機畫面 `./sip-faxd tui`（見第 4 節）。
 
 0.2.0 新增的功能（M3）：
@@ -26,35 +26,44 @@ cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```
 
-## 2. 設定 `conf/sip-faxd.toml`（最少要改的項目）
+## 2. 設定
+
+### 2.1 設定檔 `conf/sip-faxd.toml`：只有啟動設定
+
+設定檔只放資料庫、Web、存檔目錄、log 與服務管理。預設使用內建的 SQLite，**不用改任何東西**就能啟動。要用其他資料庫時，在 `[database]` 分欄位填寫，密碼原樣填，不用編碼：
+
 ```toml
-[sip]
-bind = "0.0.0.0:5060"
-advertised = "<本機對 CS210 的 IP>:5060"   # 會寫進 Via、Contact 和 SDP，一定要填對
-
-[media]
-port_range = "30000-30999"                  # T.38（UDPTL）使用的埠範圍
-
-[[trunks]]
-name = "cht"
-preset = "cht-cs210"
-peer = "<CS210 的 IP>:5060"
-# allowed_sources = ["<CS210 的 IP>"]       # 預設就是 peer 的 IP；CS210 若有多個來源 IP，請列在這裡
+[database]
+type = "mssql"
+host = "10.1.2.3"
+name = "faxdb"
+user = "fax"
+password = "p@ss:w/rd#1"
+trust_server_certificate = true    # 自簽憑證時
 ```
-- 如果 CS210 要求註冊，請開啟 `[trunks.register]`，並填入帳號和密碼。
-- **第一次試接時建議**把 `[sip] unknown_source` 改成 `"log"`。這樣即使 CS210 實際發話的 IP 和預期不同，電話也會被接起來，並在 log 裡記錄對方的實際 IP。確認 IP 之後再改回 `"drop"`。
 
-檢查設定：
+檢查設定與資料庫連線：
+
 ```sh
 ./sip-faxd config check
+./sip-faxd db check
 ```
 
-**設定存放位置（M4a 起，ADR-051）**：上面這些 `[sip]`、`[media]`、`[[trunks]]`（以及 `[call]`、`[capture]`、`[[routes]]`、`[delivery]`、`[retention]`）只在**第一次啟動**時匯入資料庫；之後以資料庫為準，再改設定檔不會生效，啟動 log 會用 warning 列出被忽略的區段。要改動：
-- 重新匯入：`./sip-faxd config import --force`（以設定檔取代資料庫的執行設定，會記稽核）；
-- 備份／檢視：`./sip-faxd config export`（預設不含密碼；`--include-secrets` 含明文，請妥善保管輸出）；
-- 改了不必重啟，下一通來電就套用（`[sip] bind`、`[media] port_range`、`[capture]` 例外，需要重啟）；`config import` 之後，執行中的服務要重新啟動（`./sip-faxd restart`）才會載入；在 Web 介面修改則立即生效；
-- `conf/secret.key` 是加密密碼用的金鑰，**要和資料庫一起備份**；遺失的話註冊、Email、Webhook 的密碼要重新輸入（其他功能照常，`config check` 會列出哪些欄位要重填）；
-- 第一次啟動會建立管理員 `admin`，密碼在 `conf/initial-admin-password`（log 只提示檔案位置）。`./sip-faxd user list` 查看帳號，`./sip-faxd fax list --unread` 不開 Web 就能看收到的傳真。
+### 2.2 SIP 與中繼：啟動後在 Web 介面設定
+
+1. 啟動（第 4 節），以 `conf/initial-admin-password` 的密碼登入 `https://<伺服器>:8443/`（帳號 `admin`），第一次登入要改密碼。
+2. 「設定 → SIP」：**對外位址**填 `<本機對 CS210 的 IP>:5060`（會寫進 Via、Contact 和 SDP，一定要填對）。第一次試接**建議**把「來源不在任何中繼時」改成「以 generic 處理並記錄」，這樣即使 CS210 實際發話的 IP 和預期不同，電話也會被接起來，並在 log 記錄對方的實際 IP；確認後改回「直接丟棄」。
+3. 「設定 → 中繼」新增 `cht`：預設組合 `cht-cs210`、對端位址 `<CS210 的 IP>:5060`；CS210 有多個來源 IP 時填在「允許的來源 IP／CIDR」。要求註冊時，在「註冊」填入帳號和密碼。
+4. 「設定 → 媒體」：T.38 埠範圍預設 `30000-30999`。
+
+沒有任何中繼時，所有來電都會被拒絕，Web 上方與啟動 log 都會提示。SIP 監聽位址、對外位址、T.38 埠範圍、通話擷取改了要重啟（`./sip-faxd restart`），Web 會標示；其他設定下一通來電就套用。
+
+**補充**
+
+- 這些設定存在資料庫。`./sip-faxd config export` 可以備份或檢視（預設不含密碼；`--include-secrets` 含明文，請妥善保管）；要以腳本設定，可以照 `conf/runtime.toml.example` 寫一個檔案，以 `./sip-faxd config import --file <檔案>` 匯入。
+- 從 0.2／0.3 升級、設定檔裡還有 `[sip]`、`[[trunks]]` 等區段：資料庫還沒有設定時會匯入一次，之後不再使用，啟動 log 與 `config check` 會提示可以從設定檔刪除。
+- `conf/secret.key` 是加密密碼用的金鑰，**要和資料庫一起備份**；遺失的話註冊、Email、Webhook 的密碼要重新輸入。
+- `./sip-faxd user list` 查看帳號，`./sip-faxd fax list --unread` 不開 Web 就能看收到的傳真。
 
 ## 3. 防火牆
 - SIP：UDP 5060，只允許 CS210 的 IP 連入。

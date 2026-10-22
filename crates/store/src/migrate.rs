@@ -108,7 +108,7 @@ fn bootstrap_sql(kind: BackendKind) -> &'static str {
     }
 }
 
-fn exists_sql(kind: BackendKind) -> &'static str {
+pub(crate) fn exists_sql(kind: BackendKind) -> &'static str {
     match kind {
         BackendKind::Sqlite => {
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"

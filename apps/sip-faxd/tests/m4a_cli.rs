@@ -670,11 +670,11 @@ async fn k01_k02_a01_serve_imports_once_warns_about_ignored_sections_and_creates
     let log2 = until_ready(&rx).join("\n");
     child.kill().unwrap();
     let _ = child.wait();
-    assert!(log2.contains("are managed by the database now"), "{log2}");
+    assert!(log2.contains("can be removed from the file"), "{log2}");
     for s in ["sip", "call", "trunks", "routes"] {
         assert!(
             log2.lines()
-                .any(|l| l.contains("managed by the database") && l.contains(s)),
+                .any(|l| l.contains("can be removed from the file") && l.contains(s)),
             "{s} named in the warning: {log2}"
         );
     }

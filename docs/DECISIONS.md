@@ -491,3 +491,16 @@ ADR-005 決定以 axum 加內嵌的 Svelte SPA 提供介面、只發佈一個執
 - **核對**：交易提交後，另以一般連線比對每個表的 `COUNT(*)` 與 `MAX(id)`。
 - 欄位清單寫在 `store::copy` 的表格中；之後新增欄位或資料表的 migration，必須同時更新這份清單（測試會比對 schema 的欄位）。
 
+## ADR-060：資料庫分欄位設定、`db check`、設定檔只留啟動設定（2026-10-22，M4f）
+**背景**
+
+2026-10-22 使用者回饋：資料庫帳密要自己做百分比編碼，對現場人員太難；存在資料庫的設定（ADR-051）同時也寫在設定檔裡，讓人以為改設定檔有用。使用者決定：資料庫可以分欄位填寫；新增單純測試連線的指令；設定檔只放啟動設定，存在資料庫的設定不再出現在設定檔，舊設定檔的這些區段保留相容匯入。
+
+**決策**
+
+- **`[database]` 分欄位**：`type`、`host`、`port`（依類型預設）、`name`、`user`、`password`／`password_file`（擇一；檔案取第一行，權限寬於 0600 給 warning）、`trust_server_certificate`（只限 mssql）、`path`（只限 sqlite）。程式組出 URL，帳號與密碼以 `NON_ALPHANUMERIC` 百分比編碼（四種後端都會解碼）；IPv6 主機加上方括號。`url` 照樣可用，但不能與分欄位同時出現。錯誤一律以 `[database] <欄位>: <原因>` 報告。程式其他地方仍只看組好的 `url`，密碼一律以 `mask_url` 遮蔽。
+- **`sip-faxd db check`**：只連線並讀伺服器版本與 `schema_migrations`，不建立或升級資料表；SQLite 檔案不存在時不建立（新安裝的正常情況，回 0 並說明）。15 秒上限。連線錯誤依驅動的訊息分類給提示。`--url` 加 `--password-stdin` 測試另一個資料庫，密碼不用編碼。
+- **`db copy` 的目標**：`--to` 加 `--to-password-stdin`，或 `--to-config <檔案>` 取另一個設定檔的 `[database]`。
+- **設定檔只留啟動設定**（修訂 ADR-051）：`conf/sip-faxd.toml.example` 只有 `[database]`、`[web]`、`[storage]`、`[log]`、`[service]`；執行設定的說明移到 `conf/runtime.toml.example`，給 `config import --file` 使用。第一次啟動沒有執行設定時，以預設值寫入資料庫（沒有中繼）；啟動 log、`config check` 與 Web（`/status` 的中繼數為 0 時顯示橫幅）都提示「沒有中繼，來電都會被拒絕」。
+- **相容**（使用者決定保留）：設定檔仍有執行設定區段、資料庫還沒有時，照舊匯入一次；資料庫已有時，啟動 log 與 `config check` 提示這些區段沒有使用、可以刪除。
+

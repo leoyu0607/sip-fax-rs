@@ -101,6 +101,31 @@ pub fn routes_summary(routes: &delivery::Routes) -> Vec<String> {
 fn print_file_check(cfg: &AppConfig, path: &Path) {
     let f = &cfg.fax_in;
     println!("configuration OK: {}", path.display());
+    let backend = store::backend_for_url(&cfg.database.url).map_or("?", |k| k.name());
+    println!(
+        "  database: {} ({backend}), auto_migrate = {}, max_connections = {}",
+        mask_url(&cfg.database.url),
+        cfg.database.auto_migrate,
+        cfg.database.max_connections
+    );
+    for w in &cfg.database.warnings {
+        println!("  warning: {w}");
+    }
+    println!(
+        "  received faxes -> {}/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|pdf",
+        f.storage.data_dir.display()
+    );
+    // the runtime settings live in the database (ADR-051, ADR-060); a file may still carry them
+    if cfg.file_sections.is_empty() {
+        println!(
+            "  runtime settings (SIP, trunks, routes, ...): none in this file, they live in the database (web interface: Settings)"
+        );
+        return;
+    }
+    println!(
+        "  runtime sections in this file: {} (imported only while the database has none; after that they are not used and can be removed)",
+        cfg.file_sections.join(", ")
+    );
     println!(
         "  sip: bind {} ({}), unknown_source = {:?}",
         f.sip.bind,
@@ -117,18 +142,7 @@ fn print_file_check(cfg: &AppConfig, path: &Path) {
         f.capture.keep,
         f.capture.dir.display()
     );
-    println!(
-        "  fax session: {:?}, received faxes -> {}/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|pdf",
-        f.call.fax_session,
-        f.storage.data_dir.display()
-    );
-    let backend = store::backend_for_url(&cfg.database.url).map_or("?", |k| k.name());
-    println!(
-        "  database: {} ({backend}), auto_migrate = {}, max_connections = {}",
-        mask_url(&cfg.database.url),
-        cfg.database.auto_migrate,
-        cfg.database.max_connections
-    );
+    println!("  fax session: {:?}", f.call.fax_session);
     let r = &cfg.retention;
     let days = |d: u32| {
         if d == 0 {
@@ -245,16 +259,24 @@ pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> Exi
         }
         Ok(ins) if ins.sections == 0 => {
             println!(
-                "  empty: the runtime sections of the configuration file are imported at the first start of `serve` (or with `config import`)"
+                "  empty: the first start stores {} (then set the rest in the web interface)",
+                if cfg.file_sections.is_empty() {
+                    "the defaults, without any trunk"
+                } else {
+                    "the runtime sections of this file"
+                }
             );
             ExitCode::SUCCESS
         }
         Ok(ins) => {
             let rt = &ins.config;
-            println!(
-                "  {} stored section(s); the values above under sip / media / call / capture / trunks / routes / delivery / retention are ignored while these exist",
-                ins.sections
-            );
+            println!("  {} stored section(s)", ins.sections);
+            if !cfg.file_sections.is_empty() {
+                println!(
+                    "warning: the runtime sections of the configuration file are not used (the database has its own): remove them from the file: {}",
+                    cfg.file_sections.join(", ")
+                );
+            }
             println!(
                 "  sip: bind {}, unknown_source = {:?}; media: port_range {}; call: max_duration {} s, station_id {:?}",
                 rt.sip.bind,
@@ -284,6 +306,9 @@ pub async fn config_check_full(cfg: &AppConfig, path: &Path, base: &Path) -> Exi
             }
             for w in runtime_config::validate::warnings(rt) {
                 println!("warning: {w}");
+            }
+            if rt.trunks.is_empty() {
+                println!("warning: {NO_TRUNK}");
             }
             let mut bad = false;
             for p in &ins.problems {
@@ -374,7 +399,7 @@ pub async fn db_copy(cfg: &AppConfig, base: &Path, to: &str) -> ExitCode {
                 r.elapsed.as_secs_f64()
             );
             println!(
-                "next: set [database] url = \"{}\" in the configuration file (keep conf/secret.key), then start the service",
+                "next: point [database] of the configuration file at {} (url, or type / host / name / user / password), keep conf/secret.key, then start the service",
                 mask_url(to)
             );
             ExitCode::SUCCESS
@@ -382,6 +407,206 @@ pub async fn db_copy(cfg: &AppConfig, base: &Path, to: &str) -> ExitCode {
         Err(e) => fail(format!("db copy: {e}")),
     }
 }
+
+/// The target of `db copy`: `--to URL` (with `--to-password-stdin`, the password from stdin) or
+/// the `[database]` of `--to-config FILE`.
+pub fn copy_target(
+    to: Option<String>,
+    password_stdin: bool,
+    to_config: Option<PathBuf>,
+) -> Result<String, ExitCode> {
+    match (to, to_config) {
+        (Some(url), None) if password_stdin => {
+            let pw = read_password_line().map_err(fail)?;
+            with_password(&url, &pw).map_err(|e| fail(format!("--to: {e}")))
+        }
+        (Some(url), None) => Ok(url),
+        (None, Some(_)) if password_stdin => Err(fail(
+            "--to-password-stdin goes with --to URL; a --to-config file has its own password",
+        )),
+        (None, Some(file)) => match AppConfig::load(&file) {
+            Ok(c) => Ok(c.database.url),
+            Err(e) => Err(fail(format!("--to-config: {e}"))),
+        },
+        // (clap refuses the other combinations)
+        _ => Err(fail("give --to URL or --to-config FILE")),
+    }
+}
+
+/// One line of stdin, as it is (the line end removed).
+fn read_password_line() -> Result<String, String> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+    let pw = line.trim_end_matches(['\n', '\r']).to_string();
+    if pw.is_empty() {
+        return Err("the password from stdin is empty".into());
+    }
+    Ok(pw)
+}
+
+/// `scheme://user@host/...` with `password` put in (percent-encoded).
+pub fn with_password(url: &str, password: &str) -> Result<String, String> {
+    let (scheme, rest) = url.split_once("://").ok_or("not a URL with scheme://")?;
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(authority_end);
+    let Some((userinfo, host)) = authority.rsplit_once('@') else {
+        return Err("the URL needs a user (scheme://user@host/...) to go with the password".into());
+    };
+    if userinfo.contains(':') {
+        return Err(
+            "the URL already has a password: leave it out when the password comes from stdin"
+                .into(),
+        );
+    }
+    let pw = percent_encoding::utf8_percent_encode(password, percent_encoding::NON_ALPHANUMERIC);
+    Ok(format!("{scheme}://{userinfo}:{pw}@{host}{tail}"))
+}
+
+/// `sip-faxd db check` on `[database]` of the configuration.
+pub async fn db_check(cfg: &AppConfig, base: &Path) -> ExitCode {
+    for w in &cfg.database.warnings {
+        println!("warning: {w}");
+    }
+    check_and_report(&cfg.database_url(base), &cfg.database.url).await
+}
+
+/// `sip-faxd db check --url URL [--password-stdin]`.
+pub fn db_check_url(url: String, password_stdin: bool) -> ExitCode {
+    let url = if password_stdin {
+        match read_password_line().and_then(|pw| with_password(&url, &pw)) {
+            Ok(u) => u,
+            Err(e) => return fail(format!("--url: {e}")),
+        }
+    } else {
+        url
+    };
+    let resolved = crate::settings::resolve_database_url(&url, &crate::exe_dir());
+    match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(check_and_report(&resolved, &url)),
+        Err(e) => fail(format!("cannot start the runtime: {e}")),
+    }
+}
+
+/// Seconds `db check` waits for the database.
+pub const CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+async fn check_and_report(url: &str, shown: &str) -> ExitCode {
+    let kind = store::backend_for_url(url).map_or("?", |k| k.name());
+    println!("database: {} ({kind})", mask_url(shown));
+    match store::check_url(url, CHECK_LIMIT).await {
+        Ok(r) => {
+            println!("  connected in {:.2} s", r.elapsed.as_secs_f64());
+            println!("  server version: {}", r.server_version);
+            let (state, ok) = match r.schema.cmp(&r.required) {
+                std::cmp::Ordering::Equal => ("up to date".to_string(), true),
+                std::cmp::Ordering::Less if r.schema == 0 => (
+                    "no tables yet: they are created at the first start (or run `sip-faxd db migrate`)".into(),
+                    true,
+                ),
+                std::cmp::Ordering::Less => (
+                    "older: the next start upgrades it (auto_migrate), or run `sip-faxd db migrate`".into(),
+                    true,
+                ),
+                std::cmp::Ordering::Greater => (
+                    "NEWER than this sip-faxd: install the newer sip-faxd".into(),
+                    false,
+                ),
+            };
+            println!(
+                "  schema version: {} (this sip-faxd needs {}): {state}",
+                r.schema, r.required
+            );
+            if ok {
+                println!("ok");
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        // a new installation: the file comes with the first start
+        Err(store::Error::NotFound(m)) if kind == "sqlite" => {
+            println!("  {m}");
+            println!("ok");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            eprintln!(
+                "sip-faxd: error: cannot use the database: {}",
+                mask_secrets(&msg, url)
+            );
+            if let Some(h) = connection_hint(&msg) {
+                eprintln!("hint: {h}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// An error message with the URL's password replaced (drivers sometimes echo the URL).
+fn mask_secrets(msg: &str, url: &str) -> String {
+    let masked = mask_url(url);
+    msg.replace(url, &masked)
+}
+
+/// What a connection error usually means, from the drivers' messages.
+pub fn connection_hint(msg: &str) -> Option<&'static str> {
+    let m = msg.to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| m.contains(n));
+    if has(&["saslprep", "prohibitedcharacter"]) {
+        Some(
+            "PostgreSQL's password check (SCRAM, SASLprep) refuses a character of the password, such as an emoji: use letters, digits, punctuation or CJK characters in the password",
+        )
+    } else if has(&["cannot open database", "unknown database"]) {
+        // (before the password: SQL Server adds "The login failed" to a missing database)
+        Some(
+            "the database does not exist: create an empty database first (sip-faxd creates the tables, not the database)",
+        )
+    } else if has(&[
+        "password authentication failed",
+        "login failed",
+        "access denied",
+        "authentication failed",
+    ]) {
+        Some(
+            "the user name or the password is wrong (with the split [database] fields, write the password as it is)",
+        )
+    } else if has(&["does not exist"]) {
+        Some(
+            "the database does not exist: create an empty database first (sip-faxd creates the tables, not the database)",
+        )
+    } else if has(&["certificate", "tls", "ssl"]) {
+        Some(
+            "the TLS certificate of the server is not trusted: for a self-signed SQL Server certificate set trust_server_certificate = true",
+        )
+    } else if has(&["connection refused", "actively refused"]) {
+        Some(
+            "nothing listens on that host and port: check the address, the port and that the database server runs",
+        )
+    } else if has(&[
+        "failed to lookup",
+        "nodename nor servname",
+        "name or service not known",
+        "no such host",
+        "dns",
+    ]) {
+        Some("the host name cannot be resolved: check the host")
+    } else if has(&["no answer within", "timed out", "timeout", "pool timed out"]) {
+        Some(
+            "no connection: nothing listens on that host and port, a firewall drops it, or the host is wrong",
+        )
+    } else {
+        None
+    }
+}
+
+/// What is said when no trunk is configured.
+pub const NO_TRUNK: &str = "no trunk is configured: every call is refused (or dropped) until one is added in the web interface (Settings -> Trunks)";
 
 /// `sip-faxd db backfill`
 pub async fn db_backfill(cfg: &AppConfig, base: &Path, dir: Option<PathBuf>) -> ExitCode {
@@ -570,5 +795,58 @@ mod tests {
         for secret in ["mailpw-123", "urlpw-456", "tok-789", "hmac-secret-000"] {
             assert!(!text.contains(secret), "{secret} leaked:\n{text}");
         }
+    }
+
+    /// K03: the drivers' own messages (as seen on the real servers) get the right hint.
+    #[test]
+    fn k03_connection_hints_tell_the_causes_apart() {
+        let cases = [
+            // (message, a part of the hint)
+            (
+                "password authentication failed for user \"u\"",
+                "user name or the password",
+            ),
+            ("Login failed for user 'u'.", "user name or the password"),
+            (
+                "Access denied for user 'u'@'172.17.0.1' (using password: YES)",
+                "user name or the password",
+            ),
+            // SQL Server says "The login failed" with a missing database too: the database wins
+            (
+                "Cannot open database \"x\" requested by the login. The login failed.",
+                "database does not exist",
+            ),
+            (
+                "error returned from database: database \"x\" does not exist",
+                "database does not exist",
+            ),
+            ("Unknown database 'x'", "database does not exist"),
+            (
+                "error with configuration: Failed to saslprep password: Error(ProhibitedCharacter('x'))",
+                "SASLprep",
+            ),
+            (
+                "invalid peer certificate: UnknownIssuer",
+                "trust_server_certificate",
+            ),
+            (
+                "An error occurred during the attempt of performing I/O: Connection refused (os error 111)",
+                "nothing listens",
+            ),
+            (
+                "failed to lookup address information: Name or service not known",
+                "cannot be resolved",
+            ),
+            (
+                "pool timed out while waiting for an open connection",
+                "firewall",
+            ),
+            ("no answer within 15 s", "firewall"),
+        ];
+        for (msg, want) in cases {
+            let h = connection_hint(msg).unwrap_or_else(|| panic!("no hint for {msg:?}"));
+            assert!(h.contains(want), "{msg:?} -> {h}");
+        }
+        assert_eq!(connection_hint("something else entirely"), None);
     }
 }

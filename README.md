@@ -47,20 +47,29 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 ## Configuration
 
-`sip-faxd` reads a TOML file (default: `conf/sip-faxd.toml` next to the executable; override with `--config`). [`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example) documents every option: the SIP listener, per-peer `[[trunks]]` profiles (presets `generic` and `cht-cs210`, source-IP allow-lists, T.38 policy, optional registration), per-call SIP/UDPTL capture and the fax output directory.
+The configuration file (default: `conf/sip-faxd.toml` next to the executable; override with `--config`) holds the **startup settings only**: `[database]`, `[web]`, `[storage]`, `[log]` and `[service]` ([`conf/sip-faxd.toml.example`](conf/sip-faxd.toml.example)). With the built-in SQLite nothing has to be changed. Another database is written field by field, the password as it is (no percent-encoding), or from a file:
 
-```sh
-./sip-faxd config check --config conf/sip-faxd.toml   # validate (shows database, retention, fax and number settings)
-./sip-faxd serve --config conf/sip-faxd.toml          # run
+```toml
+[database]
+type = "mssql"                  # sqlite | postgres | mysql | mariadb | mssql
+host = "10.1.2.3"
+name = "faxdb"
+user = "fax"
+password = "p@ss:w/rd#1"        # or password_file = "conf/db-password"
+trust_server_certificate = true
 ```
 
-Besides the SIP settings, the file has `[database]` (`url`, `auto_migrate`, `max_connections`), `[retention]` (`files_days`, `records_days`, `run_at`), `[[routes]]` and `[delivery]` (see [Delivery](#delivery)) and, per trunk, `[trunks.fax]` (`resolutions`, `ecm`) and `[trunks.numbers]` (where the calling and called number come from: `ani_sources`, `dnis_sources`, `strip_plus`, `ani_strip_prefix`, `dnis_strip_prefix`).
+```sh
+./sip-faxd config check     # validate the file (passwords shown as ***)
+./sip-faxd db check         # test the database connection: server version, schema; changes nothing
+./sip-faxd serve            # run in the foreground (or start / stop / status, below)
+```
 
-**Runtime settings live in the database (M4a, ADR-051).** Only `[log]`, `[database]` and `[storage]` (and later `[web]`, `[service]`) are always read from the file. `[sip]`, `[media]`, `[call]`, `[capture]`, `[[trunks]]`, `[[routes]]`, `[delivery]` and `[retention]` are imported into the database at the first start; after that the database decides (the start logs a warning naming the tables of the file that no longer have an effect). Changes apply to the next call without a restart, except the listen address, the UDPTL port range and `[capture]`. Secrets (registration, e-mail and webhook passwords) are stored encrypted with `conf/secret.key`.
+**Everything else lives in the database and is set in the web interface** (Settings): the SIP listener and the address we advertise, per-peer trunks (presets `generic` and `cht-cs210`, source-IP allow-lists, T.38 policy, registration, fax capabilities, where the numbers come from), call handling, per-call capture, delivery routes and retention (ADR-051, ADR-060). The first start stores the defaults, without any trunk: calls are refused until a trunk is added (the web interface and the log say so). Changes apply to the next call without a restart, except the listen address, the UDPTL port range and the capture. Secrets (registration, e-mail and webhook passwords) are stored encrypted with `conf/secret.key`. An older configuration file that still has these sections keeps working: they are imported once, while the database has none, and can then be removed.
 
 ```sh
-./sip-faxd config export [--include-secrets]      # the database's runtime configuration as TOML (a backup)
-./sip-faxd config import [--force] [--file PATH]  # write a file's runtime tables into the database
+./sip-faxd config export [--include-secrets]      # the settings of the database as TOML (a backup, a template)
+./sip-faxd config import [--force] --file PATH    # set them by script (conf/runtime.toml.example documents every option)
 ./sip-faxd user add alice --role agent            # accounts: add | passwd | disable | enable | list
 ./sip-faxd fax list --unread                      # faxes: list | show | read | note | redeliver
 ```
@@ -105,21 +114,23 @@ On by default (also without a `[web]` table in the file): HTTPS on `0.0.0.0:8443
 PNG previews of every page are written next to the TIFF and the PDF when a fax is received (`<name>-p1.png`, `<name>-p1-thumb.png`, ...) and are deleted with them.
 ## Fax records and the database
 
-Every call is a row in the `faxes` table of the database named by `[database] url` (default: SQLite file `data/sip-faxd.db`; `postgres://`, `mysql://` / `mariadb://` and `mssql://` work too, see [docs/database.md](docs/database.md)). The row is created when the call starts (`fax_status = receiving`), its `pages` count goes up with every page the fax machine delivers, and it is completed when the call ends: the status (`received`, `partial`, `failed`, `no_fax`), who hung up and why (`hangup_direction`, `hangup_code`), the calling number (ANI) and called number (DNIS), the file paths and sizes, and the negotiated resolution, rate, coding and ECM. Calls from sources outside every trunk's allow-list are refused and not recorded.
+Every call is a row in the `faxes` table of the database of `[database]` (default: SQLite file `data/sip-faxd.db`; PostgreSQL, MySQL / MariaDB and SQL Server work too, see [docs/database.md](docs/database.md)). The row is created when the call starts (`fax_status = receiving`), its `pages` count goes up with every page the fax machine delivers, and it is completed when the call ends: the status (`received`, `partial`, `failed`, `no_fax`), who hung up and why (`hangup_direction`, `hangup_code`), the calling number (ANI) and called number (DNIS), the file paths and sizes, and the negotiated resolution, rate, coding and ECM. Calls from sources outside every trunk's allow-list are refused and not recorded.
 
 **A database problem never costs a fax.** The fax and `result.json` are written as usual; the database writes wait in an in-memory queue and are retried with exponential backoff (1 s, 2 s, 4 s ... 60 s). A write that still fails is logged as an error, and `sip-faxd db backfill` restores it later from `logs/calls/*/result.json`. If the database is down when the server starts, the server starts anyway; a database that is *newer* than the program (or outdated while `auto_migrate = false`) stops the start.
 
-Retention: `[retention]` is copied into the database on the **first** start; after that the database decides (edit it in the web interface, Settings → Retention). A job runs every day at `run_at` (server local time): it deletes the TIFF/PDF files after `files_days` (the record stays, marked "files purged") and the records after `records_days`. `0` means never.
+Retention (web interface, Settings → Retention): A job runs every day at `run_at` (server local time): it deletes the TIFF/PDF files after `files_days` (the record stays, marked "files purged") and the records after `records_days`. `0` means never.
 
 | Command | What it does |
 |---|---|
 | `sip-faxd db migrate` | Create or upgrade the schema (safe to run from several hosts at once; MySQL/MariaDB migrations can be re-run after a failure) |
 | `sip-faxd db backfill [--dir DIR]` | Insert the calls found in `logs/calls/*/result.json` that are missing from the database |
 | `sip-faxd purge [--dry-run]` | Run the retention job now; `--dry-run` only counts |
+| `sip-faxd db check [--url URL [--password-stdin]]` | Test the connection: server version, schema version; changes nothing |
+| `sip-faxd db copy --to URL` (or `--to-config FILE`) | Move to another database, also of another kind (e.g. SQLite to SQL Server): every table with its ids, into an empty database; the service must be stopped |
 
 ## Delivery
 
-With `[[routes]]` in the configuration, every fax that ends as `received` is delivered as soon as its record is in the database (a fax that broke off, `partial`, only when the route says `deliver_partial = true`; `failed` and `no_fax` never). Routes are tried in order and the **first match** wins; a route matches on `dnis` (exact), `dnis_prefix` and `trunk` (all given conditions must hold), or `default = true` for everything else (last route). Each route has one or more deliveries:
+With delivery routes (web interface, Settings → Delivery routes; below in the file format of `config import`), every fax that ends as `received` is delivered as soon as its record is in the database (a fax that broke off, `partial`, only when the route says `deliver_partial = true`; `failed` and `no_fax` never). Routes are tried in order and the **first match** wins; a route matches on `dnis` (exact), `dnis_prefix` and `trunk` (all given conditions must hold), or `default = true` for everything else (last route). Each route has one or more deliveries:
 
 ```toml
 [[routes]]

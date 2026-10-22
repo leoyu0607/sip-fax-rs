@@ -9,6 +9,8 @@ import type { Fax } from '../src/lib/api';
 export const CONTAINER = process.env.E2E_CONTAINER ?? 'sipfax-e2e-web';
 export const HTTP_URL = process.env.E2E_HTTP_URL ?? 'http://127.0.0.1:18080';
 export const HTTPS_URL = process.env.E2E_HTTPS_URL ?? 'https://127.0.0.1:18443';
+/** The instance without any trunk (a new installation; M4f F05). */
+export const NOTRUNK_URL = process.env.E2E_NOTRUNK_URL ?? 'http://127.0.0.1:18081';
 /** The password of every account made by scripts/e2e-web-container.sh. */
 export const PW = 'Correct-horse-battery-1';
 
@@ -68,8 +70,8 @@ export function sh(args: string[], input?: string): Promise<string> {
   });
 }
 
-export type Instance = 'a' | 'b';
-const SIP: Record<Instance, string> = { a: '127.0.0.1:5060', b: '127.0.0.1:5061' };
+export type Instance = 'a' | 'b' | 'c';
+const SIP: Record<Instance, string> = { a: '127.0.0.1:5060', b: '127.0.0.1:5061', c: '127.0.0.1:5062' };
 
 export interface FaxOptions {
   /** The calling number (From user), as the server extracts it. */
@@ -133,7 +135,7 @@ export async function sql(instance: Instance, query: string, params: unknown[] =
 // ------------------------------------------------------------------------------ pages
 
 export function base(instance: Instance): string {
-  return instance === 'a' ? HTTP_URL : HTTPS_URL;
+  return instance === 'a' ? HTTP_URL : instance === 'b' ? HTTPS_URL : NOTRUNK_URL;
 }
 
 /** Signs in through the form. */

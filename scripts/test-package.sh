@@ -15,7 +15,7 @@ fresh() {   # a layout package.sh could package, apart from what a case removes
     "$WORK/r/target/$TARGET/release" "$WORK/r/web-ui/dist/assets"
   cp "$HERE/scripts/package.sh" "$WORK/r/scripts/"
   printf '[workspace.package]\nversion = "9.9.9"\n' > "$WORK/r/Cargo.toml"
-  for f in conf/sip-faxd.toml.example LICENSE README.md README.zh-TW.md CHANGELOG.md docs/field-test.md docs/database.md docs/web.md; do
+  for f in conf/sip-faxd.toml.example conf/runtime.toml.example LICENSE README.md README.zh-TW.md CHANGELOG.md docs/field-test.md docs/database.md docs/web.md; do
     echo x > "$WORK/r/$f"
   done
   echo 'console.log(1)' > "$WORK/r/web-ui/dist/assets/index-AbC123xy.js"

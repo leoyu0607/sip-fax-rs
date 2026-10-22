@@ -118,6 +118,11 @@ pub struct FaxdOptions {
     pub log_extra: String,
     /// Extra lines inside `[service]` (`stop_timeout_secs`, ...).
     pub service: String,
+    /// Leave out the `[[trunks]]` entry: a new installation, a trunk is added through the web
+    /// interface later (M4f).
+    pub no_trunk: bool,
+    /// Serve the web interface over plain HTTP on `127.0.0.1:<port>` (default: web off).
+    pub web_port: Option<u16>,
 }
 
 /// A configuration written to disk, not started yet.
@@ -228,9 +233,9 @@ impl Faxd {
         let cfg = format!(
             "[log]\nlevel = \"debug\"\n{log_line}\n{}\n\n[service]\npid_file = {:?}\nsocket = {:?}\n{}\n\n\
              [sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
-             [call]\n{}\n{}\n\n[web]\nenabled = false\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
+             [call]\n{}\n{}\n\n{}[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
              [database]\nurl = {:?}\n\n\
-             [[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}\n\n{}\n",
+             {}\n\n{}\n",
             opts.log_extra,
             pid_file.display().to_string(),
             socket.display().to_string(),
@@ -242,6 +247,11 @@ impl Faxd {
             } else {
                 "fax_session = \"hold\""
             },
+            match opts.web_port {
+                Some(p) =>
+                    format!("[web]\nenabled = true\nscheme = \"http\"\nbind = \"127.0.0.1:{p}\"\n"),
+                None => "[web]\nenabled = false\n".to_string(),
+            },
             data_dir.display().to_string(),
             calls_dir.display().to_string(),
             if opts.capture_keep_failed {
@@ -251,7 +261,14 @@ impl Faxd {
             },
             opts.capture_extra,
             db_url,
-            opts.trunk,
+            if opts.no_trunk {
+                String::new()
+            } else {
+                format!(
+                    "[[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}",
+                    opts.trunk
+                )
+            },
             opts.extra
         );
         let cfg_path = dir.join("sip-faxd.toml");

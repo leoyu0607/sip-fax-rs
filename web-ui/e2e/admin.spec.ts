@@ -1,5 +1,5 @@
 // U08 (settings forms: field errors, conflict, secrets), U15 (a trunk's number settings apply to
-// the next call), U16 (a setting that needs a restart says so).
+// the next call), U16 (a setting that needs a restart says so), U20 (the uptime counts on).
 
 import { expect, test, type Page } from '@playwright/test';
 import { csrf, login, sendFax, signedIn, sql, tr } from './support';
@@ -280,5 +280,25 @@ test('U16 a change of sip.bind is marked beforehand, says it needs a restart, an
   } finally {
     await main.context.close();
     await watcher.context.close();
+  }
+});
+
+test('U20 the uptime on the status page counts on every second without asking the server', async ({ browser }) => {
+  const { context, page } = await signedIn(browser, 'root');
+  try {
+    await page.getByRole('link', { name: tr('nav.status'), exact: true }).click();
+    const uptime = page.locator('#uptime');
+    await expect(uptime).toHaveText(/^\d+(:\d\d){1,2}$/);
+    let asked = 0;
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname.endsWith('/api/v1/status')) asked++;
+    });
+    const before = await uptime.textContent();
+    await expect(uptime).not.toHaveText(before!, { timeout: 3000 });
+    const after = await uptime.textContent();
+    await expect(uptime).not.toHaveText(after!, { timeout: 3000 });
+    expect(asked).toBe(0);
+  } finally {
+    await context.close();
   }
 });
