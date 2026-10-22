@@ -15,7 +15,8 @@
     "users": "Accounts",
     "audit": "Audit log",
     "language": "Language",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "theme": "Theme"
   },
   "live": {
     "on": "Live updates connected",
@@ -545,5 +546,10 @@
         "none": "None (25)"
       }
     }
+  },
+  "theme": {
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
   }
 }

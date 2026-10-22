@@ -29,8 +29,9 @@
   line-height: 1.5;
 }
 
+/* dark: chosen in the header, or the system's when the person did not choose light */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #12161c;
     --surface: #1a2029;
     --surface-2: #232b36;
@@ -48,6 +49,30 @@
     --danger-bg: #3d1a17;
     --info-bg: #1c2b3d;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #12161c;
+  --surface: #1a2029;
+  --surface-2: #232b36;
+  --text: #e4e8ee;
+  --muted: #9aa5b4;
+  --border: #344050;
+  --accent: #6fa3d8;
+  --accent-text: #0d1117;
+  --focus: #79b8ff;
+  --ok: #6fcf8f;
+  --ok-bg: #18301f;
+  --warn: #e7b85a;
+  --warn-bg: #3a2e12;
+  --danger: #ff8a80;
+  --danger-bg: #3d1a17;
+  --info-bg: #1c2b3d;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {

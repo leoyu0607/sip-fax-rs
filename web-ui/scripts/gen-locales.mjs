@@ -21,7 +21,13 @@ add('nav', [
   ['users', '帳號', 'Accounts'],
   ['audit', '稽核紀錄', 'Audit log'],
   ['language', '語言', 'Language'],
+  ['theme', '外觀', 'Theme'],
   ['logout', '登出', 'Sign out'],
+]);
+add('theme', [
+  ['system', '跟隨系統', 'System'],
+  ['light', '明亮', 'Light'],
+  ['dark', '深色', 'Dark'],
 ]);
 add('live', [
   ['on', '即時更新已連線', 'Live updates connected'],

@@ -158,17 +158,21 @@
 - [x] [Opus] 撰寫 `docs/test-plans/M4f.md`
 - [x] [Any] 實作：`apps/sip-faxd/src/settings.rs`（`DatabaseFile` → `DatabaseSection`）、`crates/store/src/check.rs`（`check_url`）、`db check`、`db copy --to-password-stdin`／`--to-config`、`config check` 與啟動 log 的訊息（`commands::NO_TRUNK`）、Web 的「沒有中繼」橫幅（`App.svelte`）、`conf/sip-faxd.toml.example` 拆出 `conf/runtime.toml.example`（打包時一起放）；文件：field-test、IT 手冊、database.md、web.md、兩份 README、CHANGELOG 中英
   - 2026-10-22 手動驗證：PostgreSQL 建立密碼 `p@ss:w/rd#1 中%` 的帳號，分欄位與 `--password-stdin` 都能連線；`db check` 對錯密碼、不存在的資料庫、關閉的 port、不存在的 SQLite 檔各給正確提示；`db copy --to-password-stdin` 成功
-- [~] [Sonnet] 交接（2026-10-23，使用者額度用盡，由另一位 agent 接手）。報告 `docs/test-reports/M4f.md`（標示未完成，§9 空）
+- [x] [Sonnet] 依計畫實作 D01–F05 並寫 `docs/test-reports/M4f.md`（2026-10-23 由另一位 agent 接手完成驗證）
   - 已完成且通過：D01、D03、D04（`apps/sip-faxd/src/settings.rs::m4f_tests`）；D05、K01–K04（SQLite／關閉的 port／解析不到的主機）、P01、P02、F01–F04（`apps/sip-faxd/tests/m4f_cli.rs`）；D02、K01–K04、P01 的伺服器部分（`apps/sip-faxd/tests/m4f_server.rs`，db-matrix 四種都過，CI `db-matrix` 新增 step）；store 層 `crates/store/src/tests/check_tests.rs`；F02 真傳真（`tools/fax-sim/tests/e2e_m4f.rs`）；F05（`web-ui/e2e/setup.spec.ts` 6 個案例，e2e-web 實例 `c`）
   - 沒有 ignore 任何測試。未解：`scripts/e2e-web.sh` 最後一次執行 `access.spec.ts` U18（`toBeFocused`）失敗，前一次通過，疑似不穩定，需重跑確認；MySQL 的 R04（既有）在 db-matrix 偶爾逾時
   - 執行結果：fmt、clippy、deny、`cargo test --workspace`（1102 通過）、db-matrix 四種、`e2e_m4f`（Docker）、web-ui lint／check／coverage、store 涵蓋率 81.53% 都通過（細節見報告 §7）
   - 修掉的產品問題：`--to-password-stdin` 搭配 `--to-config` 被靜默接受；MSSQL 資料庫不存在被提示成密碼錯誤；新增 PostgreSQL emoji 密碼（SASLprep，sqlx 限制，未修）的提示。報告 §3 另列 5 個觀察到但沒修的小問題
-  - 下一步：① 重跑 `scripts/e2e-web.sh` 確認 U18 是否不穩定；② 跑完整 `scripts/ci-local.sh`；③ 推送後確認 CI 全綠（尤其 db-matrix 新 step）；④ Opus 審核報告
-- [ ] [Any] `docs/database.md` 與 `docs/manual/it.md` 要明白寫：sip-faxd 需要自己專用的資料庫（不要與其他系統共用；`users`、`sessions`、`settings`、`schema_migrations` 等通用表名可能衝突，MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 會悄悄沿用別的系統的表）。使用者 2026-10-22 決定：只要求專用資料庫，不做衝突檢查，不加表名前綴
-- [ ] [Opus] 審核 `docs/test-reports/M4f.md`（已依現況寫成，標示未完成）
+  - 2026-10-23：GitHub CI 的 `e2e-web` 連續兩次通過，U18 沒有重現（視為偶發）；CI run 39824400230 全綠（含 db-matrix 新 step）
+- [x] [Any] `docs/database.md` 與 `docs/manual/it.md` 要明白寫：sip-faxd 需要自己專用的資料庫（不要與其他系統共用；`users`、`sessions`、`settings`、`schema_migrations` 等通用表名可能衝突，MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 會悄悄沿用別的系統的表）。使用者 2026-10-22 決定：只要求專用資料庫，不做衝突檢查，不加表名前綴
+- [x] [Opus] 審核 `docs/test-reports/M4f.md`（2026-10-23 通過，報告 §9；審核時修正新安裝的 log 訊息、Windows 的編譯警告，新增 `.gitattributes`）
 - [ ] [Any] 合併順序：先把 `m4e-db-copy`（審核已通過；確認其 CI run 39794768007 為綠）合進 main，再合 `m4f-config`，然後依 CLAUDE.md 發版檢查清單發 v0.4.0-alpha
 - 備註：RUSTSEC-2026-0381/0382/0383（rustls-webpki、webpki-roots、webpki-root-certs，2026-10-19/20）已於 2026-10-23 檢查：main、m4e、m4f、v0.2.0、v0.3.0 的 lock 檔都已是修正版（0.103.16、1.0.10），不需處理
-- [ ] [Opus] 審核
+
+## Web 介面改善（2026-10-23 使用者提出）
+- [x] [Any] 系統狀態頁的運作時間（uptime）不會跳：`web-ui/src/routes/Status.svelte` 只在載入時與每 30 秒 `load()` 一次，`status.changed` 也不帶 uptime（`events::watch_status` 刻意排除）。改為前端以載入時的 `uptime_secs` 加上經過的時間每秒更新顯示，不必增加後端推送（2026-10-23：`src/lib/clock.ts::liveUptime`，以 `performance.now()` 計時；vitest `clock.test.ts`、Playwright U20 在 `admin.spec.ts`）
+- [x] [Any] 明亮模式：`web-ui/src/app.css` 原本只跟隨作業系統（`prefers-color-scheme`），作業系統是深色時無法切到明亮。2026-10-23：頁首語言選單旁新增「外觀」選單（跟隨系統／明亮／深色），`src/lib/theme.ts` 存在 `localStorage` 的 `sipfax.theme`，`<html data-theme>` 切換 `app.css` 的顏色；`main.ts` 在掛載前套用（登入頁也有效）。vitest `theme.test.ts`、Playwright U21 `theme.spec.ts`
+- [ ] [Opus] UI/UX 優化：先盤點各頁（登入、傳真列表、內容頁、設定、帳號、稽核、系統狀態）的問題並與使用者確認範圍，再分項實作；改完重跑手冊截圖（`scripts/e2e-web.sh --config playwright.shots.config.ts`）
 
 ### 文件（優先級在功能開發之後）
 > 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。

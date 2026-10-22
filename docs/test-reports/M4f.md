@@ -3,7 +3,7 @@
 - 實作：Opus（`apps/sip-faxd/src/settings.rs`、`crates/store/src/check.rs`、`apps/sip-faxd/src/commands.rs`、`web-ui/src/App.svelte`）；測試與本報告：Sonnet（依 Opus 的測試計畫）
 - 計畫：`docs/test-plans/M4f.md`；ADR-060；共通規則 `docs/test-plans/M4.md` §0
 - 分支：`m4f-config`
-- 狀態：**未完成**（交接：另一位 agent 接手；見 `docs/TODO.md` M4f 段落）
+- 狀態：**Opus 審核通過**（2026-10-23，§9）
 
 ## 1. 環境
 
@@ -139,4 +139,28 @@ cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-r
 
 ## 9. Opus 審核
 
-（待審核）
+2026-10-23，**通過**。
+
+**檢查內容**
+- 計畫 §1 的 17 個案例都有對應的測試，位置與報告 §2 相同；沒有 `#[ignore]`。
+- 沒有空斷言或過度 mock：CLI 與伺服器案例都執行真的 `sip-faxd`，連線真的資料庫（db-matrix 四種），F02 以 SpanDSP 真的送傳真。斷言檢查的是具體輸出（退出碼、提示文字、密碼不出現、資料庫內容逐列或逐位元組不變），不是「有回應」而已。D05 做過變異驗證。
+- 與計畫不同之處（§4）都有理由，可以接受。PostgreSQL 的 emoji 密碼是 sqlx 的 SASLprep 限制，以提示加上專門案例處理是合理的。
+- 涵蓋率：store 81.53%（門檻 80%），web-ui statements 91.65%（加上 U20、U21 後為 91.69%）。
+- CI：`m4f-config` 的 run 39810797081（重跑 `e2e-web` 後）、39824400230 全綠。前者第一次失敗是 GitHub 安裝套件時 packages.microsoft.com 回 403，與程式無關。
+- U18（`toBeFocused`）：GitHub CI 的 `e2e-web` 連續兩次通過，沒有重現。視為偶發，之後再失敗時記錄並修正。
+
+**審核時修正**
+- §3 觀察 ①：新安裝（設定檔沒有執行設定）時，log 原本寫「the runtime configuration of the configuration file was imported」。改為「the database had no runtime configuration: the defaults were written to it」（`runtime.rs::log_boot`），F02 本機案例加上斷言。
+- `settings.rs::read_password_file` 在非 unix 平台的未使用變數警告（Windows 上 `clippy -D warnings` 會失敗）。
+- 新增 `.gitattributes`（`eol=lf`）：在 Windows checkout 後，腳本是 CRLF，在 Docker 裡無法執行（`bash`）。
+- `docs/database.md`、IT 手冊 §3.4：寫明 sip-faxd 需要自己專用的資料庫（TODO 的待辦）。
+
+**§3 其他觀察的處理**
+- ② `port = 70000` 的錯誤沒有欄位名稱：訊息仍指出 `[database]` 與原因（`expected u16`），可以接受，不修。
+- ③ 0 位元組的 SQLite 檔被 `db check` 切成 WAL：沒有建立資料表，不影響之後的 `db migrate`，不修。
+- ④ 關閉的 port 約 10 秒才回來：在 15 秒上限內，提示文字涵蓋可能原因，不修。
+- ⑤ `unknown_source = "drop"` 在 info 等級沒有 log：與既有行為一致（避免掃描流量洗版），不修；IT 手冊 §3（來源 IP）已說明對接時改成 `log` 可看到被丟棄的來源。
+
+**Windows 本機執行的注意事項**（不影響 CI）
+- Hyper-V 保留了 18004–18103 等 TCP port，`scripts/e2e-web.sh` 預設的 18080 無法綁定，要設 `E2E_HTTP_PORT`、`E2E_HTTPS_PORT`、`E2E_NOTRUNK_PORT`（例如 28080／28443／28081）。
+- 主機記憶體不足時，Linux 全 workspace 測試與 Web E2E 不要同時執行。

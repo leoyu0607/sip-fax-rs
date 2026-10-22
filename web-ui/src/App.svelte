@@ -5,6 +5,7 @@
   import { faxList } from './lib/faxlist.svelte';
   import { live, onEvent, onResync, startLive, stopLive } from './lib/live.svelte';
   import { ADMIN_PAGES, href } from './lib/route';
+  import { setTheme, storedTheme, THEMES, type Theme } from './lib/theme';
   import { ended, logout, restore, router, session, storeLocale } from './lib/session.svelte';
   import Login from './routes/Login.svelte';
   import ChangePassword from './routes/ChangePassword.svelte';
@@ -67,6 +68,12 @@
   const page = $derived(router.route.page);
   const forbidden = $derived(ADMIN_PAGES.has(page) && !session.isAdmin);
 
+  let theme = $state<Theme>(storedTheme());
+  function chooseTheme(e: Event) {
+    theme = (e.currentTarget as HTMLSelectElement).value as Theme;
+    setTheme(theme);
+  }
+
   function setLocale(e: Event) {
     const l = (e.currentTarget as HTMLSelectElement).value as Locale;
     i18n.set(l);
@@ -125,6 +132,12 @@
       <select id="locale" value={i18n.locale} onchange={setLocale}>
         {#each LOCALES as l (l)}
           <option value={l}>{t(`locale.${l}`)}</option>
+        {/each}
+      </select>
+      <label class="sr-only" for="theme">{t('nav.theme')}</label>
+      <select id="theme" value={theme} onchange={chooseTheme} title={t('nav.theme')}>
+        {#each THEMES as th (th)}
+          <option value={th}>{t(`theme.${th}`)}</option>
         {/each}
       </select>
       <a href="#/account">{session.user.display_name ?? session.user.username}</a>

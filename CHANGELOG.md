@@ -10,10 +10,14 @@ All notable changes to this project are documented here. Versions follow [Semant
 - **`sip-faxd db check`**: test the database connection (server version, schema version, time); changes nothing, explains why a connection fails (host, password, missing database, certificate). `--url URL --password-stdin` tests another database.
 - `db copy` takes the target's password from stdin (`--to-password-stdin`) or the target from another configuration file (`--to-config FILE`).
 - A banner in the web interface while no trunk is configured.
+- Web interface: a theme switch next to the language (system, light, dark), kept in the browser.
 - **`sip-faxd db copy --to <URL>`**: move to another database, also of another kind (for example from the built-in SQLite to SQL Server). Every table is copied with its ids (faxes with read flags and notes, deliveries, settings, audit log, accounts, sessions) in one transaction into an empty target, then checked table by table. The service must be stopped; afterwards set `[database] url` to the target and keep `conf/secret.key`.
 
 ### Changed
 - **The configuration file holds the startup settings only** (`[database]`, `[web]`, `[storage]`, `[log]`, `[service]`). SIP, trunks, routes and the other runtime settings are set in the web interface; the first start stores the defaults without any trunk (calls are refused until one is added; the log and the web interface say so). `conf/runtime.toml.example` documents them for `config import --file`. An older file that still has runtime sections keeps working: they are imported once, and the log and `config check` say they can be removed.
+
+### Fixed
+- Web interface: the uptime on the status page counts on every second (it stood still between two reads of the status).
 
 ## [0.3.0-alpha] - 2026-10-22
 Milestone M4: the web interface, accounts, settings in the database, service management, TUI.
@@ -75,10 +79,14 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 - **`sip-faxd db check`**：測試資料庫連線（伺服器版本、資料表版本、耗時），不做任何修改；連不上時說明原因（主機、密碼、資料庫不存在、憑證）。`--url URL --password-stdin` 可以測試另一個資料庫。
 - `db copy` 的目標密碼可以從標準輸入讀（`--to-password-stdin`），或從另一個設定檔取目標（`--to-config 檔案`）。
 - 還沒有設定中繼時，Web 介面上方會顯示提示。
+- Web 介面：語言旁新增外觀選單（跟隨系統、明亮、深色），存在瀏覽器。
 - **`sip-faxd db copy --to <URL>`**：換資料庫，也可以換成另一種（例如從內建的 SQLite 改用 SQL Server）。全部資料表（傳真與已讀、備註、投遞、設定、稽核紀錄、帳號、登入 session）連同 `id` 在一個交易內複製到空的目標資料庫，完成後逐表核對。服務必須先停止；之後把 `[database] url` 改成目標，並沿用 `conf/secret.key`。
 
 #### 變更
 - **設定檔只放啟動設定**（`[database]`、`[web]`、`[storage]`、`[log]`、`[service]`）。SIP、中繼、投遞路由等執行設定在 Web 介面設定；第一次啟動以預設值建立，沒有中繼（新增中繼前所有來電都會被拒絕，log 與 Web 介面會提示）。`conf/runtime.toml.example` 說明這些設定，供 `config import --file` 使用。舊設定檔裡還有執行設定區段時照樣可用：匯入一次，之後 log 與 `config check` 會提示可以刪除。
+
+#### 修正
+- Web 介面：系統狀態頁的已執行時間每秒更新（原本在兩次讀取之間不會動）。
 
 ### [0.3.0-alpha] - 2026-10-22
 里程碑 M4：Web 介面、帳號、設定存資料庫、服務管理、TUI。
