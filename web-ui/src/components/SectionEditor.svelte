@@ -94,6 +94,9 @@
 </script>
 
 <form class="section-form" onsubmit={save} novalidate>
+  {#if restartSection !== '' && restartFields.some((f) => f.startsWith(`${restartSection}.`))}
+    <p class="restart-legend muted small"><span class="restart-mark" aria-hidden="true">⟲</span> {t('config.restart_legend')}</p>
+  {/if}
   {#each visible as f (f.key)}
     <FieldInput field={f} {body} path={f.key} {labels} section={restartSection} {errors} {restartFields} onchange={set} />
   {/each}

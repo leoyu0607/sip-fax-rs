@@ -649,6 +649,7 @@ async fn s04_text_body(env: &Env) {
 db_case!(s05_read_flag, s05_read_flag_body);
 async fn s05_read_flag_body(env: &Env) {
     let st = &env.store;
+    assert_eq!(st.count_unread().await.unwrap(), 0);
     let a = st
         .insert_receiving(&nf("call-s05-a", "s05", T0))
         .await
@@ -667,6 +668,8 @@ async fn s05_read_flag_body(env: &Env) {
         ..Default::default()
     };
     let ids = |p: Page<FaxRecord>| p.items.iter().map(|r| r.id).collect::<Vec<_>>();
+    // a record being received is unread too
+    assert_eq!(st.count_unread().await.unwrap(), 3);
     assert_eq!(
         ids(st
             .list(&unread(false), PageRequest::default())
@@ -688,6 +691,7 @@ async fn s05_read_flag_body(env: &Env) {
         (r.is_read, r.read_changed_by.as_deref(), r.read_changed_at),
         (true, Some("alice"), Some(t(T0 + 10_000)))
     );
+    assert_eq!(st.count_unread().await.unwrap(), 2);
     assert_eq!(
         ids(st
             .list(&unread(true), PageRequest::default())
@@ -710,6 +714,7 @@ async fn s05_read_flag_body(env: &Env) {
         (r.is_read, r.read_changed_by.as_deref(), r.read_changed_at),
         (false, Some("bob"), Some(t(T0 + 20_000)))
     );
+    assert_eq!(st.count_unread().await.unwrap(), 3);
     assert_eq!(
         ids(st
             .list(&unread(false), PageRequest::default())
@@ -740,6 +745,7 @@ async fn s05_read_flag_body(env: &Env) {
         .await
         .unwrap();
     assert_eq!((r.is_read, r.note.as_deref()), (true, Some("keep me")));
+    assert_eq!(st.count_unread().await.unwrap(), 2);
 }
 
 // ---------------------------------------------------------------- S06

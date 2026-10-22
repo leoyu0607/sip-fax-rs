@@ -22,12 +22,18 @@ add('nav', [
   ['audit', '稽核紀錄', 'Audit log'],
   ['language', '語言', 'Language'],
   ['theme', '外觀', 'Theme'],
+  ['unread', '{count} 份未讀', '{count} unread'],
+  ['menu_of', '{name} 的帳號選單', 'Account menu of {name}'],
   ['logout', '登出', 'Sign out'],
 ]);
 add('theme', [
   ['system', '跟隨系統', 'System'],
   ['light', '明亮', 'Light'],
   ['dark', '深色', 'Dark'],
+]);
+add('time', [
+  ['today', '今天', 'Today'],
+  ['yesterday', '昨天', 'Yesterday'],
 ]);
 add('live', [
   ['on', '即時更新已連線', 'Live updates connected'],
@@ -143,6 +149,7 @@ add('faxes', [
   ['filter.clear', '清除篩選', 'Clear'],
 ]);
 add('fax', [
+  ['more_details', '更多資訊', 'More details'],
   ['title', '來自 {ani} 的傳真', 'Fax from {ani}'],
   ['back', '回到傳真列表', 'Back to the faxes'],
   ['started_at', '時間', 'Time'],
@@ -285,6 +292,7 @@ add('users', [
   ['reset_password', '重設密碼', 'Reset password'],
   ['reset_password_help', '留空表示不變更。重設後該帳號所有登入都會結束。', 'Leave empty to keep it. A reset ends every session of the account.'],
   ['must_change_next', '下次登入時必須變更密碼', 'Must change the password at the next sign-in'],
+  ['delete_of', '刪除 {name}', 'Delete {name}'],
   ['new', '新增帳號', 'New account'],
   ['initial_password', '初始密碼', 'Initial password'],
   ['create', '建立帳號', 'Create account'],
@@ -337,6 +345,7 @@ add('config', [
   ['reload', '重新載入', 'Reload'],
   ['unsaved', '有尚未儲存的變更', 'Unsaved changes'],
   ['warnings', '{count} 個提醒', '{count} warning(s)'],
+  ['restart_legend', '標示 ⟲ 的欄位變更後需要重新啟動服務才會生效', 'Fields marked ⟲ take effect after the service is restarted'],
   ['restart_field', '變更後需要重新啟動服務才會生效', 'Takes effect after a restart of the service'],
   ['restart_required', '需要重新啟動服務才會生效：{fields}', 'Takes effect after a restart: {fields}'],
   ['pending_restart', '有設定等待重新啟動才會生效：{fields}', 'Waiting for a restart: {fields}'],

@@ -414,6 +414,14 @@ impl FaxStore for SqlStore {
         Ok(Page { items, next })
     }
 
+    async fn count_unread(&self) -> Result<u64> {
+        self.count(
+            "SELECT COUNT(*) FROM faxes WHERE is_read = ?",
+            &[false.into()],
+        )
+        .await
+    }
+
     async fn set_read(&self, id: i64, read: bool, by: &str) -> Result<FaxRecord> {
         check_len("by", by, 64)?;
         let now = self.clock.now();

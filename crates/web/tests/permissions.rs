@@ -110,6 +110,7 @@ fn matrix() -> Vec<Route> {
     let mut v = vec![
         // 看傳真列表、預覽、下載
         r("view faxes", g(), "/api/v1/faxes", Body::None, true),
+        r("view faxes", g(), "/api/v1/faxes/counts", Body::None, true),
         r("view faxes", g(), "/api/v1/faxes/{fax}", Body::None, true),
         r(
             "view faxes",

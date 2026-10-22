@@ -198,6 +198,47 @@ async fn w03_the_read_flag_records_who_changed_it() {
 }
 
 #[tokio::test]
+async fn w03b_counts_gives_the_number_of_unread_faxes_as_the_read_flags_change() {
+    let e = env().await;
+    add_user(&e, "alice", Role::Agent, false).await;
+    let (c, csrf) = login(&e, "alice").await;
+    let unread = || async {
+        let (s, v) = body(c.get(e.url("/api/v1/faxes/counts")).send().await.unwrap()).await;
+        assert_eq!(s, 200, "{v}");
+        v["unread"].as_u64().unwrap()
+    };
+    assert_eq!(unread().await, 0);
+    let a = fax(&e, "cnt-a@gw", "02", 1).await;
+    fax(&e, "cnt-b@gw", "02", 2).await;
+    assert_eq!(unread().await, 2);
+    let read = |id: i64, read: bool| {
+        change(
+            &c,
+            Method::PUT,
+            e.url(&format!("/api/v1/faxes/{id}/read")),
+            &csrf,
+        )
+        .json(&json!({ "read": read }))
+        .send()
+    };
+    assert_eq!(read(a, true).await.unwrap().status(), 200);
+    assert_eq!(unread().await, 1);
+    assert_eq!(read(a, false).await.unwrap().status(), 200);
+    assert_eq!(unread().await, 2);
+    // not signed in
+    let anon = reqwest::Client::new();
+    assert_eq!(
+        anon.get(e.url("/api/v1/faxes/counts"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    e.stop().await;
+}
+
+#[tokio::test]
 async fn w04_a_note_conflict_is_409_with_the_current_note_and_changes_nothing() {
     let e = env().await;
     add_user(&e, "alice", Role::Agent, false).await;

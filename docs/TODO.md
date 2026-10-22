@@ -174,6 +174,16 @@
 - [x] [Any] 系統狀態頁的運作時間（uptime）不會跳：`web-ui/src/routes/Status.svelte` 只在載入時與每 30 秒 `load()` 一次，`status.changed` 也不帶 uptime（`events::watch_status` 刻意排除）。改為前端以載入時的 `uptime_secs` 加上經過的時間每秒更新顯示，不必增加後端推送（2026-10-23：`src/lib/clock.ts::liveUptime`，以 `performance.now()` 計時；vitest `clock.test.ts`、Playwright U20 在 `admin.spec.ts`）
 - [x] [Any] 明亮模式：`web-ui/src/app.css` 原本只跟隨作業系統（`prefers-color-scheme`），作業系統是深色時無法切到明亮。2026-10-23：頁首語言選單旁新增「外觀」選單（跟隨系統／明亮／深色），`src/lib/theme.ts` 存在 `localStorage` 的 `sipfax.theme`，`<html data-theme>` 切換 `app.css` 的顏色；`main.ts` 在掛載前套用（登入頁也有效）。vitest `theme.test.ts`、Playwright U21 `theme.spec.ts`
 - [ ] [Opus] UI/UX 優化：先盤點各頁（登入、傳真列表、內容頁、設定、帳號、稽核、系統狀態）的問題並與使用者確認範圍，再分項實作；改完重跑手冊截圖（`scripts/e2e-web.sh --config playwright.shots.config.ts`）
+  - 2026-10-23 盤點 17 項，使用者選第一批（分支 `ui-ux`）：
+    - [x] 設定表單的儲存列（使用者回報「怪怪的」：灰色帶子沒貼齊卡片）：改為卡片的一部分、陰影；停用的主要按鈕改一般樣式；「有尚未儲存的變更」用警示色
+    - [x] ① 頁首帳號選單（我的帳號／語言／外觀／登出；Esc、點外面關閉）U22
+    - [x] ② 「傳真」旁的未讀數：`FaxStore::count_unread`、`GET /faxes/counts`（S05、W03b、A11），`src/lib/unread.svelte.ts` 依事件重讀 U22
+    - [x] ⑤ 整列可點、⑥ 簡短時間 `formatWhen`（今天／昨天／月日）U24
+    - [x] ⑨ 內容頁資訊欄（詳細資料、備註、投遞在預覽旁；「更多資訊」）U25
+    - [x] ⑪ 需要重啟的欄位改為 ⟲ 標記與區段說明 U26
+    - [x] ⑭ 新增帳號按按鈕才打開、⑮ 帳號列表按鈕對齊（`<td class="toolbar">` 是 flex，破壞表格）U23
+    - 還沒做（之後再排）：③ 連線圓點改為斷線時的文字提示、④ 手機與窄螢幕版面、⑦ 列表欄寬、⑧ 空狀態說明、⑩ 上一份／下一份傳真、⑫ 離開頁面前提醒未儲存、⑬ 設定欄位寬度一致、⑯ 系統狀態加今日統計與磁碟空間（要動後端）、⑰ 登入頁排版與顯示密碼
+    - 手冊截圖（`docs/manual/images/`）在合併前重跑
 
 ### 文件（優先級在功能開發之後）
 > 2026-10-22 使用者決定：使用手冊分「座席」與「IT」兩份；先寫 Markdown（`docs/manual/`，繁中），要 release 時轉成 PDF；正式 release 的 PDF 手冊要含截圖畫面（Web 的截圖可在 M4c 以 Playwright 自動產生）。
