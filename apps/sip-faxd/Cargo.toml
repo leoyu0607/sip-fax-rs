@@ -13,6 +13,7 @@ store = { path = "../../crates/store" }
 runtime-config = { path = "../../crates/runtime-config" }
 accounts = { path = "../../crates/accounts" }
 delivery = { path = "../../crates/delivery" }
+web = { path = "../../crates/web" }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

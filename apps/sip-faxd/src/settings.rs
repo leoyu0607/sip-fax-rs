@@ -44,6 +44,8 @@ pub struct AppConfig {
     pub log: LogSection,
     /// `[service]`
     pub service: ServiceSection,
+    /// `[web]`
+    pub web: web::config::WebConfig,
     /// `[database]`
     pub database: DatabaseSection,
     /// `[retention]` (runtime section: the file's copy, used for the first import)
@@ -84,6 +86,7 @@ impl AppConfig {
         })?;
         let log = section(&mut table, "log", path)?;
         let service = section(&mut table, "service", path)?;
+        let web = section(&mut table, "web", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
         let file =
             RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -94,6 +97,7 @@ impl AppConfig {
         let cfg = AppConfig {
             log,
             service,
+            web,
             database,
             retention: file.runtime.retention.clone(),
             delivery: file.runtime.delivery.clone(),
@@ -118,6 +122,7 @@ impl AppConfig {
     fn validate(&self) -> Result<(), String> {
         self.log.validate()?;
         self.service.validate()?;
+        self.web.validate()?;
         store::backend_for_url(&self.database.url).map_err(|e| format!("[database] {e}"))?;
         if self.database.max_connections == 0 {
             return Err("[database] max_connections must be at least 1".into());
@@ -307,6 +312,10 @@ mod tests {
             "socket",
             "stop_timeout_secs",
             "start_timeout_secs",
+            "[web]",
+            "scheme",
+            "tls_names",
+            "session_idle_hours",
             "max_size_mb",
             "keep",
             "compress",

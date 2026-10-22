@@ -73,6 +73,36 @@ level = "info"
 # start_timeout_secs = 30
 
 # ---------------------------------------------------------------------------------------
+# [web]  the web interface (M4b)
+# ---------------------------------------------------------------------------------------
+[web]
+# Without a [web] table in the file the web interface is off.
+enabled = true
+
+# Address and port of the web interface.
+# bind = "0.0.0.0:8443"
+
+# "https" (default) or "http". With "http" on an address other machines can reach, passwords
+# and faxes travel unencrypted (a warning is logged at every start).
+# scheme = "https"
+
+# Your own certificate (PEM chain) and private key, relative to the executable's directory.
+# Leave both out to use a self-signed certificate: it is made at the first start in
+# conf/tls/self-signed.crt / .key (ECDSA P-256, valid 825 days, the longest macOS and iOS
+# accept) and made again automatically when it ends within 30 days. Its SHA-256 fingerprint is
+# logged at every start, to compare with what the browser shows.
+# cert = "conf/tls/web.crt"
+# key = "conf/tls/web.key"
+
+# Extra names (host names or IP addresses) for the self-signed certificate. It always names the
+# host name, localhost, 127.0.0.1 and the bind address (every address of the machine when the
+# bind address is 0.0.0.0).
+# tls_names = ["fax.example.com", "192.0.2.10"]
+
+# A session ends after this many hours without a request (and always after 7 days).
+# session_idle_hours = 8
+
+# ---------------------------------------------------------------------------------------
 # [sip]  the SIP listener
 # ---------------------------------------------------------------------------------------
 [sip]

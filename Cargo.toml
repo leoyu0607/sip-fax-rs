@@ -11,6 +11,18 @@ rust-version = "1.94"
 repository = "https://github.com/leoyu0607/sip-fax-rs"
 
 [workspace.dependencies]
+# web (M4b, ADR-056): HTTP/HTTPS with rustls (ring provider), self-signed certificates
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "query", "tokio", "ws"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["set-header", "limit", "timeout"] }
+hyper = { version = "1", default-features = false, features = ["http1", "http2", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "server-auto", "server-graceful", "service"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
+x509-parser = { version = "0.18", default-features = false }
+if-addrs = "0.13"
 # TUI (M4d, ADR pending): pure Rust terminal UI
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 crossterm = "0.29"

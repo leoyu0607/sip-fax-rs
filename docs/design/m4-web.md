@@ -3,7 +3,7 @@
 - 撰寫：Opus（2026-10-21）
 - 需求來源：`docs/GOALS.md`（原始需求 1、服務管理）、`docs/TODO.md` M4 段，以及 2026-10-21 使用者對下列問題的回答：
   - 帳號分「管理員」與「座席」兩種角色。
-  - Web 由使用者選 HTTP 或 HTTPS；選 HTTPS 且沒有提供憑證時，自動產生**有效期 10 年的自簽憑證**。
+  - Web 由使用者選 HTTP 或 HTTPS；選 HTTPS 且沒有提供憑證時，自動產生自簽憑證（2026-10-22 改為**有效期 825 天、到期前 30 天自動更新**，因為 macOS／iOS 拒絕超過 825 天的憑證；ADR-056）。
   - 介面提供**繁體中文與英文**。
   - 清整天數、帳號、trunk／SIP 設定、投遞路由，以及原本設定檔中的大部分設定，都改存在 DB，可以在 Web 上修改。
 - 實作者依本規格施作。要偏離時，先在報告中提出擬議 ADR，由 Opus 合併。
@@ -143,13 +143,14 @@ tls_names = []                   # 自簽憑證額外的 SAN（主機名稱或 I
 session_idle_hours = 8
 ```
 - `scheme = "http"` 時，bind 不是 loopback 位址會在啟動時記 warning（密碼會以明文傳送）。
+- 設定檔沒有 `[web]` 時 `enabled` 預設為 `false`（升級時不會突然多開一個 port）；`conf/sip-faxd.toml.example` 寫 `enabled = true`（ADR-056）。
 
 ### 5.2 自簽憑證
 - `scheme = "https"` 且沒有設定 `cert`／`key`：如果 `conf/tls/self-signed.{crt,key}` 不存在，就用 `rcgen`（純 Rust）產生：
-  - ECDSA P-256；**有效期 10 年**；
+  - ECDSA P-256；**有效期 825 天**（macOS／iOS 拒絕更長的伺服器憑證，使用者信任了也一樣；ADR-056）；EKU `serverAuth`；
   - SAN：本機主機名稱、`localhost`、`127.0.0.1`、bind 的 IP（`0.0.0.0` 時列出本機所有非 loopback 的 IPv4/IPv6 位址）、`tls_names`；
   - 私鑰檔權限 0600。
-- 已存在就沿用，不會每次重產。距離到期不到 30 天時記 warning。
+- 已存在就沿用，不會每次重產。**自簽憑證**距離到期不到 30 天（或已過期、檔案損壞）時，啟動時自動重新產生，並記 warning（指紋改變，瀏覽器要重新信任）；**使用者提供的憑證**不會被更換，只記 warning。
 - 啟動 log 印出憑證的 SHA-256 指紋，讓使用者在瀏覽器出現警告時比對。
 - TLS 使用 rustls（`tokio-rustls` / `axum-server` 的 rustls 支援），只允許 TLS 1.2 以上。
 

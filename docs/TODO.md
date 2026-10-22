@@ -98,6 +98,9 @@
 - [x] [Sonnet] M4a：執行設定入 DB（匯入／匯出、驗證、秘密加密、熱套用）、帳號與 session、CLI（config、user、fax）
   - 2026-10-22：Opus 審核通過（`docs/test-reports/M4a.md` §10）；審核時修正 i05 的 schema 版本、K10 的 nonce 斷言、R05 的真實時區測試、投遞 catch-up 延遲與 f22 的競態；ADR-052–054。
 - [ ] [Sonnet] M4b：web crate（REST、WebSocket、HTTP/HTTPS 與自簽憑證、安全 header）
+  - 2026-10-22 使用者決定：自簽憑證改為有效期 825 天、到期前 30 天自動更新（macOS／iOS 拒絕超過 825 天的憑證；ADR-056）。
+  - 分階段：① web crate 骨架與 HTTP/HTTPS（H）② 登入、session、CSRF、權限（A 的 HTTP 部分）③ 傳真 API（W01–W08）④ 設定、帳號、狀態 API（W09–W11）⑤ WebSocket（V）⑥ Sonnet 依計畫補測試並寫報告。分支 `m4b-web`。
+  - [x] ① web crate 骨架與 HTTP/HTTPS
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。
