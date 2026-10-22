@@ -3,7 +3,7 @@
 - 實作與執行：Sonnet（服務管理的初版與 TUI）、Opus（接手整合、修正、E2E 與報告）
 - 計畫：`docs/test-plans/M4.md` §0、§7 M01–M14；規格：`docs/design/m4-web.md` §7；ADR-055
 - 分支：`m4d-service-management`，建立在 M4a 之上；M4a 合併進 `main`（`24f5470`）後已 rebase 到 main。
-- 狀態：**待 Opus 審核**
+- 狀態：**Opus 審核通過（2026-10-22）**，見 §9
 
 ## 1. 範圍與交付內容
 
@@ -109,3 +109,20 @@ E2E_ONLY="--test e2e_m4d" scripts/e2e-docker.sh           test result: ok. 15 pa
 ## 8. 新增依賴
 
 `rustix` 1（`fs`、`process`）、`flate2` 1（`rust_backend`）、`ratatui` 0.30（`default-features = false`，只開 `crossterm`）、`crossterm` 0.29；全部是純 Rust，`cargo deny` 通過。ADR-055。
+
+## 9. Opus 審核（2026-10-22）
+
+**結論：通過。** 計畫 §7 的 M01–M13 都有對應測試，M14 由 M4a 涵蓋；安全相關的案例（M08 被拒時不會啟動任何東西、M10 另一個 uid 連線被拒、M04 新 INVITE 回 503、M13 同時編輯備註被拒）都有反向斷言；沒有 mock store；log 的 gzip 和收到的頁面都以獨立工具（`gzip -t`、`tiffinfo`、`pdfinfo`）驗證。
+
+**注意**：這次 M4d 大部分的整合與修正是 Opus 接手完成的（§3），審核也是 Opus 做的，所以不是完全獨立的第二雙眼睛。為了彌補，審核時以腳本逐一檢查斷言，並逐項對照計畫的「預期」欄。
+
+**檢查方式**
+- 以腳本掃描 M4d 新增或修改的 126 個測試：沒有空斷言。只有一個斷言的 8 個測試逐一看過，每個都只驗證一件事，而且斷言正好對應那件事。
+- 逐項對照計畫 §7 的「預期」欄：M03 有斷言「log 最後 50 行」、不留 PID 檔與 socket；M04 有斷言 503（兩次）、`received`、頁數、磁碟上的頁數；M05 有斷言 `partial`、`shutdown`、`system`、檔案大小；M06 補上了設定與 session 的斷言（§3 第 6 點）。
+
+**審核時發現並已修正**
+1. **`RegistrationView` 沒有測試。** `status` 的 trunk 註冊狀態就是從它取得的，而且 rebase 時改成跟著熱套用更新，E2E 只測了不註冊的 trunk。新增 `hot_apply.rs::m07_the_registration_view_follows_apply_config_and_outlives_the_controller`：註冊成功、關閉、換帳號重新開啟、關閉 controller 之後都正確。
+2. **TUI 會因 DB 連線而凍結。** 主迴圈直接 `await` 連線；伺服器型 DB 停掉時，每次嘗試要等 10 秒的 acquire timeout，期間按鍵沒有反應。測試只用 SQLite，所以沒抓到。改為背景 task 連線，成功後再交給主迴圈；每 2 秒的重新整理加上逾時。新增 `m13_the_database_is_connected_in_the_background_and_handed_over_once_it_answers`。
+3. **f11 的修正沒有進到 main。** M4a 合併後 main 的 CI 在 f11 失敗（同 §3 第 4 點的競態）；已把修正 cherry-pick 到 main（`88ce22a`）。
+
+**保留為已知限制**：§6 所列。
