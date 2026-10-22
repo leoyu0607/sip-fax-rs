@@ -122,7 +122,7 @@
     - 2026-10-22 測試完成，**待 Opus 審核**（報告 `docs/test-reports/M4c.md`）：W12、W13、A14、U05（`crates/web/tests/m4c.rs`、`ui.rs`）、U02（`crates/web/tests/codes.rs` 寫 `web-ui/src/lib/api-codes.json`、vitest `codes.test.ts`）、U06（`scripts/test-package.sh`）、U07（vitest 41 個、statements 91.65%）、Playwright 16 個（`web-ui/e2e/*.spec.ts`：U08、U10–U19，U11 是 SpanDSP 真的送 3 頁；執行 `scripts/e2e-web.sh`，已放進 `ci-local.sh`、CI 的 `e2e-web` job 與 `branch-protection.json`，需管理員重新套用）。web 行涵蓋率 95.31%。測試找到並修正 6 個產品問題（`validation.reversed` 沒翻譯、路由／投遞的 422 沒顯示、備註即時更新判斷錯、保留的秘密被重新加密、列表離開頁面時錯過新傳真、`PUT /auth/me {}` 清掉語言）。M4b 留下的「真的收一份傳真看到即時事件」由 U11 關閉。
     - 2026-10-22 **Opus 審核通過**（報告 §9）。審核時修正報告留下的兩個介面問題（新 trunk 第一次儲存後表單重建、清除秘密後仍顯示「已設定」：儲存後重讀區段），U08 改為斷言這兩點；ADR-058 補上保留秘密不重新加密等決策。
   - [x] ⑦ 文件：`docs/web.md`（繁中使用說明，打包時放進 `docs/`）、兩份 README 的 Web 介面段落、`docs/field-test.md`。README 頂部的**狀態**段落在發版時更新（發版檢查清單）
-  - **交接狀態（2026-10-22）**：M4c 全部完成並審核通過。待辦：CI 的 `e2e-web` job 在 GitHub 第一次執行的結果要確認；`web-ui`、`e2e-web` 需由管理員執行 `scripts/set-branch-protection.sh` 設為必要檢查。執行檔大小（x86_64 musl，含介面）：19.46 MB，v0.2.0-alpha 為 14.54 MB（+4.9 MB，M4a–M4d 的 axum／rustls 伺服器、argon2、ratatui 與介面）。本機開發：`cd web-ui && npm run dev`（proxy 到 `SIPFAX_DEV_API`，預設 https://127.0.0.1:8443）；或 `npm run build` 後重新 `cargo build`，`sip-faxd serve` 直接提供介面。注意：macOS 上覆蓋執行中的執行檔（`cp` 到同一路徑）會讓新程序被 SIGKILL，要先 `rm` 再複製。W10 的 413 案例原本送 2 MiB，伺服器回 413 並關閉連線時用戶端可能還在寫而得到 reset（main 上也會偶發），改為只超過上限 16 bytes
+  - **交接狀態（2026-10-22）**：M4c 全部完成並審核通過。待辦：CI 的 `e2e-web` job 在 GitHub 第一次執行的結果要確認；`web-ui`、`e2e-web` 已於 2026-10-22 套用為必要檢查（`scripts/set-branch-protection.sh`）。執行檔大小（x86_64 musl，含介面）：19.46 MB，v0.2.0-alpha 為 14.54 MB（+4.9 MB，M4a–M4d 的 axum／rustls 伺服器、argon2、ratatui 與介面）。本機開發：`cd web-ui && npm run dev`（proxy 到 `SIPFAX_DEV_API`，預設 https://127.0.0.1:8443）；或 `npm run build` 後重新 `cargo build`，`sip-faxd serve` 直接提供介面。注意：macOS 上覆蓋執行中的執行檔（`cp` 到同一路徑）會讓新程序被 SIGKILL，要先 `rm` 再複製。W10 的 413 案例原本送 2 MiB，伺服器回 413 並關閉連線時用戶端可能還在寫而得到 reset（main 上也會偶發），改為只超過上限 16 bytes
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。
 - [x] [Sonnet] web：axum REST、WebSocket、驗證機制（argon2 加 session）（M4a／M4b 完成）
@@ -140,7 +140,7 @@
 - [x] [Sonnet] 手動重新投遞（`failed`／`giving_up` 的投遞；Web 按鈕與 CLI）（M3c 審核）（M4a 完成：CLI 與 store；Web 按鈕屬於 M4c）
 - [x] [Sonnet] 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區範本的測試（M3f 審核；與 stop/restart 一起做）（M4a 完成）
 - [x] [Sonnet] 預覽快取：與清整的競態（孤兒 PNG）、容量上限（M3e 審核）（M4a 完成）
-- [x] [Any] CI 新增 `web-ui` job（M4c ⑤；需由管理員把 `web-ui` 加進必要檢查：`scripts/branch-protection.json` 已加入，再執行 `scripts/set-branch-protection.sh`）
+- [x] [Any] CI 新增 `web-ui` job（M4c ⑤；2026-10-22 已套用為必要檢查，連同 `e2e-web`）
 - [x] [Opus] 審核 M4 測試報告：分期為 `docs/test-reports/M4a.md`、`M4b.md`、`M4c.md`、`M4d.md`，各自審核通過（2026-10-22）
 
 ### 文件（優先級在功能開發之後）
