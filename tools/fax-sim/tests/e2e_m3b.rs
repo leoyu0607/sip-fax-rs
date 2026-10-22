@@ -526,11 +526,29 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
         data_dir.join(&tiff_rel).is_file(),
         "a dry run deletes nothing"
     );
+    // ADR-057: the PNG previews (a full page and a thumbnail per page) are next to the TIFF
+    let pngs: Vec<std::path::PathBuf> = (1..=row.pages as u32)
+        .flat_map(|p| {
+            [store::PngKind::Full, store::PngKind::Thumb]
+                .map(|k| data_dir.join(store::png_rel_path(&tiff_rel, p, k)))
+        })
+        .collect();
+    assert!(
+        !pngs.is_empty() && pngs.iter().all(|p| p.is_file()),
+        "{pngs:?}"
+    );
     let (code, out, err) = cli(&["purge"]);
     assert_eq!(code, Some(0), "{err}");
+    let files = 2 + pngs.len();
     assert!(
-        out.contains("files of 1 record(s) removed (2 file(s)), 0 record(s) deleted"),
+        out.contains(&format!(
+            "files of 1 record(s) removed ({files} file(s)), 0 record(s) deleted"
+        )),
         "{out}"
+    );
+    assert!(
+        pngs.iter().all(|p| !p.exists()),
+        "the purge removed the PNGs"
     );
     assert!(!data_dir.join(&tiff_rel).exists());
     assert!(!data_dir.join(row.pdf_path.as_deref().unwrap()).exists());
