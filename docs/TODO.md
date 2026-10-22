@@ -102,6 +102,12 @@
   - 分階段：① web crate 骨架與 HTTP/HTTPS（H）② 登入、session、CSRF、權限（A 的 HTTP 部分）③ 傳真 API（W01–W08）④ 設定、帳號、狀態 API（W09–W11）⑤ WebSocket（V）⑥ Sonnet 依計畫補測試並寫報告。分支 `m4b-web`。
   - [x] ① web crate 骨架與 HTTP/HTTPS
   - [x] ② 登入、登出、`/auth/me`、改密碼；session cookie（HttpOnly、SameSite=Strict、HTTPS 加 Secure）；CSRF（JSON＋`X-Sipfax-Csrf`）；第一次登入強制改密碼；IP 限流 429、帳號鎖定 423（`Retry-After`）
+  - [x] ③ 傳真 API（W01–W08）：`GET /faxes`（篩選、cursor 分頁）、`GET /faxes/{id}`（含投遞，webhook 目標遮蔽）、`PUT /faxes/{id}/read`、`PUT /faxes/{id}/note`（409 附目前備註）、`GET /faxes/{id}/pages/{n}.png`（ETag／304）、`GET /faxes/{id}/file.pdf|file.tif`（只讀 data_dir 內的一般檔案，410）、`POST /faxes/{id}/redeliver`（admin）
+  - [ ] ④ 設定、帳號、狀態 API（W09–W11）：`GET /config`、`GET/PUT /config/{section}`、`DELETE /config/trunk:{name}`、`GET /config/audit`（`runtime_config::ConfigService`，錯誤對應見 `docs/test-reports/M4a.md` §8.1）；`GET/POST /users`、`PUT/DELETE /users/{id}`（`accounts::AuthService`，`last_admin` → 409）；`GET /status`（需要 sip-faxd 提供：通話數、trunk 註冊、DB 狀態、`pending_restart`，可沿用 `service::hub` 的 `StatusInfo`，在 `AppState` 加一個 trait）；W11 的請求逾時（`tower-http` 的 `timeout`，body 上限已是 1 MiB）
+  - [ ] ⑤ WebSocket `/api/v1/events`（V01–V06）：事件 `fax.created/progress/finalized/read_changed/note_changed`、`delivery.updated`、`status.changed`，`seq` 與 1000 筆環狀緩衝、`since` 補送、`resync`、30 秒 ping／60 秒逾時、慢客戶端斷線；登出／停用／改密碼時關閉該使用者的連線（A08）。③ 的 read／note 處理器之後要送出事件
+  - [ ] ⑥ Sonnet 依 `docs/test-plans/M4.md` §2–§5 補齊測試並寫 `docs/test-reports/M4b.md`（含 H01／H05／H08 在 Docker 內以 `openssl` 驗證、A11 權限矩陣表格驅動、涵蓋率 web ≥ 80%）
+  - [ ] `GET /faxes` 的全文搜尋 `q`（規格 §3）：store 的 `ListFilter` 沒有這個欄位，需要在四種 DB 加 LIKE 查詢（ani、dnis、remote_ident、note），③ 先略過
+  - **交接狀態（2026-10-22）**：分支 `m4b-web`（已 push），①②③ 完成，從 ④ 接手。web crate 的入口是 `crates/web/src/lib.rs::app(AppState)`；路由在 `crates/web/src/api/`，每個處理器以 `Session` extractor 驗證並以 `s.need(Capability::…)` 檢查權限，body 用 `ApiJson`，錯誤用 `ApiError`（`{"error": {code, message, fields?}}`）。`sip-faxd serve` 在 `apps/sip-faxd/src/web_service.rs` 組 `AppState`。測試：`crates/web/tests/`（`common::env()` 起真的 server＋SQLite）。已知：在本機（macOS 的 Claude Code 沙盒）跑整個 workspace 測試時，sip-faxd 的 control／logfile／delivery_service 單元測試偶爾因暫存目錄寫入被拒（`Permission denied`）而失敗，重跑或在 CI 上都通過，與程式無關
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。
