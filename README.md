@@ -98,6 +98,11 @@ The list of the latest faxes (live), their details with the delivery attempts, t
 
 These commands need a unix system (Linux; macOS works for testing) because of flock, setsid and the unix socket. On other systems only `serve` is available.
 
+## Web interface
+
+On by default (also without a `[web]` table in the file): HTTPS on `0.0.0.0:8443`. Without a certificate of your own a self-signed one is made in `conf/tls/` at the first start (825 days, renewed 30 days before it ends); the start log shows its SHA-256 fingerprint so you can compare it with the browser's warning. At the first start the password of `admin` is in `conf/initial-admin-password`; it has to be changed at the first login. Turn the interface off with `[web] enabled = false`; see `[web]` in `conf/sip-faxd.toml.example` for the address, `http`, your own certificate and the session time. The API is under `/api/v1`; the browser pages follow in M4c.
+
+PNG previews of every page are written next to the TIFF and the PDF when a fax is received (`<name>-p1.png`, `<name>-p1-thumb.png`, ...) and are deleted with them.
 ## Fax records and the database
 
 Every call is a row in the `faxes` table of the database named by `[database] url` (default: SQLite file `data/sip-faxd.db`; `postgres://`, `mysql://` / `mariadb://` and `mssql://` work too, see [docs/database.md](docs/database.md)). The row is created when the call starts (`fax_status = receiving`), its `pages` count goes up with every page the fax machine delivers, and it is completed when the call ends: the status (`received`, `partial`, `failed`, `no_fax`), who hung up and why (`hangup_direction`, `hangup_code`), the calling number (ANI) and called number (DNIS), the file paths and sizes, and the negotiated resolution, rate, coding and ECM. Calls from sources outside every trunk's allow-list are refused and not recorded.

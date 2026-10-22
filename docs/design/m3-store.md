@@ -141,11 +141,11 @@
 - `t4::png`：純 Rust 的 PNG 編碼器，使用 `png` crate（純 Rust，MIT/Apache），需要寫 ADR。輸出兩種影像：
   - **整頁**：1-bit 灰階 PNG。standard 解析度（98 dpi）的頁面，垂直方向要複製每一行成兩倍，讓頁面比例正確；fine 解析度不用處理。
   - **縮圖**：寬 300 px 的 8-bit 灰階，用面積平均法縮小。
-- 快取放在 `data_dir/cache/png/<fax id>/<page>-<full|thumb>.png`：
+- （ADR-057 起）收完傳真時就產生，放在 TIFF／PDF 旁：`<name>-p<page>.png`、`<name>-p<page>-thumb.png`；舊傳真沒有 PNG 時，第一次開啟才轉出並寫在同一處。原本的快取位置 `data_dir/cache/png/<fax id>/` 不再使用：
   - 用原子性的寫入（`.part` 寫完後 rename）。
   - 同一頁同時有多個請求時，只轉檔一次。
 - 呼叫介面是 `preview::page_png(store, id, page, kind) -> Result<PathBuf>`。以下情況回明確錯誤：頁碼超出範圍、檔案已經被清整、TIFF 損壞。
-- 清整檔案時，同時刪除 PNG 快取目錄。
+- 清整檔案時，同時刪除這些 PNG（以及舊版的 `cache/png/<id>/`）。
 
 ## 7. 清整機制
 - 設定項目（存在 `settings` 表；首次啟動時從 `[retention]` 初始化）：

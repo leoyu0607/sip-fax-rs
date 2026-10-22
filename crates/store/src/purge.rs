@@ -4,6 +4,7 @@ use crate::admin::ConfigAudit;
 use crate::clock::Clock;
 use crate::error::{Error, Result};
 use crate::model::{PurgeRow, RetentionPolicy};
+use crate::preview::is_png_of;
 use crate::store::FaxStore;
 use chrono::Duration;
 use std::io;
@@ -157,6 +158,12 @@ pub trait FileOps: Send + Sync {
     fn remove_file(&self, path: &Path) -> io::Result<()>;
     /// Delete a directory tree.
     fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
+    /// The file names in a directory.
+    fn list_dir(&self, path: &Path) -> io::Result<Vec<String>> {
+        std::fs::read_dir(path)?
+            .map(|e| e.map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect()
+    }
 }
 
 /// The real file system.
@@ -284,15 +291,46 @@ impl Purger {
         self
     }
 
-    /// PNG preview cache of one fax (`data_dir/cache/png/<id>`).
+    /// The PNG preview cache of one fax written by versions before ADR-057
+    /// (`data_dir/cache/png/<id>`); still removed with the fax.
     pub fn png_cache_dir(&self, id: i64) -> PathBuf {
         self.data_dir.join("cache").join("png").join(id.to_string())
+    }
+
+    /// Deletes the PNG previews next to the TIFF `tiff_rel` (`<name>-p<n>.png`,
+    /// `<name>-p<n>-thumb.png`); returns how many. A directory that is gone is no error.
+    fn remove_pngs(&self, id: i64, tiff_rel: &str) -> std::result::Result<u64, String> {
+        let tiff = resolve_in_data_dir(&self.data_dir, tiff_rel)
+            .map_err(|e| format!("fax {id}: refusing to delete: {e}"))?;
+        let (Some(dir), Some(stem)) = (tiff.parent(), tiff.file_stem().and_then(|s| s.to_str()))
+        else {
+            return Ok(0);
+        };
+        let names = match self.files.list_dir(dir) {
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(format!("fax {id}: list {}: {e}", dir.display())),
+        };
+        let mut removed = 0;
+        for name in names.iter().filter(|n| is_png_of(stem, n)) {
+            let path = dir.join(name);
+            match self.files.remove_file(&path) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("fax {id}: delete {}: {e}", path.display())),
+            }
+        }
+        Ok(removed)
     }
 
     /// Delete the files of one record. `Ok(n)` = files removed; `Err(msg)` = something failed or
     /// was refused, in which case the caller must keep the row.
     fn remove_row_files(&self, row: &PurgeRow) -> std::result::Result<u64, String> {
         let mut removed = 0;
+        // the previews first: a failure leaves the TIFF, so they can be made again
+        if let Some(t) = &row.tiff_path {
+            removed += self.remove_pngs(row.id, t)?;
+        }
         for stored in [&row.tiff_path, &row.pdf_path].into_iter().flatten() {
             let path = resolve_in_data_dir(&self.data_dir, stored)
                 .map_err(|e| format!("fax {}: refusing to delete: {e}", row.id))?;
@@ -342,11 +380,13 @@ impl Purger {
                 after = last.id;
                 rep.file_batches += 1;
                 let mut done = Vec::new();
+                let mut swept = Vec::new();
                 for row in &rows {
                     match self.remove_row_files(row) {
                         Ok(n) => {
                             rep.files_removed += n;
                             done.push(row.id);
+                            swept.push(row);
                         }
                         Err(msg) => {
                             tracing::error!("purge: {msg}");
@@ -359,8 +399,11 @@ impl Purger {
                 // a preview that was being converted while the files were deleted may have
                 // written its PNG after that; the record is marked now, so a conversion that
                 // ends from here on removes its own PNG, and this sweep takes what is there
-                for id in &done {
-                    let _ = self.files.remove_dir_all(&self.png_cache_dir(*id));
+                for row in swept {
+                    if let Some(t) = &row.tiff_path {
+                        let _ = self.remove_pngs(row.id, t);
+                    }
+                    let _ = self.files.remove_dir_all(&self.png_cache_dir(row.id));
                 }
             }
         }

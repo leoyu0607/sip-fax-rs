@@ -355,6 +355,17 @@ async fn s01_a_two_page_fax_is_received_and_stored() {
     assert!(!rep.ecm && rep.ecm_ppr_sent == 0 && rep.ecm_frames_lost == 0);
     assert_eq!(&tiff_bytes[..4], b"II*\0");
     assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+    // ADR-057: the PNG previews of every page are next to them, the same images the TIFF gives
+    let rendered = store::render_pages(&tiff_bytes).unwrap();
+    assert_eq!(rendered.len(), rep.pages as usize);
+    let tif_name = tif.file_name().unwrap().to_str().unwrap();
+    for (i, (full, thumb)) in rendered.iter().enumerate() {
+        let page = i as u32 + 1;
+        for (kind, want) in [(store::PngKind::Full, full), (store::PngKind::Thumb, thumb)] {
+            let f = tif.with_file_name(store::png_rel_path(tif_name, page, kind));
+            assert_eq!(&std::fs::read(&f).unwrap(), want, "{}", f.display());
+        }
+    }
     assert!(
         String::from_utf8_lossy(&tiff_bytes).contains("TSI: 12345678"),
         "the TSI is recorded in ImageDescription"
@@ -364,7 +375,9 @@ async fn s01_a_two_page_fax_is_received_and_stored() {
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
-    assert_eq!(left.len(), 2, "{left:?}");
+    // (TIFF, PDF and a full page and a thumbnail per page)
+    assert_eq!(left.len(), 2 + 2 * rendered.len(), "{left:?}");
+    assert!(!left.iter().any(|n| n.ends_with(".part")), "{left:?}");
 }
 
 #[tokio::test]

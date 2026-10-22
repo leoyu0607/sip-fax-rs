@@ -1,31 +1,28 @@
-//! PNG preview of received faxes, created on first request and cached (spec section 6).
+//! PNG previews of received faxes, kept next to the fax's TIFF and PDF (ADR-057).
 //!
-//! `Preview::page_png(id, page, kind)` returns the path of
-//! `data_dir/cache/png/<fax id>/<page>-<full|thumb>.png`, converting the page from the fax's TIFF
-//! the first time it is asked for:
+//! `sip-faxd` writes them when the call ends, together with the TIFF and the PDF
+//! ([`render_pages`], [`png_rel_path`]):
 //!
-//! * pages are numbered from 1, as a user sees them;
-//! * the PNG is written to `<name>.part` and renamed, so a `.png` in the cache is always whole;
-//! * concurrent requests for the same page share one conversion (single flight per cache file);
+//! `faxes/<YYYY>/<MM>/<DD>/<name>.tif`, `<name>.pdf`, `<name>-p<page>.png` (the whole page) and
+//! `<name>-p<page>-thumb.png` (300 px wide), pages numbered from 1.
+//!
+//! `Preview::page_png(id, page, kind)` returns that file. When it is not there (a fax received
+//! by a version before ADR-057, or a call whose PNGs could not be written) the page is converted
+//! from the TIFF once and written to the same place:
+//!
+//! * the PNG is written to `<name>.part` and renamed, so a `.png` is always whole;
+//! * concurrent requests for the same page share one conversion (single flight per file);
 //! * the conversion runs on the blocking pool (`spawn_blocking`);
 //! * a fax whose files were purged (`files_purged_at`), a missing or damaged TIFF and a page
 //!   number outside the file are reported as distinct [`PreviewError`]s. Nothing panics on bad
 //!   input; a panic inside the conversion is turned into [`PreviewError::Task`].
 //!
-//! [`crate::Purger`] deletes the whole `cache/png/<id>` directory together with the TIFF/PDF.
-//!
-//! M4a (R01, R02):
-//!
-//! * a purge that runs while a page is being converted cannot leave a PNG behind: after the
-//!   conversion the record is looked at again, and when its files were purged meanwhile the new
-//!   PNG is deleted and the request fails with [`PreviewError::Purged`] (the purger also sweeps
-//!   the cache directory once more after it has marked the record, so both orders are covered);
-//! * the cache has a size limit ([`Preview::with_cache_limit`]): after a new PNG is stored the
-//!   least recently used files are deleted until the cache fits again. A file counts as used
-//!   when it is stored or served (the modification time is refreshed on every hit); files used
-//!   within the protection window, and pages that are being converted, are never deleted.
+//! [`crate::Purger`] deletes the PNGs together with the TIFF and the PDF. A purge that runs
+//! while a page is being converted cannot leave a PNG behind: after the conversion the record is
+//! looked at again, and when its files were purged meanwhile the new PNG is deleted and the
+//! request fails with [`PreviewError::Purged`] (the purger also sweeps the PNGs once more after
+//! it has marked the record, so both orders are covered).
 
-use crate::clock::{Clock, SystemClock};
 use crate::purge::resolve_in_data_dir;
 use crate::store::FaxStore;
 use chrono::{DateTime, Utc};
@@ -45,13 +42,54 @@ pub enum PngKind {
 }
 
 impl PngKind {
-    /// Name used in the cache file name.
+    /// Name used in messages and the API (`full`, `thumb`).
     pub fn as_str(self) -> &'static str {
         match self {
             PngKind::Full => "full",
             PngKind::Thumb => "thumb",
         }
     }
+}
+
+/// The PNG of page `page` (1-based) of the fax whose TIFF is `tiff_rel` (as stored, relative to
+/// `data_dir`): the TIFF's name without its extension, then `-p<page>.png` or
+/// `-p<page>-thumb.png`.
+pub fn png_rel_path(tiff_rel: &str, page: u32, kind: PngKind) -> String {
+    let stem = tiff_rel
+        .strip_suffix(".tif")
+        .or_else(|| tiff_rel.strip_suffix(".tiff"))
+        .unwrap_or(tiff_rel);
+    match kind {
+        PngKind::Full => format!("{stem}-p{page}.png"),
+        PngKind::Thumb => format!("{stem}-p{page}-thumb.png"),
+    }
+}
+
+/// Whether `file` (a bare file name) is one of the PNGs [`png_rel_path`] names for a TIFF
+/// called `<stem>.tif`.
+pub fn is_png_of(stem: &str, file: &str) -> bool {
+    let Some(rest) = file.strip_prefix(stem).and_then(|r| r.strip_prefix("-p")) else {
+        return false;
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && matches!(&rest[digits..], ".png" | "-thumb.png")
+}
+
+/// The PNG files of one page: the whole page and the thumbnail.
+pub type PagePngs = (Vec<u8>, Vec<u8>);
+
+/// The full page and the thumbnail of every page of a TIFF, in page order.
+///
+/// # Errors
+/// The TIFF is malformed or a page cannot be decoded or encoded.
+pub fn render_pages(tiff: &[u8]) -> Result<Vec<PagePngs>, t4::Error> {
+    let reader = t4::TiffReader::new(tiff)?;
+    (0..reader.page_count())
+        .map(|i| {
+            let bm = reader.decode_page(i)?;
+            Ok((t4::png::encode_full(&bm)?, t4::png::encode_thumb(&bm)?))
+        })
+        .collect()
 }
 
 /// Why a preview could not be produced.
@@ -88,7 +126,7 @@ pub enum PreviewError {
     /// The TIFF is malformed or its page cannot be decoded.
     #[error("TIFF is damaged: {0}")]
     BadTiff(String),
-    /// Reading the TIFF or writing the cache failed.
+    /// Reading the TIFF or writing the PNG failed.
     #[error("preview I/O error: {0}")]
     Io(#[from] io::Error),
     /// The conversion task panicked or was cancelled.
@@ -110,26 +148,6 @@ pub struct Preview {
     flights: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
     conversions: AtomicU64,
     fault: Option<FaultHook>,
-    clock: Arc<dyn Clock>,
-    limit: Option<CacheLimit>,
-}
-
-/// Size limit of the PNG cache.
-#[derive(Debug, Clone, Copy)]
-struct CacheLimit {
-    bytes: u64,
-    protect: std::time::Duration,
-}
-
-/// What [`Preview::trim_cache`] did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct TrimReport {
-    /// Files deleted.
-    pub removed_files: u64,
-    /// Bytes freed.
-    pub removed_bytes: u64,
-    /// Bytes in the cache afterwards.
-    pub kept_bytes: u64,
 }
 
 impl Preview {
@@ -141,32 +159,7 @@ impl Preview {
             flights: Mutex::new(HashMap::new()),
             conversions: AtomicU64::new(0),
             fault: None,
-            clock: Arc::new(SystemClock),
-            limit: None,
         }
-    }
-
-    /// The clock that decides what "used recently" means (default: the system clock).
-    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
-        self.clock = clock;
-        self
-    }
-
-    /// Limits the PNG cache to `bytes`; files used within `protect` are never deleted (so a page
-    /// that was just served is still there when the client fetches it), which means the limit is
-    /// a soft one while many pages are in use.
-    pub fn with_cache_limit(mut self, bytes: u64, protect: std::time::Duration) -> Self {
-        self.limit = Some(CacheLimit { bytes, protect });
-        self
-    }
-
-    /// [`Preview::with_cache_limit`] in megabytes (`[storage] preview_cache_mb`) with a
-    /// 60 second protection window.
-    pub fn with_cache_limit_mb(self, mb: u64) -> Self {
-        self.with_cache_limit(
-            mb.saturating_mul(1024 * 1024),
-            std::time::Duration::from_secs(60),
-        )
     }
 
     /// Test seam: run `hook` on the finished `.part` file just before it is renamed into place.
@@ -180,21 +173,13 @@ impl Preview {
         self
     }
 
-    /// Number of conversions started so far (a cached page does not count).
+    /// Number of conversions started so far (a PNG that was already there does not count).
     pub fn conversions(&self) -> u64 {
         self.conversions.load(Ordering::SeqCst)
     }
 
-    /// Cache file of a page (it may not exist yet).
-    pub fn cache_path(&self, id: i64, page: u32, kind: PngKind) -> PathBuf {
-        self.data_dir
-            .join("cache")
-            .join("png")
-            .join(id.to_string())
-            .join(format!("{page}-{}.png", kind.as_str()))
-    }
-
-    /// The PNG of page `page` (1-based) of fax `id`, converted on first use.
+    /// The PNG of page `page` (1-based) of fax `id`: the file written when the fax was
+    /// received, or converted from the TIFF now when it is not there.
     pub async fn page_png(
         &self,
         id: i64,
@@ -218,9 +203,9 @@ impl Preview {
                 pages: recorded,
             });
         }
-        let out = self.cache_path(id, page, kind);
+        let out = resolve_in_data_dir(&self.data_dir, &png_rel_path(&tiff, page, kind))
+            .map_err(PreviewError::UnsafePath)?;
         if tokio::fs::try_exists(&out).await? {
-            self.touch(&out);
             return Ok(out);
         }
 
@@ -242,18 +227,13 @@ impl Preview {
         .await;
         self.release(&out, flight);
         if let Err(e) = result {
-            // a purge that deleted the directory under a running conversion shows up as an I/O
-            // error: that is a purged fax (410), not a failure
+            // a purge that deleted the TIFF under a running conversion shows up as an I/O or a
+            // missing-TIFF error: that is a purged fax (410), not a failure
             self.ensure_not_purged(id, &out).await?;
             return Err(e);
         }
-        // R01: the files may have been purged while the page was converted
+        // the files may have been purged while the page was converted
         self.ensure_not_purged(id, &out).await?;
-        if self.limit.is_some()
-            && let Err(e) = self.trim_cache().await
-        {
-            tracing::warn!("preview cache could not be trimmed: {e}");
-        }
         Ok(out)
     }
 
@@ -268,42 +248,7 @@ impl Preview {
             None => PreviewError::NotFound(id),
         };
         let _ = tokio::fs::remove_file(out).await;
-        if let Some(dir) = out.parent() {
-            let _ = tokio::fs::remove_dir(dir).await; // only when empty
-        }
         Err(err)
-    }
-
-    /// Marks a cached page as used now.
-    fn touch(&self, path: &Path) {
-        let now: std::time::SystemTime = self.clock.now().into();
-        if let Ok(f) = std::fs::OpenOptions::new().write(true).open(path) {
-            let _ = f.set_modified(now);
-        }
-    }
-
-    /// Deletes the least recently used PNGs until the cache fits its limit. Files used within
-    /// the protection window and pages that are being converted stay. Does nothing without a
-    /// limit.
-    ///
-    /// # Errors
-    /// The cache directory cannot be read.
-    pub async fn trim_cache(&self) -> io::Result<TrimReport> {
-        let Some(limit) = self.limit else {
-            return Ok(TrimReport::default());
-        };
-        let busy: Vec<PathBuf> = self
-            .flights
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        let root = self.data_dir.join("cache").join("png");
-        let now = self.clock.now();
-        tokio::task::spawn_blocking(move || trim(&root, limit, now, &busy))
-            .await
-            .map_err(|e| io::Error::other(e.to_string()))?
     }
 
     /// Pages currently being converted or waited for (0 when idle).
@@ -373,9 +318,6 @@ fn convert(
     }
     .map_err(bad_tiff)?;
 
-    if let Some(dir) = out.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let mut part = out.as_os_str().to_owned();
     part.push(".part");
     let part = PathBuf::from(part);
@@ -396,55 +338,44 @@ fn convert(
     Ok(())
 }
 
-fn trim(
-    root: &Path,
-    limit: CacheLimit,
-    now: DateTime<Utc>,
-    busy: &[PathBuf],
-) -> io::Result<TrimReport> {
-    let mut files: Vec<(std::time::SystemTime, PathBuf, u64)> = Vec::new();
-    let dirs = match std::fs::read_dir(root) {
-        Ok(d) => d,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(TrimReport::default()),
-        Err(e) => return Err(e),
-    };
-    for dir in dirs.flatten() {
-        let Ok(inner) = std::fs::read_dir(dir.path()) else {
-            continue;
-        };
-        for f in inner.flatten() {
-            let p = f.path();
-            if p.extension().is_none_or(|e| e != "png") {
-                continue; // `.part` files belong to a conversion in progress
-            }
-            if let Ok(m) = f.metadata()
-                && m.is_file()
-            {
-                files.push((m.modified().unwrap_or(std::time::UNIX_EPOCH), p, m.len()));
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn png_names_follow_the_tiff() {
+        let t = "faxes/2026/10/22/abc@gw.tif";
+        assert_eq!(
+            png_rel_path(t, 1, PngKind::Full),
+            "faxes/2026/10/22/abc@gw-p1.png"
+        );
+        assert_eq!(
+            png_rel_path(t, 12, PngKind::Thumb),
+            "faxes/2026/10/22/abc@gw-p12-thumb.png"
+        );
+        assert_eq!(png_rel_path("x.tiff", 2, PngKind::Full), "x-p2.png");
+        assert_eq!(png_rel_path("odd", 1, PngKind::Full), "odd-p1.png");
     }
-    let mut total: u64 = files.iter().map(|f| f.2).sum();
-    let mut rep = TrimReport::default();
-    files.sort();
-    let protect = chrono::Duration::from_std(limit.protect).unwrap_or(chrono::Duration::zero());
-    for (mtime, path, size) in &files {
-        if total <= limit.bytes {
-            break;
+
+    #[test]
+    fn only_the_pngs_of_this_tiff_match() {
+        for f in ["c-p1.png", "c-p10.png", "c-p3-thumb.png"] {
+            assert!(is_png_of("c", f), "{f}");
         }
-        let used: DateTime<Utc> = (*mtime).into();
-        if now - used < protect || busy.contains(path) {
-            continue;
+        // another call of the same stem with a suffix, its own files, odd names
+        for f in [
+            "c-2-p1.png",
+            "c.tif",
+            "c.pdf",
+            "c-p.png",
+            "c-p1.png.part",
+            "c-p1-full.png",
+            "c-px.png",
+            "cc-p1.png",
+            "c-p1-thumb.png.part",
+        ] {
+            assert!(!is_png_of("c", f), "{f}");
         }
-        if std::fs::remove_file(path).is_ok() {
-            total -= size;
-            rep.removed_files += 1;
-            rep.removed_bytes += size;
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::remove_dir(dir); // only when empty
-            }
-        }
+        assert!(is_png_of("c-2", "c-2-p1.png"));
     }
-    rep.kept_bytes = total;
-    Ok(rep)
 }

@@ -38,6 +38,7 @@ pub mod email;
 pub mod engine;
 pub mod error;
 pub mod folder;
+pub mod mask;
 pub mod retry;
 pub mod router;
 pub mod source;
@@ -47,7 +48,7 @@ pub mod webhook;
 pub use config::{
     DeliveryConfig, EmailConfig, FolderConfig, Format, Route, Routes, Security, WebhookConfig,
 };
-pub use engine::{DeliveryEngine, DeliveryHandle, EngineOptions, RunReport};
+pub use engine::{ChangeHook, DeliveryEngine, DeliveryHandle, EngineOptions, RunReport};
 pub use error::{DeliveryError, Error, FailureKind, Result};
 pub use retry::{DEFAULT_MAX_ATTEMPTS, backoff};
 pub use router::Router;

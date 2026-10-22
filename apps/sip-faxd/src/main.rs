@@ -31,6 +31,7 @@ mod service;
 mod settings;
 #[cfg(unix)]
 mod tui;
+mod web_service;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -475,6 +476,9 @@ fn trunk_status(fax: &std::sync::Weak<FaxIn>, regs: &fax_in::RegistrationView) -
 /// How long the shutdown waits for the database write queue.
 const RECORDER_GRACE: Duration = Duration::from_secs(10);
 
+/// How long the web interface's requests in progress may take at the shutdown.
+const WEB_GRACE: Duration = Duration::from_secs(5);
+
 /// Seconds between the "waiting for N calls" lines of a stop.
 const DRAIN_REPORT_EVERY: Duration = Duration::from_secs(5);
 
@@ -543,6 +547,11 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         live.delivery.clone(),
     );
     rcfg.on_finalized = Some(delivery.hook());
+    // the web interface's events: what reached the database, and the delivery changes
+    let web_events = Arc::new(web::events::EventBus::new());
+    rcfg.on_written = Some(web_service::recorder_events(web_events.clone()));
+    let bus = web_events.clone();
+    delivery.set_on_change(Arc::new(move |id| bus.delivery_updated(id)));
     let recorder = Arc::new(Recorder::start(db.clone(), rcfg));
     let purge_task = tokio::spawn(commands::purge_daily(db.clone(), data_dir));
 
@@ -583,6 +592,33 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         move || trunk_status(&weak_fax, &regs),
     );
     hub.set_reloader(Arc::new(runtime::ConfigReloader(rt.config.clone())));
+    // the web interface before the control socket: a service that answers `status` serves it
+    let web = match web_service::start(
+        &cfg,
+        &base,
+        rt.auth.clone(),
+        rt.config.clone(),
+        hub.clone(),
+        web_events,
+        db.clone(),
+    )
+    .await
+    {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("{e}");
+            eprintln!("sip-faxd: error: {e}");
+            purge_task.abort();
+            rt.detach();
+            if let Ok(f) = Arc::try_unwrap(fax) {
+                f.shutdown().await;
+            }
+            recorder.shutdown(RECORDER_GRACE).await;
+            delivery.shutdown().await;
+            db.close().await;
+            return ExitCode::from(1);
+        }
+    };
     let control = match service::Control::bind(&service_cfg.socket_path(&base), hub.clone()) {
         Ok(c) => Some(c),
         Err(e) if daemonized => {
@@ -672,6 +708,9 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         );
     }
     tracing::info!("shutting down");
+    if let Some(w) = web {
+        w.shutdown(WEB_GRACE).await;
+    }
     // fax-in first (ends what is left, then the sockets), then the recorder's queue, then the
     // delivery service (M3f), then the database
     rt.detach();

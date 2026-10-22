@@ -3,7 +3,7 @@
 - 撰寫：Opus（2026-10-21）
 - 需求來源：`docs/GOALS.md`（原始需求 1、服務管理）、`docs/TODO.md` M4 段，以及 2026-10-21 使用者對下列問題的回答：
   - 帳號分「管理員」與「座席」兩種角色。
-  - Web 由使用者選 HTTP 或 HTTPS；選 HTTPS 且沒有提供憑證時，自動產生**有效期 10 年的自簽憑證**。
+  - Web 由使用者選 HTTP 或 HTTPS；選 HTTPS 且沒有提供憑證時，自動產生自簽憑證（2026-10-22 改為**有效期 825 天、到期前 30 天自動更新**，因為 macOS／iOS 拒絕超過 825 天的憑證；ADR-056）。
   - 介面提供**繁體中文與英文**。
   - 清整天數、帳號、trunk／SIP 設定、投遞路由，以及原本設定檔中的大部分設定，都改存在 DB，可以在 Web 上修改。
 - 實作者依本規格施作。要偏離時，先在報告中提出擬議 ADR，由 Opus 合併。
@@ -114,11 +114,14 @@
 | `GET /faxes/{id}/file.pdf`、`file.tif` | 登入 | `Content-Disposition: attachment`；檔案已清整回 410 |
 | `POST /faxes/{id}/redeliver` | admin | 對 `failed`／`giving_up` 的投遞重新排程 |
 | `GET /config`、`GET /config/{section}` | admin | 秘密欄位以 `{"set": true}` 表示 |
-| `PUT /config/{section}` | admin | 帶 `version`；回傳驗證錯誤（每個欄位）或新的 version；回傳是否需要重啟 |
-| `DELETE /config/trunk:{name}` | admin | |
-| `GET /config/audit` | admin | |
-| `GET/POST /users`、`PUT/DELETE /users/{id}` | admin | 不能停用或降級最後一個啟用中的 admin |
-| `GET /status` | 登入 | 版本、uptime、進行中的通話、各 trunk 註冊狀態、DB 狀態、待重啟的設定 |
+| `PUT /config/{section}` | admin | body `{"version", "body"}`；回傳驗證錯誤（422，`fields` 以欄位路徑為 key）或新的 version；回傳 `restart_required`（本區段需要重啟的欄位）與 `pending_restart`；版本不符回 409（`current_version`） |
+| `DELETE /config/trunk:{name}?version=N` | admin | 其他區段不能刪（405） |
+| `PUT /config/trunks/order` | admin | `{"order": [trunk 名稱…]}`，必須是現有 trunk 的排列（M4b 新增：trunk 依此順序比對來源） |
+| `GET /config/audit?limit=&before=` | admin | 新到舊；`next` 是下一頁的 `before` |
+| `GET/POST /users`、`PUT/DELETE /users/{id}` | admin | 不能停用、降級或刪除最後一個啟用中的 admin（409 `last_admin`）；`PUT` 可帶 `password` 重設密碼（該帳號所有 session 失效，預設下次登入要改密碼） |
+| `GET /status` | 登入 | `service`（版本、uptime、進行中的通話、各 trunk 註冊狀態）、`database`（`ok`／`unavailable`）、`config`（來源、待重啟的設定；admin 另有金鑰狀態與無法解密的秘密欄位） |
+
+- 每個請求最多 30 秒（含讀 body），逾時回 408 `timeout`；串流中的下載不受限。header 30 秒內沒送完就關閉連線。
 
 ## 4. WebSocket（`/api/v1/events`）
 - 以 session cookie 驗證；連線後伺服器推送 JSON 事件：
@@ -128,6 +131,12 @@
 - 每個事件帶單調遞增的 `seq`。斷線重連時前端帶 `since=<seq>`，伺服器從記憶體中的環狀緩衝（最近 1000 筆）補送；超出範圍時送 `resync`，前端重新查詢列表。
 - 伺服器每 30 秒送 ping；60 秒沒有 pong 就關閉。
 - 帳號被停用或登出時，伺服器關閉該使用者的所有連線。
+- M4b 實作細節：
+  - 每則訊息是 `{"seq", "type", "at", "data"}`。連線後先送 `{"type": "hello", "seq": <目前最後一筆>}`，接著是 `since` 之後的事件，或 `{"type": "resync", "seq": …}`（`since` 比緩衝最舊的還舊，或比目前最後一筆還新，代表服務重新啟動過；`seq` 每次啟動從 1 開始）。
+  - `data`：`fax.created`／`fax.progress`／`fax.finalized` 是 `{id, call_id}`（progress 另有 `pages`），在寫進 DB 之後才送，前端用 `id` 讀 `GET /faxes/{id}`；`fax.read_changed` 是 `{id, is_read, by, at}`；`fax.note_changed` 是 `{id, note, by, at}`；`delivery.updated` 是 `{fax_id}`；`status.changed` 是 `{state, active_calls, trunks, pending_restart}`。
+  - 關閉代碼：4001 session 結束（登出、改密碼、停用、降級、重設密碼、刪除）、4002 沒有回 pong、4008 落後太多（超過 256 筆沒送出，前端以 `since` 重連）。
+  - 握手時 `Origin` 必須與 `Host` 相同（403 `origin`）。
+  - 以 CLI 停用帳號時，連線要等下次重連才會被拒絕（CLI 不經過服務）。
 
 ## 5. HTTP / HTTPS
 
@@ -143,13 +152,14 @@ tls_names = []                   # 自簽憑證額外的 SAN（主機名稱或 I
 session_idle_hours = 8
 ```
 - `scheme = "http"` 時，bind 不是 loopback 位址會在啟動時記 warning（密碼會以明文傳送）。
+- **預設開啟**（2026-10-22 使用者決定，ADR-057）：設定檔沒有 `[web]` 也會以上面的預設值啟動；`enabled = false` 才關閉。
 
 ### 5.2 自簽憑證
 - `scheme = "https"` 且沒有設定 `cert`／`key`：如果 `conf/tls/self-signed.{crt,key}` 不存在，就用 `rcgen`（純 Rust）產生：
-  - ECDSA P-256；**有效期 10 年**；
+  - ECDSA P-256；**有效期 825 天**（macOS／iOS 拒絕更長的伺服器憑證，使用者信任了也一樣；ADR-056）；EKU `serverAuth`；
   - SAN：本機主機名稱、`localhost`、`127.0.0.1`、bind 的 IP（`0.0.0.0` 時列出本機所有非 loopback 的 IPv4/IPv6 位址）、`tls_names`；
   - 私鑰檔權限 0600。
-- 已存在就沿用，不會每次重產。距離到期不到 30 天時記 warning。
+- 已存在就沿用，不會每次重產。**自簽憑證**距離到期不到 30 天（或已過期、檔案損壞）時，啟動時自動重新產生，並記 warning（指紋改變，瀏覽器要重新信任）；**使用者提供的憑證**不會被更換，只記 warning。
 - 啟動 log 印出憑證的 SHA-256 指紋，讓使用者在瀏覽器出現警告時比對。
 - TLS 使用 rustls（`tokio-rustls` / `axum-server` 的 rustls 支援），只允許 TLS 1.2 以上。
 
@@ -203,7 +213,7 @@ session_idle_hours = 8
 
 ## 8. M3 留下來的項目（納入 M4）
 - 手動重新投遞（§3 `redeliver`、CLI）。
-- 預覽快取：與清整的競態（清整標記 `files_purged_at` 之後，`Preview` 不再寫入快取；寫完快取後再確認一次，若已清整就刪除）；容量上限 `[storage] preview_cache_mb`（預設 2048），超過時依最後存取時間淘汰。
+- 預覽快取：與清整的競態（清整標記 `files_purged_at` 之後，`Preview` 不再寫入快取；寫完快取後再確認一次，若已清整就刪除）；容量上限 `[storage] preview_cache_mb`（預設 2048），超過時依最後存取時間淘汰（ADR-057 取消：PNG 改在收完傳真時產生、和 PDF 放在一起）。
 - 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區的檔名範本。
 
 ## 9. 新增依賴（需要 ADR）

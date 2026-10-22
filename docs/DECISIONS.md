@@ -372,7 +372,7 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 - 第一次啟動時從設定檔匯入；之後以 DB 為準，設定檔中的這些區段只會產生 warning。`config import/export` 供備份與還原。
 - 執行設定以整份快照熱替換，每通來電在 INVITE 時取一次快照；`[sip]` 的 bind／transport 與 `[media]` 的 port_range 需要重啟。
 - 秘密欄位以 `conf/secret.key` 做 AES-256-GCM 加密後存入 DB，API 只寫不讀。
-- 帳號分 `admin`／`agent`，argon2id，session 存 DB。Web 可選 HTTP 或 HTTPS；HTTPS 沒有提供憑證時以 rcgen 產生 10 年自簽憑證。介面提供繁中與英文。
+- 帳號分 `admin`／`agent`，argon2id，session 存 DB。Web 可選 HTTP 或 HTTPS；HTTPS 沒有提供憑證時以 rcgen 產生自簽憑證（有效期原訂 10 年，ADR-056 改為 825 天並自動更新）。介面提供繁中與英文。
 
 **影響**
 
@@ -424,3 +424,34 @@ M3d 完成了 ECM 接收，但只和 SpanDSP 互通過。AudioCodes 現場目前
 **影響**
 
 `[service]`（`pid_file`、`socket`、`stop_timeout_secs`、`start_timeout_secs`）與 `[log]` 的輪替設定屬於啟動設定，留在設定檔（ADR-051）。這些服務指令與 TUI 只支援 unix；其他系統只能使用 `serve`。
+
+## ADR-056：Web 伺服器、TLS 與自簽憑證（2026-10-22，M4b）
+**背景**
+
+規格原訂自簽憑證有效期 10 年。實作時發現 macOS 的憑證驗證（Safari、macOS 上的 Chrome，以及 reqwest 用的系統驗證）拒絕有效期超過 825 天的 TLS 伺服器憑證，即使使用者已經信任它也一樣，而且無法略過（`not standards compliant`；改成 2 年有效期就能通過）。
+
+**決策**
+
+- **自簽憑證**（2026-10-22 使用者決定）：ECDSA P-256、**有效期 825 天**、EKU `serverAuth`、key usage `digitalSignature`。存放在 `<設定檔目錄>/tls/self-signed.{crt,key}`，私鑰 0600。已存在就沿用；距離到期不到 30 天、已過期或檔案無法使用時，啟動時自動重新產生，並記 warning（附舊指紋）。使用者自備的憑證不會被更換，只記 warning。每次啟動都在 log 印出 SHA-256 指紋（格式與 `openssl x509 -fingerprint -sha256` 相同）。
+- ~~**`[web]` 預設關閉**~~：已由 ADR-057 改為預設開啟。`[web]` 是啟動設定（ADR-051）。
+- **TLS**：rustls，明確指定 ring provider（依賴樹裡同時有 ring 與 aws-lc-rs，不指定時 rustls 會在執行時 panic），只允許 TLS 1.2 與 1.3，ALPN 提供 `h2` 與 `http/1.1`。
+- **伺服器**：自寫 accept loop（tokio-rustls＋hyper-util 的 auto builder），保留 HTTP upgrade 給 WebSocket；TLS 握手 10 秒逾時；graceful shutdown 時讓進行中的請求在寬限時間內完成。每個請求帶 `ConnectInfo<SocketAddr>`（登入限流用）。Web 在控制 socket 之前啟動，所以 `start` 看到服務就緒時，Web 也已經在監聽；Web 無法啟動（憑證不可用、port 被占用）時 `serve` 回非 0。
+- **新增依賴**：`axum` 0.8、`tower` 0.5、`tower-http` 0.6、`hyper` 1、`hyper-util` 0.1、`tokio-rustls` 0.26、`rustls` 0.23、`rustls-pki-types`（PEM 讀取）、`rcgen` 0.14（ring）、`x509-parser` 0.18（讀取既有憑證的到期日）、`if-addrs`（bind 為 `0.0.0.0` 時列出本機位址放進 SAN）。axum、tower、hyper、rustls 原本就在依賴樹裡。全部是純 Rust 或只依賴 ring，`cargo deny check` 通過。
+
+## ADR-057：Web 預設開啟；PNG 預覽在收完傳真時產生，和 PDF 放在一起（2026-10-22，M4b 之後）
+**背景**
+
+使用者決定（2026-10-22）：
+1. sip-fax-rs 要預設開啟 Web。
+2. 預覽 PNG 要由伺服器產生，和 PDF 放在一起。
+
+原本的做法：`[web]` 預設關閉（ADR-056）；PNG 在第一次開啟時才從 TIFF 轉出，放在 `data_dir/cache/png/<id>/`，有容量上限 `[storage] preview_cache_mb`（ADR-049、M4a R02）。
+
+**決策**
+
+- **Web 預設開啟**：設定檔沒有 `[web]` 時也會以預設值啟動（HTTPS、`0.0.0.0:8443`、沒有憑證時產生自簽憑證）；`[web] enabled = false` 才關閉。升級的現場會多開 8443 port，發佈說明要寫明。測試用的設定檔一律寫 `[web] enabled = false`，避免多個 `serve` 同時搶 8443。
+- **PNG 在通話結束時產生**：`fax-in` 寫完 TIFF 與 PDF 後，從剛寫的 TIFF 轉出每頁的整頁 PNG 與 300 px 縮圖（`store::render_pages`，在 blocking pool 執行），寫在同一個目錄：`<name>-p<頁>.png`、`<name>-p<頁>-thumb.png`（`store::png_rel_path`；`.part`＋rename）。檔名由 TIFF 路徑推出，資料表不變。產生失敗只記 warning，不影響收傳真與紀錄。
+- **預覽 API**：`Preview::page_png` 直接回傳 TIFF 旁的檔案；不存在時（舊版收到的傳真、或當時寫入失敗）才從 TIFF 轉一次並寫在同一處。single-flight、與清整的競態處理（R01）照舊。
+- **取消快取上限**：PNG 和 TIFF／PDF 一樣依 `[retention] files_days` 保存，不再另外淘汰。`[storage] preview_cache_mb` 仍可解析（舊設定檔照常載入），但不再使用，`config check` 會提示移除。`Preview::with_cache_limit`／`trim_cache`／`with_clock` 刪除。
+- **清整**：刪除 TIFF 所在目錄中名稱完全符合 `<name>-p<數字>.png` 或 `<name>-p<數字>-thumb.png` 的檔案（`store::is_png_of`；同目錄裡 `<name>-2` 等其他傳真的檔案不會被刪），再刪 TIFF／PDF；舊版留下的 `cache/png/<id>/` 也一併刪除。
+- **代價**：每份傳真多出 2 × 頁數個檔案；整頁 PNG 是 1-bit，一頁約數十 KB。收完傳真到寫入最終紀錄之間多了轉檔時間（每頁數毫秒到數十毫秒）。

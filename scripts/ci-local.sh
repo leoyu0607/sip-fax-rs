@@ -25,6 +25,7 @@ if cargo llvm-cov --version >/dev/null 2>&1; then
   cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only
   cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
   cargo llvm-cov -p delivery --fail-under-lines 80 --summary-only
+  cargo llvm-cov -p web --fail-under-lines 80 --summary-only
 else
   echo "warn: cargo-llvm-cov not installed, skipping coverage gate"
 fi
@@ -42,6 +43,8 @@ else
 fi
 if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
   scripts/e2e-docker.sh
+  # M4b H01/H05/H08: the web certificate and TLS versions checked by openssl in the Rocky 9 image
+  scripts/web-openssl-docker.sh
 else
   echo "warn: docker not available, skipping tools/ SpanDSP e2e (scripts/e2e-docker.sh)"
 fi

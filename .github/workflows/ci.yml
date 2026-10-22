@@ -141,6 +141,8 @@ jobs:
       - run: cargo llvm-cov -p store --fail-under-lines 80 --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
       # delivery (M3c): non-protocol crate gate, line coverage >= 80 % (needs the SMTP services above).
       - run: cargo llvm-cov -p delivery --fail-under-lines 80
+      # web (M4b, docs/test-plans/M4.md section 0): non-protocol crate gate, line coverage >= 80 %.
+      - run: cargo llvm-cov -p web --fail-under-lines 80
 
   # M3a: the store behaviour suite on the four server databases (SQLite runs in `test`).
   # Required check names: "db-matrix (postgres)", "db-matrix (mysql)", "db-matrix (mariadb)", "db-matrix (mssql)".
@@ -292,6 +294,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      # the description: the English and the 繁體中文 section of CHANGELOG.md for this version;
+      # the release fails when either is missing
+      - run: scripts/release-notes.sh "${{ github.ref_name }}" > release-notes.md
       - uses: actions/download-artifact@v4
         with:
           pattern: dist-*
@@ -301,4 +307,6 @@ jobs:
         with:
           files: dist/*.tar.gz
           prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: release-notes.md
+          # (appends the "Full Changelog" compare link)
           generate_release_notes: true

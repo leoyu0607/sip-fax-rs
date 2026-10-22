@@ -35,7 +35,7 @@ fn url_of(dir: &Path) -> String {
 fn config(dir: &Path, routes: &str) -> PathBuf {
     let text = format!(
         "[sip]\nbind = \"127.0.0.1:0\"\n\
-         [storage]\ndata_dir = {data:?}\n\
+         [web]\nenabled = false\n[storage]\ndata_dir = {data:?}\n\
          [capture]\ndir = {calls:?}\n\
          [database]\nurl = {url:?}\n\
          [log]\nfile = \"\"\n\

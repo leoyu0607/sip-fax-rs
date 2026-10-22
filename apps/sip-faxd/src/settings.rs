@@ -44,6 +44,8 @@ pub struct AppConfig {
     pub log: LogSection,
     /// `[service]`
     pub service: ServiceSection,
+    /// `[web]`
+    pub web: web::config::WebConfig,
     /// `[database]`
     pub database: DatabaseSection,
     /// `[retention]` (runtime section: the file's copy, used for the first import)
@@ -84,6 +86,7 @@ impl AppConfig {
         })?;
         let log = section(&mut table, "log", path)?;
         let service = section(&mut table, "service", path)?;
+        let web = section(&mut table, "web", path)?;
         let database: DatabaseSection = section(&mut table, "database", path)?;
         let file =
             RuntimeFile::from_table(table).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -94,6 +97,7 @@ impl AppConfig {
         let cfg = AppConfig {
             log,
             service,
+            web,
             database,
             retention: file.runtime.retention.clone(),
             delivery: file.runtime.delivery.clone(),
@@ -118,6 +122,7 @@ impl AppConfig {
     fn validate(&self) -> Result<(), String> {
         self.log.validate()?;
         self.service.validate()?;
+        self.web.validate()?;
         store::backend_for_url(&self.database.url).map_err(|e| format!("[database] {e}"))?;
         if self.database.max_connections == 0 {
             return Err("[database] max_connections must be at least 1".into());
@@ -177,45 +182,8 @@ pub fn resolve_database_url(url: &str, base: &Path) -> String {
     out
 }
 
-/// The URL for display: the password of `user:password@host` is replaced by `***`.
-pub fn mask_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
-    };
-    let (authority, tail) = match rest.find(['/', '?']) {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, ""),
-    };
-    let Some((userinfo, host)) = authority.rsplit_once('@') else {
-        return url.to_string();
-    };
-    match userinfo.split_once(':') {
-        Some((user, _)) => format!("{scheme}://{user}:***@{host}{tail}"),
-        None => url.to_string(),
-    }
-}
-
-/// A webhook URL for display: the password of the user info and every query value (tokens) are
-/// replaced by `***`.
-pub fn mask_http_url(url: &str) -> String {
-    let masked = mask_url(url);
-    let (base, query) = match masked.split_once('?') {
-        Some((b, q)) => (b, Some(q)),
-        None => (masked.as_str(), None),
-    };
-    let base = base.split('#').next().unwrap_or(base);
-    match query {
-        Some(q) => {
-            let q = q.split('#').next().unwrap_or(q);
-            let keys: Vec<String> = q
-                .split('&')
-                .map(|kv| format!("{}=***", kv.split('=').next().unwrap_or("")))
-                .collect();
-            format!("{base}?{}", keys.join("&"))
-        }
-        None => base.to_string(),
-    }
-}
+// (`mask_url` / `mask_http_url` live in `delivery::mask`, shared with the web interface.)
+pub use delivery::mask::{mask_http_url, mask_url};
 
 #[cfg(test)]
 mod tests {
@@ -307,6 +275,10 @@ mod tests {
             "socket",
             "stop_timeout_secs",
             "start_timeout_secs",
+            "[web]",
+            "scheme",
+            "tls_names",
+            "session_idle_hours",
             "max_size_mb",
             "keep",
             "compress",

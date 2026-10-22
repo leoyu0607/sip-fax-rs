@@ -32,7 +32,9 @@ pub use db::BackendKind;
 pub use error::{Error, Result};
 pub use migrate::{MigrateReport, latest_version};
 pub use model::*;
-pub use preview::{PngKind, Preview, PreviewError, TrimReport};
+pub use preview::{
+    PagePngs, PngKind, Preview, PreviewError, is_png_of, png_rel_path, render_pages,
+};
 pub use purge::{FileOps, PurgeReport, Purger, RetentionSettings, StdFileOps};
 pub use sqlstore::SqlStore;
 pub use store::{FaxStore, StoreSource};

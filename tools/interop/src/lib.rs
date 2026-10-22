@@ -228,7 +228,7 @@ impl Faxd {
         let cfg = format!(
             "[log]\nlevel = \"debug\"\n{log_line}\n{}\n\n[service]\npid_file = {:?}\nsocket = {:?}\n{}\n\n\
              [sip]\nbind = \"127.0.0.1:{port}\"\ntransports = [\"udp\", \"tcp\"]\n{}\n\n\
-             [call]\n{}\n{}\n\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
+             [call]\n{}\n{}\n\n[web]\nenabled = false\n[storage]\ndata_dir = {:?}\n\n[capture]\nenabled = true\ndir = {:?}\nkeep = \"{}\"\n{}\n\n\
              [database]\nurl = {:?}\n\n\
              [[trunks]]\nname = \"sipp\"\nallowed_sources = [\"127.0.0.0/8\"]\n{}\n\n{}\n",
             opts.log_extra,

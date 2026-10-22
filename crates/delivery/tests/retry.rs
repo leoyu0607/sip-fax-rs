@@ -287,3 +287,24 @@ async fn d05_orphans_are_closed_cleanly() {
             .contains("no longer configured")
     );
 }
+
+#[tokio::test]
+async fn the_change_hook_names_the_fax_on_dispatch_and_after_each_attempt() {
+    let mut env = Env::new().await;
+    let hook = Hook::start(503).await;
+    let eng = env.engine(&hook_routes(&hook.url()));
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    eng.set_on_change(std::sync::Arc::new(move |id| s2.lock().unwrap().push(id)));
+    let f = env.fax("t", "1", FaxStatus::Received).await;
+    let other = env.fax("t", "1", FaxStatus::Failed).await;
+    eng.dispatch(f).await.unwrap();
+    // nothing to deliver for a failed fax: no change, no call
+    eng.dispatch(other).await.unwrap();
+    // queued again: nothing new
+    eng.dispatch(f).await.unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![f]);
+    let rep = eng.run_due().await.unwrap();
+    assert_eq!(rep.retry_scheduled, 1);
+    assert_eq!(*seen.lock().unwrap(), vec![f, f]);
+}

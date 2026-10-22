@@ -47,7 +47,7 @@ scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
 
 ## 發版檢查清單（每次打 tag 前都要完成，並在同一個 commit 一起更新）
 1. 更新 `Cargo.toml`（以及 `tools/Cargo.toml`）的 `version`。
-2. 把 `CHANGELOG.md` 的 `[Unreleased]` 改成新版本號和日期，英文和繁中兩段都要寫。
+2. 把 `CHANGELOG.md` 的 `[Unreleased]` 改成新版本號和日期，英文和繁中兩段都要寫。GitHub Release 的描述由 `scripts/release-notes.sh <tag>` 從這兩段產生（英文在前、繁中在後），缺任何一段 release job 就會失敗；打 tag 前先在本機跑一次確認輸出。
 3. 更新兩份 README 頂部的**狀態**段落（`README.md`、`README.zh-TW.md` 要同步）。
 4. 在 `docs/ROADMAP.md` 的「發佈紀錄」表格加上一列；里程碑狀態有變動時一併更新。
 5. 影響部署或試接時，同步更新 `docs/field-test.md` 和 `conf/sip-faxd.toml.example`。

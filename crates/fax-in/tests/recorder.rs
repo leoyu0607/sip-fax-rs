@@ -777,3 +777,48 @@ async fn f04_backfill_creates_no_delivery_attempts() {
         "no delivery attempts were created"
     );
 }
+
+// ---------------------------------------------------------------- M4b: the written hook
+
+#[tokio::test]
+async fn f03_every_write_that_reaches_the_database_is_announced_with_the_row_id() {
+    use fax_in::recorder::RecordWritten;
+    let store = memory_store().await;
+    let sleeps = Arc::new(RecordedSleeps::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    let mut cfg = RecorderConfig::new("/srv/fax/data".into());
+    cfg.sleeper = sleeps.clone();
+    cfg.on_written = Some(Arc::new(move |w: &RecordWritten| {
+        s2.lock().unwrap().push(w.clone())
+    }));
+    let rec = Recorder::start(Arc::new(StoreSink(store.clone())), cfg);
+    rec.record(&started("w1@gw"));
+    rec.record(&page("w1@gw", 1));
+    rec.record(&page("w1@gw", 2));
+    rec.record(&fin(finished_ok("w1@gw", 2)));
+    settle(&rec).await;
+    let id = store.get_by_call_id("w1@gw").await.unwrap().unwrap().id;
+    let c = "w1@gw".to_string();
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            RecordWritten::Created {
+                id,
+                call_id: c.clone()
+            },
+            RecordWritten::Pages {
+                id,
+                call_id: c.clone(),
+                pages: 1
+            },
+            RecordWritten::Pages {
+                id,
+                call_id: c.clone(),
+                pages: 2
+            },
+            RecordWritten::Finalized { id, call_id: c },
+        ]
+    );
+    rec.shutdown(Duration::from_secs(5)).await;
+}

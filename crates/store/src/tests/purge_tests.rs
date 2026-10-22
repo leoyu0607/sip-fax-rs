@@ -585,3 +585,49 @@ async fn r08_batches_body(env: &Env) {
         .unwrap();
     assert!(left.items.is_empty());
 }
+
+// ---------------------------------------------------------------- ADR-057
+db_case!(r09_the_pngs_next_to_the_tiff_go_and_only_those, r09_body);
+async fn r09_body(env: &Env) {
+    let p = purger(env);
+    let dd = data_dir(env);
+    // "c" is due, "c-2" (another call of the same stem, same directory) is not
+    let (old, tiff, ..) = mk(env, "c", NOW - 8 * DAY, FaxStatus::Received).await;
+    mk(env, "c-2", NOW - DAY, FaxStatus::Received).await;
+    let faxes = dd.join("faxes");
+    for f in ["c-p1.png", "c-p1-thumb.png", "c-p2.png", "c-p2-thumb.png"] {
+        std::fs::write(faxes.join(f), b"png").unwrap();
+    }
+    for f in ["c-2-p1.png", "c-2-p1-thumb.png", "c-notes.txt"] {
+        std::fs::write(faxes.join(f), b"keep").unwrap();
+    }
+    let rep = p.run(POLICY, false).await.unwrap();
+    assert_eq!(rep.files_purged, 1, "{rep:?}");
+    assert!(!tiff.exists());
+    let mut left: Vec<String> = std::fs::read_dir(&faxes)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(
+        left,
+        [
+            "c-2-p1-thumb.png",
+            "c-2-p1.png",
+            "c-2.pdf",
+            "c-2.tif",
+            "c-notes.txt"
+        ],
+        "{}",
+        env.label
+    );
+    assert!(
+        env.store
+            .get(old)
+            .await
+            .unwrap()
+            .unwrap()
+            .files_purged_at
+            .is_some()
+    );
+}

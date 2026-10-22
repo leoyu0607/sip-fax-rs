@@ -10,6 +10,12 @@ All notable changes to this project are documented here. Versions follow [Semant
 - **Graceful stop**: `stop` and `SIGTERM` answer new INVITEs with 503, wait for the faxes in progress (`[service] stop_timeout_secs`, default 300) and only then end the rest; their pages are kept (`partial`, `hangup_code = shutdown`).
 - Control socket `run/sip-faxd.sock` (mode 0600, one JSON object per line: `status`, `calls`, `stop`, `reload`, `subscribe`).
 - Log file `logs/sip-faxd.log` with rotation by size or day, `[log] keep` files kept, gzip-compressed (`[log]`, `[service]` in the configuration).
+- **Web interface server** (M4b): HTTPS on `0.0.0.0:8443` with a self-signed certificate (825 days, renewed 30 days before it ends; its SHA-256 fingerprint is logged) or your own; REST API under `/api/v1` for login, faxes (list, details, read flag, note, page previews, PDF/TIFF download, redelivery), configuration, accounts and status; live updates over a WebSocket (`/api/v1/events`). The browser pages follow in M4c.
+- **PNG page previews are written with the fax**: next to `<name>.tif` and `<name>.pdf` come `<name>-p1.png` (whole page) and `<name>-p1-thumb.png` (300 px wide) for every page. They are deleted with the TIFF and the PDF.
+
+### Changed
+- **The web interface is on by default**, also when the configuration file has no `[web]` table: an upgraded server starts listening on TCP 8443. Open it in the firewall only for the networks that use it, or turn it off with `[web] enabled = false`.
+- `[storage] preview_cache_mb` is no longer used (there is no separate preview cache any more); `config check` asks you to remove it.
 
 ## [0.2.0-alpha] - 2026-10-21
 ### Added
@@ -46,6 +52,12 @@ All notable changes to this project are documented here. Versions follow [Semant
 - **優雅停止**：`stop` 與 `SIGTERM` 對新的 INVITE 回 503，等進行中的傳真收完（`[service] stop_timeout_secs`，預設 300 秒）才結束剩下的通話；已收到的頁面照樣保留（`partial`、`hangup_code = shutdown`）。
 - 控制 socket `run/sip-faxd.sock`（權限 0600，一行一個 JSON：`status`、`calls`、`stop`、`reload`、`subscribe`）。
 - Log 檔 `logs/sip-faxd.log`，依大小或每天輪替，保留 `[log] keep` 份並以 gzip 壓縮（設定檔新增 `[log]`、`[service]` 選項）。
+- **Web 介面伺服器**（M4b）：HTTPS，監聽 `0.0.0.0:8443`；沒有提供憑證時使用自簽憑證（有效期 825 天，到期前 30 天自動更新，啟動時在 log 印出 SHA-256 指紋），也可以使用自己的憑證。`/api/v1` 提供登入、傳真（列表、詳細資料、已讀、備註、頁面預覽、下載 PDF／TIFF、重新投遞）、設定、帳號與狀態的 REST API，並以 WebSocket（`/api/v1/events`）即時推送更新。網頁畫面在 M4c 提供。
+- **PNG 頁面預覽隨傳真一起產生**：在 `<名稱>.tif`、`<名稱>.pdf` 旁邊，每頁寫出 `<名稱>-p1.png`（整頁）與 `<名稱>-p1-thumb.png`（寬 300 px 的縮圖），清整時和 TIFF、PDF 一起刪除。
+
+#### 變更
+- **Web 介面預設開啟**，設定檔沒有 `[web]` 也會啟動：升級後的伺服器會開始監聽 TCP 8443。請在防火牆只開放給要使用介面的網段，或以 `[web] enabled = false` 關閉。
+- `[storage] preview_cache_mb` 不再使用（已沒有獨立的預覽快取），`config check` 會提示移除。
 
 ### [0.2.0-alpha] - 2026-10-21
 **新增**

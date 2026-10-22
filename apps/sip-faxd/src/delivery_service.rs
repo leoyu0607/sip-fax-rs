@@ -20,11 +20,11 @@
 //! next `serve` start through `catch_up` when it is recent enough (`catch_up_hours`).
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use chrono::{Local, Utc};
-use delivery::{DeliveryEngine, EngineOptions, Routes};
+use delivery::{ChangeHook, DeliveryEngine, EngineOptions, Routes};
 use fax_in::recorder::FinalizedHook;
 use store::SystemClock;
 use tokio::sync::{Notify, mpsc, watch};
@@ -95,6 +95,7 @@ pub struct DeliveryService {
     join: JoinHandle<()>,
     settings: Reconfigurer,
     grace: Duration,
+    on_change: Arc<OnceLock<ChangeHook>>,
 }
 
 impl DeliveryService {
@@ -131,6 +132,7 @@ impl DeliveryService {
         let stop = Arc::new(Notify::new());
         let (settings, settings_rx) = watch::channel(Arc::new(Settings { routes, cfg }));
         let settings = Reconfigurer(Arc::new(settings));
+        let on_change: Arc<OnceLock<ChangeHook>> = Arc::default();
         let join = tokio::spawn(run(
             db,
             data_dir,
@@ -139,6 +141,7 @@ impl DeliveryService {
             rx,
             stop.clone(),
             settings_rx,
+            on_change.clone(),
         ));
         DeliveryService {
             tx,
@@ -146,7 +149,14 @@ impl DeliveryService {
             join,
             settings,
             grace,
+            on_change,
         }
+    }
+
+    /// Tells `hook` the fax id whenever its delivery attempts change, for every engine this
+    /// service runs (also the ones a reconfiguration makes). Only the first hook counts.
+    pub fn set_on_change(&self, hook: ChangeHook) {
+        let _ = self.on_change.set(hook);
     }
 
     /// A handle that changes the routes and parameters of this service from elsewhere (the
@@ -189,6 +199,8 @@ impl DeliveryService {
     }
 }
 
+// (the one task of the service and everything it owns)
+#[allow(clippy::too_many_arguments)]
 async fn run(
     db: Arc<Db>,
     data_dir: PathBuf,
@@ -197,6 +209,7 @@ async fn run(
     mut rx: mpsc::UnboundedReceiver<i64>,
     stop: Arc<Notify>,
     mut settings: watch::Receiver<Arc<Settings>>,
+    on_change: Arc<OnceLock<ChangeHook>>,
 ) {
     let store = loop {
         let attempt = tokio::select! {
@@ -221,13 +234,21 @@ async fn run(
                 .unwrap_or_else(|| Local::now().offset().local_minus_utc()),
             ..EngineOptions::default()
         };
-        DeliveryEngine::new(
+        let e = DeliveryEngine::new(
             store.clone(),
             &st.routes,
             data_dir.clone(),
             Arc::new(SystemClock),
             opts,
-        )
+        )?;
+        // the hook may be set after this engine was made: look it up at every change
+        let slot = on_change.clone();
+        e.set_on_change(Arc::new(move |id| {
+            if let Some(h) = slot.get() {
+                h(id);
+            }
+        }));
+        Ok::<_, delivery::Error>(e)
     };
     let current = settings.borrow_and_update().clone();
     let mut engine = match build(&current) {

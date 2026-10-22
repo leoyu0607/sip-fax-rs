@@ -202,11 +202,11 @@ M4a 起清整設定（`retention.*`）不再放在這裡：migration 0002 把它
 
 ## 清整
 
-- **檔案清整**：`ended_at` 早於「現在 − `files_days`」、還沒清過、有檔案路徑的紀錄。刪除 TIFF、PDF 與 PNG 預覽快取（`data_dir/cache/png/<id>/`），然後設定 `files_purged_at`；紀錄保留。檔案本來就不存在視為成功；刪除失敗則不設定 `files_purged_at`，下次再試。
+- **檔案清整**：`ended_at` 早於「現在 − `files_days`」、還沒清過、有檔案路徑的紀錄。刪除 TIFF、PDF 與旁邊的 PNG 預覽（`<name>-p<n>.png`、`<name>-p<n>-thumb.png`，ADR-057；舊版的 `data_dir/cache/png/<id>/` 也一併刪除），然後設定 `files_purged_at`；紀錄保留。檔案本來就不存在視為成功；刪除失敗則不設定 `files_purged_at`，下次再試。
 - **紀錄清整**：`ended_at` 早於「現在 − `records_days`」的紀錄。先刪除殘留的檔案，再刪除紀錄與它的 `delivery_attempts`；殘留檔案刪不掉的紀錄會保留。
 - `receiving` 狀態的紀錄永遠不清整。每批 500 筆。
 - **排程（M3b）**：`sip-faxd serve` 每天在 `retention.run_at`（伺服器本地時間）執行；每次等待前都重新從資料庫讀取 `run_at`，所以 Web 介面（M4）改了時間，隔天起生效。手動：`sip-faxd purge [--dry-run]`，輸出 `purge: files of N record(s) removed (K file(s)), M record(s) deleted (a + b batch(es)), S skipped`；`--dry-run` 輸出 `purge (dry run): files of N record(s) are due, M record(s) are due for deletion; nothing was deleted`。有錯誤時結束碼為 1。
 - **設定來源**：`[retention]` 屬於 `config_sections` 的 `retention` 區段（見上）；第一次啟動時匯入，之後以資料庫為準，改設定檔不會生效。
 - 刪除檔案前會確認路徑位於 `data_dir` 之內（含 `..` 與 symbolic link 檢查），不在範圍內的拒絕刪除並記 error。
-- **預覽與清整的競態（M4a）**：清整標記 `files_purged_at` 之後會再掃一次 `cache/png/<id>/`；預覽轉檔結束後會再確認一次紀錄，已清整就刪掉剛寫的 PNG 並回 `Purged`（410），所以清整與轉檔不論誰先都不會留下孤兒 PNG。
-- **預覽快取上限（M4a）**：`[storage] preview_cache_mb`（預設 2048）。寫入新 PNG 後，依最後使用時間（檔案修改時間，快取命中時更新）從最舊的開始刪，直到不超過上限；60 秒內用過的、以及轉檔中的頁面不刪（所以上限是軟性的）。
+- **預覽與清整的競態（M4a）**：清整標記 `files_purged_at` 之後會再掃一次該傳真的 PNG；預覽轉檔結束後會再確認一次紀錄，已清整就刪掉剛寫的 PNG 並回 `Purged`（410），所以清整與轉檔不論誰先都不會留下孤兒 PNG。
+- ~~**預覽快取上限（M4a）**~~：ADR-057 取消。PNG 和 TIFF／PDF 一樣依 `files_days` 保存；`[storage] preview_cache_mb` 不再使用。

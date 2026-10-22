@@ -479,12 +479,43 @@ async fn store_pages(
     let pdf_path = dir.join(format!("{name}.pdf"));
     write_atomic(&tif_path, &tiff).await?;
     write_atomic(&pdf_path, &pdf).await?;
+    let tiff_size = tiff.len() as u64;
+    write_previews(&dir, &name, tiff).await;
     Ok(Stored {
         tiff: tif_path,
         pdf: pdf_path,
-        tiff_size: tiff.len() as u64,
+        tiff_size,
         pdf_size: pdf.len() as u64,
     })
+}
+
+/// The PNG previews next to the TIFF and the PDF (ADR-057): `<name>-p<n>.png` and
+/// `<name>-p<n>-thumb.png` for every page, rendered from the TIFF just written. A failure is
+/// logged and costs nothing else: the fax is stored, and the web interface converts a missing
+/// page when it is first shown.
+async fn write_previews(dir: &Path, name: &str, tiff: Vec<u8>) {
+    let rendered = tokio::task::spawn_blocking(move || store::render_pages(&tiff)).await;
+    let pages = match rendered {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => {
+            tracing::warn!(file = %name, "PNG previews not written: {e}");
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(file = %name, "PNG previews not written: {e}");
+            return;
+        }
+    };
+    let tif = format!("{name}.tif");
+    for (i, (full, thumb)) in pages.iter().enumerate() {
+        let page = u32::try_from(i + 1).unwrap_or(u32::MAX);
+        for (kind, data) in [(store::PngKind::Full, full), (store::PngKind::Thumb, thumb)] {
+            let path = dir.join(store::png_rel_path(&tif, page, kind));
+            if let Err(e) = write_atomic(&path, data).await {
+                tracing::warn!("PNG preview not written: {e}");
+            }
+        }
+    }
 }
 
 async fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {

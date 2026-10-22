@@ -5,5 +5,42 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
+description = "The HTTP/HTTPS server of the web interface: REST API, WebSocket, TLS with self-signed certificates (M4b)"
 
 [dependencies]
+accounts = { path = "../accounts" }
+store = { path = "../store" }
+delivery = { path = "../delivery" }
+runtime-config = { path = "../runtime-config" }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tokio = { workspace = true, features = ["net", "sync", "time", "rt", "fs"] }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+rcgen = { workspace = true }
+x509-parser = { workspace = true }
+if-addrs = { workspace = true }
+ring = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["system"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+toml = { workspace = true }
+t4 = { path = "../t4" }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
+reqwest = { workspace = true, features = ["cookies"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+async-trait = { workspace = true }
+fax-in = { path = "../fax-in" }

@@ -84,6 +84,18 @@ struct Inner {
     opts: EngineOptions,
     http: reqwest::Client,
     dispatch_lock: Mutex<()>,
+    on_change: std::sync::OnceLock<ChangeHook>,
+}
+
+/// Callback of [`DeliveryEngine::set_on_change`]: the id of a fax whose delivery attempts changed.
+pub type ChangeHook = Arc<dyn Fn(i64) + Send + Sync>;
+
+impl Inner {
+    fn changed(&self, fax_id: i64) {
+        if let Some(h) = self.on_change.get() {
+            h(fax_id);
+        }
+    }
 }
 
 /// Creates delivery attempts and executes them. Cheap to clone.
@@ -118,8 +130,15 @@ impl DeliveryEngine {
                 opts,
                 http: webhook::client(),
                 dispatch_lock: Mutex::new(()),
+                on_change: std::sync::OnceLock::new(),
             }),
         })
+    }
+
+    /// Tells `hook` the fax id whenever attempts of that fax are created or change (the web
+    /// interface's `delivery.updated`). Must not block. Only the first hook counts.
+    pub fn set_on_change(&self, hook: ChangeHook) {
+        let _ = self.inner.on_change.set(hook);
     }
 
     /// The router (for `config check` previews and tests).
@@ -177,6 +196,9 @@ impl DeliveryEngine {
                 .await?;
             created.push(id);
         }
+        if !created.is_empty() {
+            i.changed(rec.id);
+        }
         Ok(created)
     }
 
@@ -226,7 +248,12 @@ impl DeliveryEngine {
                 let sem = sem.clone();
                 set.spawn(async move {
                     let _permit = sem.acquire_owned().await.expect("semaphore open");
-                    process(&inner, row).await
+                    let fax_id = row.fax_id;
+                    let r = process(&inner, row).await;
+                    if r.is_ok() {
+                        inner.changed(fax_id);
+                    }
+                    r
                 });
             }
             while let Some(res) = set.join_next().await {

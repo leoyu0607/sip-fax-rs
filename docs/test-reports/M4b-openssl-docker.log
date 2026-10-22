@@ -1,0 +1,183 @@
++ openssl version
+OpenSSL 3.5.5 27 Jan 2026 (Library: OpenSSL 3.5.5 27 Jan 2026)
++ cargo test -p web --test openssl -j 2 -- --ignored --nocapture --test-threads 1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 22s
+     Running tests/openssl.rs (target/docker/debug/deps/openssl-025391bf60dc1cda)
+
+running 3 tests
+test h01_openssl_reads_an_ecdsa_p256_certificate_of_825_days_with_the_names_and_serverauth ... $ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -text
+  Certificate:
+      Data:
+          Version: 3 (0x2)
+          Serial Number:
+              40:44:f0:6c:ea:61:af:d4:f5:ba:5e:60:b5:ce:88:71:37:b5:b1:35
+          Signature Algorithm: ecdsa-with-SHA256
+          Issuer: CN=sip-faxd
+          Validity
+              Not Before: Oct 22 00:00:00 2026 GMT
+              Not After : Jan 24 00:00:00 2029 GMT
+          Subject: CN=sip-faxd
+          Subject Public Key Info:
+              Public Key Algorithm: id-ecPublicKey
+                  Public-Key: (256 bit)
+                  pub:
+                      04:21:b3:97:22:cf:6e:2f:e9:74:7a:b7:24:aa:76:
+                      e4:46:9a:9f:e7:a4:37:04:d8:fe:15:1f:97:48:2a:
+                      a8:1d:33:a8:0c:e8:68:94:93:09:86:73:19:53:ea:
+                      32:eb:65:f6:f5:0b:db:e4:df:39:af:3d:90:66:38:
+                      03:49:0f:b1:af
+                  ASN1 OID: prime256v1
+                  NIST CURVE: P-256
+          X509v3 extensions:
+              X509v3 Subject Alternative Name: 
+                  DNS:faxsrv, DNS:localhost, IP Address:127.0.0.1, IP Address:192.0.2.10, DNS:fax.example.test, IP Address:198.51.100.4
+              X509v3 Key Usage: critical
+                  Digital Signature
+              X509v3 Extended Key Usage: 
+                  TLS Web Server Authentication
+      Signature Algorithm: ecdsa-with-SHA256
+      Signature Value:
+          30:46:02:21:00:97:0e:41:6c:a3:56:0a:6d:a8:e7:31:e1:8f:
+          40:23:b1:2a:1a:b9:04:50:1e:21:3d:8e:64:45:30:48:e0:04:
+          3b:02:21:00:b8:7c:3a:0a:3e:03:49:84:78:04:9d:46:9f:bd:
+          64:d6:bd:7f:97:0e:70:35:ae:99:1a:3b:ba:18:a9:40:b2:cd
+  (exit 0)
+$ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -checkend 71107200
+  Certificate will not expire
+  (exit 0)
+$ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -checkend 71366400
+  Certificate will expire
+  (exit 1)
+$ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -checkend 0
+  Certificate will not expire
+  (exit 0)
+$ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -startdate -enddate
+  notBefore=Oct 22 00:00:00 2026 GMT
+  notAfter=Jan 24 00:00:00 2029 GMT
+  (exit 0)
+$ openssl pkey -in /tmp/.tmpHRB43l/tls/self-signed.key -noout -text
+  Private-Key: (256 bit)
+  priv:
+      71:15:6f:77:6b:e6:5f:b5:32:8b:b4:32:c1:5a:df:
+      3b:67:6e:4f:62:0b:ea:0b:81:58:ee:88:02:aa:77:
+      3b:d3
+  pub:
+      04:21:b3:97:22:cf:6e:2f:e9:74:7a:b7:24:aa:76:
+      e4:46:9a:9f:e7:a4:37:04:d8:fe:15:1f:97:48:2a:
+      a8:1d:33:a8:0c:e8:68:94:93:09:86:73:19:53:ea:
+      32:eb:65:f6:f5:0b:db:e4:df:39:af:3d:90:66:38:
+      03:49:0f:b1:af
+  ASN1 OID: prime256v1
+  NIST CURVE: P-256
+  (exit 0)
+$ openssl x509 -in /tmp/.tmpHRB43l/tls/self-signed.crt -noout -pubkey
+  -----BEGIN PUBLIC KEY-----
+  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIbOXIs9uL+l0erckqnbkRpqf56Q3
+  BNj+FR+XSCqoHTOoDOholJMJhnMZU+oy62X29Qvb5N85rz2QZjgDSQ+xrw==
+  -----END PUBLIC KEY-----
+  (exit 0)
+$ openssl pkey -in /tmp/.tmpHRB43l/tls/self-signed.key -pubout
+  -----BEGIN PUBLIC KEY-----
+  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIbOXIs9uL+l0erckqnbkRpqf56Q3
+  BNj+FR+XSCqoHTOoDOholJMJhnMZU+oy62X29Qvb5N85rz2QZjgDSQ+xrw==
+  -----END PUBLIC KEY-----
+  (exit 0)
+$ stat -c %a /tmp/.tmpHRB43l/tls/self-signed.key
+  600
+ok
+test h05_tls_1_2_and_1_3_connect_and_1_1_and_1_0_are_refused ... $ openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/.tmpsDOyxv/control.key -out /tmp/.tmpsDOyxv/control.crt -subj /CN=control -days 2
+  .+.....+.............+++++++++++++++++++++++++++++++++++++++*.+............+.....+..........+............+............+...+..+....+..+....+........+............+...+.+.....+......+...+.+..+....+...+++++++++++++++++++++++++++++++++++++++*....+.....+..........+........+...............+...+.+.....+...+.+............+........+....+...++++++
+  ..+......+...+....+...+..+...+...+....+++++++++++++++++++++++++++++++++++++++*..+....+........+...+...+.+...+..+...+.............+...+......+.....+.+..+..........+...+........+....+..+...+.+++++++++++++++++++++++++++++++++++++++*....+..+..........+...+...+.....+....+...............+..+...+......+.......+.....+..........+..+.+.................+.........+.+..............+....+...........+..........+...+..+....+.....+......................+..+......+.+........+.+.........+.....+............+.+........+.......+..+..........+......+.....+.+......+........+......+.........+................+.....+.........+.+.....+.+...+............+.....+.......+.....+.+..+...+.......+..++++++
+  -----
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:34583 -tls1_1 -cipher AES128-SHA:@SECLEVEL=0 -brief
+  Connecting to 127.0.0.1
+  Can't use SSL_get_servername
+  depth=0 CN=control
+  verify error:num=18:self-signed certificate
+  CONNECTION ESTABLISHED
+  Protocol version: TLSv1.1
+  Ciphersuite: AES128-SHA
+  Peer certificate: CN=control
+  Verification error: self-signed certificate
+  DONE
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:46061 -tls1 -cipher AES128-SHA:@SECLEVEL=0 -brief
+  Connecting to 127.0.0.1
+  Can't use SSL_get_servername
+  depth=0 CN=control
+  verify error:num=18:self-signed certificate
+  CONNECTION ESTABLISHED
+  Protocol version: TLSv1
+  Ciphersuite: AES128-SHA
+  Peer certificate: CN=control
+  Verification error: self-signed certificate
+  DONE
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:44705 -tls1_3 -brief
+  Connecting to 127.0.0.1
+  Can't use SSL_get_servername
+  depth=0 CN=sip-faxd
+  verify error:num=18:self-signed certificate
+  CONNECTION ESTABLISHED
+  Protocol version: TLSv1.3
+  Ciphersuite: TLS_AES_256_GCM_SHA384
+  Peer certificate: CN=sip-faxd
+  Hash used: SHA256
+  Signature type: ecdsa_secp256r1_sha256
+  Verification error: self-signed certificate
+  Peer Temp Key: X25519, 253 bits
+  DONE
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:44705 -tls1_2 -brief
+  Connecting to 127.0.0.1
+  Can't use SSL_get_servername
+  depth=0 CN=sip-faxd
+  verify error:num=18:self-signed certificate
+  CONNECTION ESTABLISHED
+  Protocol version: TLSv1.2
+  Ciphersuite: ECDHE-ECDSA-AES256-GCM-SHA384
+  Peer certificate: CN=sip-faxd
+  Hash used: SHA256
+  Signature type: ecdsa_secp256r1_sha256
+  Verification error: self-signed certificate
+  Peer Temp Key: X25519, 253 bits
+  DONE
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:44705 -brief
+  Connecting to 127.0.0.1
+  Can't use SSL_get_servername
+  depth=0 CN=sip-faxd
+  verify error:num=18:self-signed certificate
+  CONNECTION ESTABLISHED
+  Protocol version: TLSv1.3
+  Ciphersuite: TLS_AES_256_GCM_SHA384
+  Peer certificate: CN=sip-faxd
+  Hash used: SHA256
+  Signature type: ecdsa_secp256r1_sha256
+  Verification error: self-signed certificate
+  Peer Temp Key: X25519, 253 bits
+  DONE
+  (exit 0)
+$ openssl s_client -connect 127.0.0.1:44705 -tls1_1 -cipher AES128-SHA:@SECLEVEL=0 -brief
+  Connecting to 127.0.0.1
+  4047AE46DB750000:error:0A000410:SSL routines:ssl3_read_bytes:ssl/tls alert handshake failure:ssl/record/rec_layer_s3.c:918:SSL alert number 40
+  (exit 1)
+$ openssl s_client -connect 127.0.0.1:44705 -tls1 -cipher AES128-SHA:@SECLEVEL=0 -brief
+  Connecting to 127.0.0.1
+  4037C024A27B0000:error:0A000410:SSL routines:ssl3_read_bytes:ssl/tls alert handshake failure:ssl/record/rec_layer_s3.c:918:SSL alert number 40
+  (exit 1)
+ok
+test h08_the_fingerprint_we_print_is_the_one_openssl_computes ... $ openssl x509 -in /tmp/.tmpr9xzki/tls/self-signed.crt -noout -fingerprint -sha256
+  sha256 Fingerprint=94:91:39:E7:EC:0C:48:D8:9E:A0:9D:A8:34:65:54:D1:E5:E5:00:EA:21:21:B9:10:87:E8:05:75:E1:59:95:95
+  (exit 0)
+ours:   94:91:39:E7:EC:0C:48:D8:9E:A0:9D:A8:34:65:54:D1:E5:E5:00:EA:21:21:B9:10:87:E8:05:75:E1:59:95:95
+openssl 94:91:39:E7:EC:0C:48:D8:9E:A0:9D:A8:34:65:54:D1:E5:E5:00:EA:21:21:B9:10:87:E8:05:75:E1:59:95:95
+$ openssl x509 -in /tmp/.tmpBbs5gu/tls/self-signed.crt -noout -fingerprint -sha256
+  sha256 Fingerprint=2F:3B:8C:7B:17:59:6E:D3:D8:C0:65:72:12:82:86:61:5B:07:9F:CF:9E:BA:FC:95:8C:29:D3:35:25:B1:3B:D5
+  (exit 0)
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.27s
+
+exit 0
