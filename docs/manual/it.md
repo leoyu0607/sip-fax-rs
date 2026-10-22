@@ -94,7 +94,7 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd     # 非 root 也能監聽 5060
 
 ### 3.4 資料庫
 
-預設是內建的 SQLite（`data/sip-faxd.db`），不用設定。使用 PostgreSQL、MySQL／MariaDB 或 SQL Server 時，先建立一個**空的資料庫**（程式只建立資料表），再分欄位填寫，**密碼原樣填，不用編碼**：
+預設是內建的 SQLite（`data/sip-faxd.db`），不用設定。使用 PostgreSQL、MySQL／MariaDB 或 SQL Server 時，先建立一個**sip-faxd 專用的空資料庫**（程式只建立資料表；不要與其他系統共用，`users`、`settings` 等表名可能相同，MySQL／MariaDB 會悄悄沿用別的系統的表），再分欄位填寫，**密碼原樣填，不用編碼**：
 
 ```toml
 [database]

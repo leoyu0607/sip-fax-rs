@@ -166,13 +166,14 @@ impl Runtime {
                     mask_url(&cfg.database.url)
                 );
                 let (config, auth) = (rt.config.clone(), rt.auth.clone());
+                let from_file = !cfg.file_sections.is_empty();
                 rt.tasks.push(tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(DB_RETRY).await;
                         match config.retry_bootstrap().await {
                             Boot::Unreachable(_) => continue,
                             other => {
-                                log_boot(&other);
+                                log_boot(&other, from_file);
                                 make_first_admin(&auth, initial).await;
                                 return;
                             }
@@ -181,7 +182,7 @@ impl Runtime {
                 }));
             }
             other => {
-                log_boot(&other);
+                log_boot(&other, !cfg.file_sections.is_empty());
                 make_first_admin(&rt.auth, initial).await;
             }
         }
@@ -268,8 +269,14 @@ pub fn reload_message(out: &runtime_config::ReloadOutcome) -> String {
     msg
 }
 
-fn log_boot(boot: &Boot) {
+/// `from_file`: the configuration file has runtime sections (a file of 0.3.0 or older); without
+/// them an import writes the defaults.
+fn log_boot(boot: &Boot, from_file: bool) {
     match boot {
+        Boot::Imported(rep) if !from_file => tracing::info!(
+            sections = rep.written.len(),
+            "the database had no runtime configuration: the defaults were written to it"
+        ),
         Boot::Imported(rep) => tracing::info!(
             sections = rep.written.len(),
             "the runtime configuration of the configuration file was imported into the database"

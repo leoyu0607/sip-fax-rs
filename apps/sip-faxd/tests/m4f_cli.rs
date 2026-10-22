@@ -969,6 +969,9 @@ async fn f02_a_new_installation_starts_without_a_trunk_refuses_calls_and_takes_a
         "the no-trunk warning:\n{log}"
     );
     assert!(log.contains("Settings -> Trunks"), "{log}");
+    // nothing came from the file: the log says the defaults were written, not imported
+    assert!(log.contains("the defaults were written to it"), "{log}");
+    assert!(!log.contains("was imported into the database"), "{log}");
     // the database now has the default runtime configuration and no trunk
     {
         let st = store::connect_with(

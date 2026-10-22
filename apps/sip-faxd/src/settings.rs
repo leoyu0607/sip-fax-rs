@@ -252,6 +252,8 @@ fn read_password_file(path: &Path, warnings: &mut Vec<String>) -> Result<String,
             ));
         }
     }
+    #[cfg(not(unix))]
+    let _ = warnings;
     Ok(pw)
 }
 

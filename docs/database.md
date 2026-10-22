@@ -38,6 +38,7 @@ password = "p@ss:w/rd#1"   # 或 password_file = "conf/db-password"（第一行�
 - MSSQL 的 `encrypt` 可為 `off`、`on`、`required`（預設）、`not_supported`；自簽憑證可加 `trust_server_certificate=true`。
 - 所有後端都用 rustls，不使用 OpenSSL。PostgreSQL / MySQL 的 TLS 選項沿用 sqlx（例如 `?sslmode=require`）。
 - 資料庫需先建好（空的即可），程式只建立資料表，不建立資料庫。
+- **sip-faxd 要有自己專用的資料庫**，不要與其他系統共用：資料表名稱沒有前綴，`users`、`sessions`、`settings`、`schema_migrations` 這類通用名稱可能與其他系統相同；MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 遇到同名的表會直接沿用，不會報錯。程式不檢查這種衝突（2026-10-22 使用者決定）。
 - 建議的資料庫設定：MySQL/MariaDB 使用 `utf8mb4`；MSSQL 使用任何預設定序皆可（欄位為 `NVARCHAR`）。
 
 ## 換資料庫（`sip-faxd db copy`，M4e）
