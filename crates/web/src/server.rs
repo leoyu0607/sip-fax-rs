@@ -10,7 +10,7 @@ use axum::Router;
 use axum::extract::connect_info::ConnectInfo;
 use axum::http::{HeaderName, HeaderValue, Request};
 use hyper::body::Incoming;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder;
 use hyper_util::server::graceful::GracefulShutdown;
 use rustls::ServerConfig;
@@ -23,6 +23,9 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 /// A TLS handshake that takes longer than this is dropped.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A request whose headers have not all arrived after this is dropped (W11).
+pub const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `Content-Security-Policy` of every response (spec 5.3).
 pub const CSP: &str =
@@ -104,7 +107,13 @@ async fn accept_loop(
     mut stop: watch::Receiver<bool>,
 ) {
     let graceful = GracefulShutdown::new();
-    let builder = Builder::new(TokioExecutor::new());
+    let mut builder = Builder::new(TokioExecutor::new());
+    // a client that sends its headers slowly is dropped (hyper needs the timer for it)
+    builder
+        .http1()
+        .timer(TokioTimer::new())
+        .header_read_timeout(HEADER_TIMEOUT);
+    builder.http2().timer(TokioTimer::new());
     loop {
         let (tcp, peer) = tokio::select! {
             _ = stop.changed() => break,

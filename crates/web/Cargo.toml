@@ -11,6 +11,7 @@ description = "The HTTP/HTTPS server of the web interface: REST API, WebSocket, 
 accounts = { path = "../accounts" }
 store = { path = "../store" }
 delivery = { path = "../delivery" }
+runtime-config = { path = "../runtime-config" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

@@ -114,11 +114,14 @@
 | `GET /faxes/{id}/file.pdf`、`file.tif` | 登入 | `Content-Disposition: attachment`；檔案已清整回 410 |
 | `POST /faxes/{id}/redeliver` | admin | 對 `failed`／`giving_up` 的投遞重新排程 |
 | `GET /config`、`GET /config/{section}` | admin | 秘密欄位以 `{"set": true}` 表示 |
-| `PUT /config/{section}` | admin | 帶 `version`；回傳驗證錯誤（每個欄位）或新的 version；回傳是否需要重啟 |
-| `DELETE /config/trunk:{name}` | admin | |
-| `GET /config/audit` | admin | |
-| `GET/POST /users`、`PUT/DELETE /users/{id}` | admin | 不能停用或降級最後一個啟用中的 admin |
-| `GET /status` | 登入 | 版本、uptime、進行中的通話、各 trunk 註冊狀態、DB 狀態、待重啟的設定 |
+| `PUT /config/{section}` | admin | body `{"version", "body"}`；回傳驗證錯誤（422，`fields` 以欄位路徑為 key）或新的 version；回傳 `restart_required`（本區段需要重啟的欄位）與 `pending_restart`；版本不符回 409（`current_version`） |
+| `DELETE /config/trunk:{name}?version=N` | admin | 其他區段不能刪（405） |
+| `PUT /config/trunks/order` | admin | `{"order": [trunk 名稱…]}`，必須是現有 trunk 的排列（M4b 新增：trunk 依此順序比對來源） |
+| `GET /config/audit?limit=&before=` | admin | 新到舊；`next` 是下一頁的 `before` |
+| `GET/POST /users`、`PUT/DELETE /users/{id}` | admin | 不能停用、降級或刪除最後一個啟用中的 admin（409 `last_admin`）；`PUT` 可帶 `password` 重設密碼（該帳號所有 session 失效，預設下次登入要改密碼） |
+| `GET /status` | 登入 | `service`（版本、uptime、進行中的通話、各 trunk 註冊狀態）、`database`（`ok`／`unavailable`）、`config`（來源、待重啟的設定；admin 另有金鑰狀態與無法解密的秘密欄位） |
+
+- 每個請求最多 30 秒（含讀 body），逾時回 408 `timeout`；串流中的下載不受限。header 30 秒內沒送完就關閉連線。
 
 ## 4. WebSocket（`/api/v1/events`）
 - 以 session cookie 驗證；連線後伺服器推送 JSON 事件：

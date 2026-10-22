@@ -5,11 +5,14 @@ use std::sync::Arc;
 
 use accounts::AuthService;
 use chrono::Utc;
+use runtime_config::ConfigService;
 use store::{StoreSource, SystemClock};
 use web::config::Scheme;
 use web::server::WebServer;
 use web::tls;
+use web::{ServiceStatus, StatusSource, TrunkState};
 
+use crate::service::hub::Hub;
 use crate::settings::AppConfig;
 
 /// Starts the web interface when `[web] enabled`. The certificate is loaded (or made) first;
@@ -22,6 +25,8 @@ pub async fn start(
     cfg: &AppConfig,
     base: &Path,
     auth: Arc<AuthService>,
+    config: Arc<ConfigService>,
+    hub: Arc<Hub>,
     store: Arc<dyn StoreSource>,
 ) -> Result<Option<WebServer>, String> {
     let w = &cfg.web;
@@ -70,12 +75,15 @@ pub async fn start(
     let https = tls.is_some();
     let state = web::AppState {
         auth,
+        config,
+        status: Arc::new(HubStatus(hub)),
         store,
         data_dir: cfg.data_dir(base),
         preview_cache_mb: cfg.fax_in.storage.preview_cache_mb,
         preview: Arc::default(),
         clock: Arc::new(SystemClock),
         https,
+        request_timeout: web::REQUEST_TIMEOUT,
     };
     let srv = WebServer::start(w.bind, web::app(state), tls)
         .await
@@ -86,4 +94,29 @@ pub async fn start(
         srv.local_addr()
     );
     Ok(Some(srv))
+}
+
+/// `GET /status` reads what the control socket's `status` answers.
+struct HubStatus(Arc<Hub>);
+
+impl StatusSource for HubStatus {
+    fn status(&self) -> ServiceStatus {
+        let s = self.0.status();
+        ServiceStatus {
+            version: s.version,
+            state: s.state,
+            started_at: s.started_at,
+            uptime_secs: s.uptime_secs,
+            listen: s.listen,
+            active_calls: s.active_calls,
+            trunks: s
+                .trunks
+                .into_iter()
+                .map(|t| TrunkState {
+                    name: t.name,
+                    registration: t.registration,
+                })
+                .collect(),
+        }
+    }
 }

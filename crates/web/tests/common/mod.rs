@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use accounts::{AuthConfig, AuthService, NewAccount, Role};
+use runtime_config::{ConfigService, RuntimeConfig, SecretBox};
 use store::{Clock, ConnectOptions, FaxStore, ManualClock, StoreSource};
 use web::server::WebServer;
-use web::{AppState, app};
+use web::{AppState, ServiceStatus, StatusSource, TrunkState, app};
 
 pub const T0: i64 = 1_792_540_800_000;
 pub const PW: &str = "correct horse battery";
@@ -20,6 +21,8 @@ pub struct Env {
     pub store: Arc<dyn FaxStore>,
     pub auth: Arc<AuthService>,
     pub clock: Arc<ManualClock>,
+    pub config: Arc<ConfigService>,
+    pub status: Arc<FixedStatus>,
     pub _dir: tempfile::TempDir,
 }
 
@@ -33,7 +36,42 @@ impl Env {
     }
 }
 
+/// What `/status` reports in the tests; change it with [`FixedStatus::set`].
+pub struct FixedStatus(pub std::sync::Mutex<ServiceStatus>);
+
+impl FixedStatus {
+    pub fn set(&self, f: impl FnOnce(&mut ServiceStatus)) {
+        f(&mut self.0.lock().unwrap());
+    }
+}
+
+impl StatusSource for FixedStatus {
+    fn status(&self) -> ServiceStatus {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+pub fn service_status() -> ServiceStatus {
+    ServiceStatus {
+        version: "0.0.0-test".into(),
+        state: "running".into(),
+        started_at: "2026-10-22T00:00:00Z".into(),
+        uptime_secs: 42,
+        listen: vec!["udp 127.0.0.1:5060".into()],
+        active_calls: 0,
+        trunks: vec![TrunkState {
+            name: "gw".into(),
+            registration: "none".into(),
+        }],
+    }
+}
+
 pub async fn env() -> Env {
+    env_with(web::REQUEST_TIMEOUT).await
+}
+
+/// [`env`] with another request deadline.
+pub async fn env_with(request_timeout: Duration) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let clock = Arc::new(ManualClock::at_millis(T0));
     let url = format!("sqlite://{}/w.db", dir.path().display());
@@ -48,17 +86,32 @@ pub async fn env() -> Env {
     .await
     .unwrap();
     let src: Arc<dyn StoreSource> = Arc::new(store.clone());
-    let auth = Arc::new(AuthService::new(src, clock.clone(), AuthConfig::default()));
+    let auth = Arc::new(AuthService::new(
+        src.clone(),
+        clock.clone(),
+        AuthConfig::default(),
+    ));
+    let config = Arc::new(ConfigService::new(
+        src.clone(),
+        Arc::new(SecretBox::load_or_create(&dir.path().join("secret.key"))),
+        RuntimeConfig::default(),
+        Vec::new(),
+    ));
+    config.bootstrap().await;
+    let status = Arc::new(FixedStatus(std::sync::Mutex::new(service_status())));
     let data_dir = dir.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
     let state = AppState {
         auth: auth.clone(),
+        config: config.clone(),
+        status: status.clone(),
         store: Arc::new(store.clone()),
         data_dir: data_dir.clone(),
         preview_cache_mb: 64,
         preview: Arc::default(),
         clock: clock.clone(),
         https: false,
+        request_timeout,
     };
     let srv = WebServer::start("127.0.0.1:0".parse().unwrap(), app(state.clone()), None)
         .await
@@ -72,6 +125,8 @@ pub async fn env() -> Env {
         store,
         auth,
         clock,
+        config,
+        status,
         _dir: dir,
     }
 }
