@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 
 use super::app::{App, Live, Pane};
 use super::i18n::Lang;
-use super::{socket_loop, ui};
+use super::{connect_loop, socket_loop, ui};
 use crate::service::control::ControlServer;
 use crate::service::hub::tests::{finished, started};
 use crate::service::hub::{Hub, HubInfo};
@@ -708,4 +708,42 @@ async fn m13_zh_tw_shows_chinese_labels_and_english_does_not() {
 async fn m13_the_status_helper_of_a_missing_service_is_an_error_not_a_panic() {
     let r = crate::service::control::fetch_status(Path::new("/nonexistent/x.sock")).await;
     assert!(r.is_err());
+}
+
+/// The database is connected in the background: while it does not answer nothing is handed over
+/// (and nothing waits for it); once it answers the store arrives and the task ends. Real time with
+/// a short retry: SQLite opens its file on a blocking thread, which a paused clock does not wait
+/// for.
+#[tokio::test]
+async fn m13_the_database_is_connected_in_the_background_and_handed_over_once_it_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    // a plain file where the database's directory should be: SQLite cannot open the database
+    let later = dir.path().join("later");
+    std::fs::write(&later, b"not a directory").unwrap();
+    let text = format!(
+        "[database]\nurl = \"sqlite://{}/fax.db\"\n",
+        later.display().to_string().replace('\\', "/")
+    );
+    let cfg = crate::settings::AppConfig::parse(&text, &dir.path().join("sip-faxd.toml")).unwrap();
+    let db = Arc::new(crate::db::Db::new(&cfg, dir.path()));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(connect_loop(db.clone(), tx, Duration::from_millis(50)));
+    // the attempts fail
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), rx.recv())
+            .await
+            .is_err(),
+        "no store while the database does not answer"
+    );
+    assert!(!task.is_finished(), "it keeps trying");
+    std::fs::remove_file(&later).unwrap();
+    std::fs::create_dir_all(&later).unwrap();
+    let st = tokio::time::timeout(Duration::from_secs(15), rx.recv())
+        .await
+        .expect("handed over after the next attempt")
+        .expect("a store");
+    st.migrate().await.unwrap();
+    assert!(st.schema_version().await.unwrap() >= 1);
+    task.await.unwrap();
+    db.close().await;
 }

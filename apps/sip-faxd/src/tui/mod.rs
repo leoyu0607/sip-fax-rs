@@ -16,6 +16,7 @@ pub mod ui;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -38,10 +39,12 @@ pub fn run(cfg_path: &Path) -> ExitCode {
 async fn run_async(cfg: AppConfig) -> ExitCode {
     let base = crate::exe_dir();
     let sock = cfg.service.socket_path(&base);
-    let db = Db::new(&cfg, &base);
-    let store = db.store().await.ok();
-    let mut app = App::new(store, crate::runtime::cli_operator(), Lang::from_env());
-    app.reload().await;
+    // The database is connected in the background: a server database that is down takes up to
+    // 10 s per attempt, and the screen must stay responsive meanwhile.
+    let db = Arc::new(Db::new(&cfg, &base));
+    let mut app = App::new(None, crate::runtime::cli_operator(), Lang::from_env());
+    let (store_tx, mut store_rx) = mpsc::unbounded_channel();
+    let connect_task = tokio::spawn(connect_loop(db.clone(), store_tx, TICK));
 
     let (live_tx, mut live_rx) = mpsc::unbounded_channel::<Live>();
     let socket_task = tokio::spawn(socket_loop(sock, live_tx));
@@ -69,16 +72,19 @@ async fn run_async(cfg: AppConfig) -> ExitCode {
         tokio::select! {
             Some(k) = key_rx.recv() => app.on_key(k).await,
             Some(l) = live_rx.recv() => app.apply_live(l).await,
+            Some(s) = store_rx.recv() => {
+                app.set_store(s);
+                let _ = tokio::time::timeout(TICK, app.reload()).await;
+            }
+            // a slow database skips a refresh instead of freezing the keys
             _ = tick.tick() => {
-                if !app.has_store() && let Ok(s) = db.store().await {
-                    app.set_store(s);
-                }
-                app.reload().await;
+                let _ = tokio::time::timeout(TICK, app.reload()).await;
             }
         }
     };
     ratatui::restore();
     socket_task.abort();
+    connect_task.abort();
     db.close().await;
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -86,6 +92,21 @@ async fn run_async(cfg: AppConfig) -> ExitCode {
             eprintln!("sip-faxd: error: terminal: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// Tries the database every `every` until it answers, then hands the store over.
+async fn connect_loop(
+    db: Arc<Db>,
+    tx: mpsc::UnboundedSender<Arc<dyn store::FaxStore>>,
+    every: Duration,
+) {
+    loop {
+        if let Ok(s) = db.store().await {
+            let _ = tx.send(s);
+            return;
+        }
+        tokio::time::sleep(every).await;
     }
 }
 
