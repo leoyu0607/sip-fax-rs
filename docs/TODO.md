@@ -110,6 +110,7 @@
   - [ ] 把 `scripts/web-openssl-docker.sh` 放進 GitHub CI 的 `e2e-spandsp` job（M4b 審核；目前只在 `ci-local.sh` 有 Docker 時執行）
   - [ ] `GET /faxes` 的全文搜尋 `q`（規格 §3）：store 的 `ListFilter` 沒有這個欄位，需要在四種 DB 加 LIKE 查詢（ani、dnis、remote_ident、note），③ 先略過
   - **交接狀態（2026-10-22）**：分支 `m4b-web`（已 push），①–⑤ 完成，下一步是 ⑥（Sonnet subagent 依測試計畫補測試並寫報告，之後 Opus 審核）。web crate 的入口是 `crates/web/src/lib.rs::app(AppState)`；路由在 `crates/web/src/api/`，每個處理器以 `Session` extractor 驗證並以 `s.need(Capability::…)` 檢查權限，body 用 `ApiJson`，錯誤用 `ApiError`（`{"error": {code, message, fields?}}`）。`sip-faxd serve` 在 `apps/sip-faxd/src/web_service.rs` 組 `AppState`。測試：`crates/web/tests/`（`common::env()` 起真的 server＋SQLite）。已知：在本機（macOS 的 Claude Code 沙盒）跑整個 workspace 測試時，sip-faxd 的 control／logfile／delivery_service 單元測試偶爾因暫存目錄寫入被拒（`Permission denied`）而失敗，重跑或在 CI 上都通過，與程式無關
+- [x] [Any] 2026-10-22 使用者決定（ADR-057）：① Web 預設開啟（沒有 `[web]` 也啟動；測試用設定檔一律 `enabled = false`）；② PNG 預覽在收完傳真時由伺服器產生，寫在 TIFF／PDF 旁（`<name>-p<n>.png`、`-thumb.png`），預覽 API 讀這些檔案，沒有才轉一次；取消 `cache/png` 與 `preview_cache_mb` 的容量上限；清整一併刪除。GOALS、CHANGELOG（中英）、README（中英）、field-test（防火牆 8443）已更新
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。

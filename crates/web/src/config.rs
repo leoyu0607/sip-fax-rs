@@ -21,8 +21,8 @@ pub enum Scheme {
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct WebConfig {
-    /// Serve the web interface. Off when the file has no `[web]` table, so that an upgrade does
-    /// not open a new port; the example configuration turns it on.
+    /// Serve the web interface. On by default, also when the file has no `[web]` table
+    /// (ADR-057); `enabled = false` turns it off.
     pub enabled: bool,
     /// Listen address.
     pub bind: SocketAddr,
@@ -42,7 +42,7 @@ pub struct WebConfig {
 impl Default for WebConfig {
     fn default() -> Self {
         WebConfig {
-            enabled: false,
+            enabled: true,
             bind: SocketAddr::from(([0, 0, 0, 0], 8443)),
             scheme: Scheme::Https,
             cert: String::new(),
@@ -116,9 +116,9 @@ mod tests {
     }
 
     #[test]
-    fn h00_defaults_are_off_https_on_8443() {
+    fn h00_defaults_are_on_https_on_8443() {
         let c = WebConfig::default();
-        assert!(!c.enabled);
+        assert!(c.enabled);
         assert_eq!(c.scheme, Scheme::Https);
         assert_eq!(c.bind.port(), 8443);
         assert_eq!(c.session_idle_hours, 8);

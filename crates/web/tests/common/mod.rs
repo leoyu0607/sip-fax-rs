@@ -138,7 +138,6 @@ async fn build(request_timeout: Duration, ws_ping: Duration, seed: Option<&str>)
         ws_ping,
         store: Arc::new(store.clone()),
         data_dir: data_dir.clone(),
-        preview_cache_mb: 64,
         preview: Arc::default(),
         clock: clock.clone(),
         https: false,

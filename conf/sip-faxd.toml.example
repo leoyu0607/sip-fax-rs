@@ -76,7 +76,7 @@ level = "info"
 # [web]  the web interface (M4b)
 # ---------------------------------------------------------------------------------------
 [web]
-# Without a [web] table in the file the web interface is off.
+# On by default, also without a [web] table in the file; `enabled = false` turns it off.
 enabled = true
 
 # Address and port of the web interface.
@@ -180,9 +180,9 @@ max_491_retries = 3
 # pages is still written and flagged "partial": true in result.json. A relative path is
 # relative to the directory of the sip-faxd executable.
 data_dir = "data"
-# Size limit of the PNG preview cache (cache/png under data_dir) in MiB; the least recently
-# used pages are deleted beyond it (used by the web interface).
-# preview_cache_mb = 2048
+# Next to every <name>.tif / <name>.pdf the PNG previews of the web interface are written:
+# <name>-p1.png (the whole page), <name>-p1-thumb.png (300 px wide), ... one pair per page.
+# They are deleted together with the TIFF and the PDF ([retention] files_days).
 
 # ---------------------------------------------------------------------------------------
 # [database]  where the fax records (list, status, pages, ANI / DNIS ...) are kept

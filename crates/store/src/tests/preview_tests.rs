@@ -82,7 +82,8 @@ async fn mk_fax_rec(
     pages: &[PageSpec],
     rec_pages: i32,
 ) -> (i64, PathBuf) {
-    let rel = format!("faxes/{call}.tif");
+    // one directory per fax, so that the PNGs next to the TIFF can be listed exactly
+    let rel = format!("faxes/{call}/{call}.tif");
     let tiff = data_dir(env).join(&rel);
     std::fs::create_dir_all(tiff.parent().unwrap()).unwrap();
     std::fs::write(&tiff, tiff_bytes(pages)).unwrap();
@@ -128,6 +129,20 @@ fn read_png(path: &Path) -> (u32, u32, ::png::BitDepth, Vec<u8>) {
     (info.width, info.height, info.bit_depth, buf)
 }
 
+/// The directory of the fax `call` (its TIFF and its PNGs).
+fn fax_dir(env: &Env, call: &str) -> PathBuf {
+    data_dir(env).join("faxes").join(call)
+}
+
+/// What is next to the TIFF of `call` (PNGs and `.part` files), sorted.
+fn previews(env: &Env, call: &str) -> Vec<String> {
+    let tif = format!("{call}.tif");
+    names(&fax_dir(env, call))
+        .into_iter()
+        .filter(|n| *n != tif)
+        .collect()
+}
+
 fn names(dir: &Path) -> Vec<String> {
     let mut v: Vec<String> = match std::fs::read_dir(dir) {
         Ok(rd) => rd
@@ -149,10 +164,8 @@ async fn p01_page_png_body(env: &Env) {
 
     // page 1 is standard resolution (98 dpi): rows doubled
     let full1 = pv.page_png(id, 1, PngKind::Full).await.unwrap();
-    assert_eq!(
-        full1,
-        dd.join("cache/png").join(id.to_string()).join("1-full.png")
-    );
+    // next to the TIFF (ADR-057)
+    assert_eq!(full1, dd.join("faxes/p01/p01-p1.png"));
     let (w, h, depth, px) = read_png(&full1);
     assert_eq!((w, h, depth), (1728, 400, ::png::BitDepth::One));
     let line = row_bytes(1728);
@@ -182,7 +195,7 @@ async fn p01_page_png_body(env: &Env) {
 
     // thumbnail: 300 wide, 8-bit, height from the corrected aspect ratio
     let thumb1 = pv.page_png(id, 1, PngKind::Thumb).await.unwrap();
-    assert_eq!(thumb1.file_name().unwrap(), "1-thumb.png");
+    assert_eq!(thumb1.file_name().unwrap(), "p01-p1-thumb.png");
     let (w, h, depth, px) = read_png(&thumb1);
     assert_eq!((w, depth), (300, ::png::BitDepth::Eight));
     assert_eq!(h, (400u32 * 300 + 864) / 1728); // 400 corrected rows, rounded
@@ -202,7 +215,6 @@ async fn p03_cache_body(env: &Env) {
     let first = pv.page_png(id, 1, PngKind::Full).await.unwrap();
     assert_eq!(pv.conversions(), 1);
     let bytes = std::fs::read(&first).unwrap();
-    let mtime = std::fs::metadata(&first).unwrap().modified().unwrap();
 
     let second = pv.page_png(id, 1, PngKind::Full).await.unwrap();
     assert_eq!(second, first);
@@ -212,10 +224,8 @@ async fn p03_cache_body(env: &Env) {
         "the second request must not convert again"
     );
     assert_eq!(std::fs::read(&second).unwrap(), bytes);
-    // a hit only refreshes the modification time (the "last used" mark of the cache limit)
-    assert!(std::fs::metadata(&second).unwrap().modified().unwrap() >= mtime);
 
-    // The TIFF is not needed any more for a cached page ...
+    // The TIFF is not needed any more for a page that has its PNG ...
     std::fs::remove_file(&tiff).unwrap();
     assert_eq!(pv.page_png(id, 1, PngKind::Full).await.unwrap(), first);
     assert_eq!(pv.conversions(), 1);
@@ -224,7 +234,7 @@ async fn p03_cache_body(env: &Env) {
         pv.page_png(id, 1, PngKind::Thumb).await,
         Err(PreviewError::TiffMissing(_))
     ));
-    // A new service instance (restart) still finds the cache on disk.
+    // A new service instance (restart) still finds the PNG on disk.
     let pv2 = Preview::new(env.dyn_store(), data_dir(env));
     assert_eq!(pv2.page_png(id, 1, PngKind::Full).await.unwrap(), first);
     assert_eq!(pv2.conversions(), 0);
@@ -268,11 +278,12 @@ async fn p03_concurrent_body(env: &Env) {
         "8 concurrent requests per image kind must produce one conversion per kind"
     );
     assert!(pv.in_flight() == 0, "single-flight table is cleaned up");
-    let dir = data_dir(env).join("cache/png").join(id.to_string());
-    assert_eq!(names(&dir), ["1-full.png", "1-thumb.png"]);
+    assert_eq!(previews(env, "p03b"), ["p03b-p1-thumb.png", "p03b-p1.png"]);
     // the eight-fold case of the plan, on one kind only, on a fresh page
     let pv = Arc::new(Preview::new(env.dyn_store(), data_dir(env)));
-    std::fs::remove_dir_all(&dir).unwrap();
+    for f in previews(env, "p03b") {
+        std::fs::remove_file(fax_dir(env, "p03b").join(f)).unwrap();
+    }
     let rs = futures_join_all((0..8).map(|_| {
         let pv = pv.clone();
         tokio::spawn(async move { pv.page_png(id, 1, PngKind::Full).await })
@@ -297,7 +308,7 @@ db_case!(
 async fn p03_interrupted_body(env: &Env) {
     let (id, _) = mk_fax(env, "p03c", T0, &two_pages()).await;
     let dd = data_dir(env);
-    let dir = dd.join("cache/png").join(id.to_string());
+    let dir = fax_dir(env, "p03c");
     let calls = Arc::new(AtomicU32::new(0));
     let c2 = calls.clone();
     let pv = Preview::new(env.dyn_store(), &dd).with_fault_hook(move |part: &Path| {
@@ -335,11 +346,10 @@ async fn p03_interrupted_body(env: &Env) {
 
     // 3: a process killed half way leaves a garbage .part behind: it is never served and gets
     // replaced by the next conversion
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("1-full.png.part"), b"\x89PNG half writ").unwrap();
-    assert!(!dir.join("1-full.png").exists());
+    std::fs::write(dir.join("p03c-p1.png.part"), b"\x89PNG half writ").unwrap();
+    assert!(!dir.join("p03c-p1.png").exists());
     let ok = pv.page_png(id, 1, PngKind::Full).await.unwrap();
-    assert_eq!(names(&dir), ["1-full.png"]);
+    assert_eq!(previews(env, "p03c"), ["p03c-p1.png"]);
     let (w, h, _, _) = read_png(&ok); // a complete, decodable PNG
     assert_eq!((w, h), (1728, 400));
     assert_eq!(pv.conversions(), 3);
@@ -371,8 +381,8 @@ async fn p04_range_body(env: &Env) {
         .to_string();
     assert!(msg.contains("page 3") && msg.contains("2 pages"), "{msg}");
     assert!(
-        names(&dd.join("cache/png").join(id.to_string())).is_empty(),
-        "no cache file for an invalid page"
+        previews(env, "p04a").is_empty(),
+        "no PNG for an invalid page"
     );
     assert_eq!(
         pv.conversions(),
@@ -391,7 +401,7 @@ async fn p04_range_body(env: &Env) {
         }
     }
     assert_eq!(pv.conversions(), 2);
-    assert!(names(&dd.join("cache/png").join(id5.to_string())).is_empty());
+    assert!(previews(env, "p04a2").is_empty());
     // the valid pages still work
     pv.page_png(id, 2, PngKind::Thumb).await.unwrap();
 }
@@ -402,10 +412,13 @@ async fn p04_purged_body(env: &Env) {
     let (id, tiff) = mk_fax(env, "p04b", now - 10 * DAY, &two_pages()).await;
     let dd = data_dir(env);
     let pv = Preview::new(env.dyn_store(), &dd);
-    let png = pv.page_png(id, 1, PngKind::Full).await.unwrap();
+    pv.page_png(id, 1, PngKind::Full).await.unwrap();
     pv.page_png(id, 2, PngKind::Thumb).await.unwrap();
-    let dir = png.parent().unwrap().to_path_buf();
-    assert_eq!(names(&dir).len(), 2);
+    assert_eq!(previews(env, "p04b"), ["p04b-p1.png", "p04b-p2-thumb.png"]);
+    // the cache directory of a version before ADR-057 goes too
+    let legacy = dd.join("cache/png").join(id.to_string());
+    std::fs::create_dir_all(&legacy).unwrap();
+    std::fs::write(legacy.join("1-full.png"), b"old").unwrap();
 
     env.clock.set(t(now));
     let policy = RetentionPolicy {
@@ -418,7 +431,11 @@ async fn p04_purged_body(env: &Env) {
         .unwrap();
     assert_eq!(rep.files_purged, 1, "{rep:?}");
     assert!(!tiff.exists());
-    assert!(!dir.exists(), "the purge removed the PNG cache directory");
+    assert!(
+        previews(env, "p04b").is_empty(),
+        "the purge removed the PNGs"
+    );
+    assert!(!legacy.exists(), "and the old cache directory");
 
     let rec = env.store.get(id).await.unwrap().unwrap();
     let at = rec.files_purged_at.expect("marked purged");
@@ -428,7 +445,10 @@ async fn p04_purged_body(env: &Env) {
             other => panic!("expected Purged, got {other:?}"),
         }
     }
-    assert!(!dir.exists(), "nothing is recreated for a purged fax");
+    assert!(
+        previews(env, "p04b").is_empty(),
+        "nothing is recreated for a purged fax"
+    );
     assert!(
         pv.page_png(id, 1, PngKind::Full)
             .await
@@ -468,9 +488,10 @@ async fn p04_tiff_body(env: &Env) {
                 other => panic!("{name}: expected BadTiff, got {other:?}"),
             }
         }
-        let dir = dd.join("cache/png").join(id.to_string());
         assert!(
-            !names(&dir).iter().any(|n| n.ends_with(".png")),
+            !previews(env, &format!("p04-{name}"))
+                .iter()
+                .any(|n| n.ends_with(".png")),
             "{name}: no PNG for a damaged TIFF"
         );
     }
@@ -593,11 +614,10 @@ async fn r01_body(env: &Env) {
         matches!(r, Err(PreviewError::Purged { .. })),
         "410 for the request: {r:?}"
     );
-    let dir = dd.join("cache/png").join(id.to_string());
     assert!(
-        !dir.exists() || names(&dir).is_empty(),
+        previews(env, "r01").is_empty(),
         "no orphan PNG: {:?}",
-        if dir.exists() { names(&dir) } else { vec![] }
+        previews(env, "r01")
     );
     // reverse: without a purge a request succeeds and the PNG stays
     let (id2, _) = mk_fax(env, "r01b", now, &two_pages()).await;
@@ -606,71 +626,58 @@ async fn r01_body(env: &Env) {
     assert!(p.exists());
 }
 
-// ---------------------------------------------------------------- R02 (M4a)
-db_case!(r02_cache_limit_evicts_least_recently_used, r02_body);
-async fn r02_body(env: &Env) {
-    let (id, _) = mk_fax(env, "r02", T0, &two_pages()).await;
+// ---------------------------------------------------------------- ADR-057
+db_case!(
+    p05_pngs_written_at_receive_time_are_served_as_they_are,
+    p05_body
+);
+async fn p05_body(env: &Env) {
+    let (id, tiff) = mk_fax(env, "p05", T0, &two_pages()).await;
     let dd = data_dir(env);
-    let set_age = |p: &Path, secs_ago: i64| {
-        let f = std::fs::OpenOptions::new().write(true).open(p).unwrap();
-        let when: std::time::SystemTime = (t(T0) - chrono::Duration::seconds(secs_ago)).into();
-        f.set_modified(when).unwrap();
-    };
-    env.clock.set(t(T0));
-    let unlimited = Preview::new(env.dyn_store(), &dd).with_clock(env.clock.clone());
-    let mut paths = Vec::new();
-    for (page, kind) in [
-        (1, PngKind::Full),
-        (1, PngKind::Thumb),
-        (2, PngKind::Full),
-        (2, PngKind::Thumb),
-    ] {
-        paths.push(unlimited.page_png(id, page, kind).await.unwrap());
+    // what sip-faxd writes when the call ends
+    let rendered = crate::render_pages(&std::fs::read(&tiff).unwrap()).unwrap();
+    assert_eq!(rendered.len(), 2);
+    let rel = "faxes/p05/p05.tif";
+    for (i, (full, thumb)) in rendered.iter().enumerate() {
+        let page = i as u32 + 1;
+        std::fs::write(dd.join(crate::png_rel_path(rel, page, PngKind::Full)), full).unwrap();
+        // page 2's thumbnail is missing (a write that failed at receive time)
+        if page == 1 {
+            std::fs::write(
+                dd.join(crate::png_rel_path(rel, page, PngKind::Thumb)),
+                thumb,
+            )
+            .unwrap();
+        }
     }
-    let sizes: Vec<u64> = paths
-        .iter()
-        .map(|p| std::fs::metadata(p).unwrap().len())
-        .collect();
-    // ages: [0] 1000 s (oldest), [1] 900, [2] 800, [3] 10 s (inside the protection window)
-    for (p, age) in paths.iter().zip([1000, 900, 800, 10]) {
-        set_age(p, age);
+    let pv = Preview::new(env.dyn_store(), &dd);
+    for (page, kind) in [(1, PngKind::Full), (1, PngKind::Thumb), (2, PngKind::Full)] {
+        let p = pv.page_png(id, page, kind).await.unwrap();
+        let want = &rendered[page as usize - 1];
+        let want = if kind == PngKind::Full {
+            &want.0
+        } else {
+            &want.1
+        };
+        assert_eq!(&std::fs::read(&p).unwrap(), want, "page {page} {kind:?}");
     }
-    let total: u64 = sizes.iter().sum();
-    let limit = total - sizes[1] - sizes[2];
-    let pv = Preview::new(env.dyn_store(), &dd)
-        .with_clock(env.clock.clone())
-        .with_cache_limit(limit, std::time::Duration::from_secs(60));
-    // a hit on the oldest page makes it recently used
-    pv.page_png(id, 1, PngKind::Full).await.unwrap();
-    assert_eq!(pv.conversions(), 0, "served from the cache");
-    let rep = pv.trim_cache().await.unwrap();
-    assert!(rep.kept_bytes <= limit, "{rep:?}");
-    assert!(paths[0].exists(), "the page that was just used stays");
-    assert!(
-        !paths[1].exists() && !paths[2].exists(),
-        "the least recently used go first"
+    assert_eq!(
+        pv.conversions(),
+        0,
+        "nothing converted: the files were there"
     );
-    assert!(
-        paths[3].exists(),
-        "a page used within the window is never deleted"
-    );
-    // soft limit: what is left is protected, nothing more is deleted even above the limit
-    let tiny = Preview::new(env.dyn_store(), &dd)
-        .with_clock(env.clock.clone())
-        .with_cache_limit(1, std::time::Duration::from_secs(60));
-    let rep = tiny.trim_cache().await.unwrap();
-    assert_eq!(rep.removed_files, 0, "{rep:?}");
-    assert!(paths[0].exists() && paths[3].exists());
-    // an hour later nothing is protected any more
-    env.clock.advance(chrono::Duration::hours(1));
-    let rep = tiny.trim_cache().await.unwrap();
-    assert_eq!(rep.removed_files, 2);
-    assert!(
-        !dd.join("cache/png").join(id.to_string()).exists(),
-        "the empty directory is removed"
-    );
-    // a trimmed page is converted again on demand
-    let again = pv.page_png(id, 2, PngKind::Full).await.unwrap();
-    assert!(again.exists());
+    // the missing one is converted once, written next to the TIFF, and is the same image
+    let p = pv.page_png(id, 2, PngKind::Thumb).await.unwrap();
+    assert_eq!(p, dd.join("faxes/p05/p05-p2-thumb.png"));
+    assert_eq!(std::fs::read(&p).unwrap(), rendered[1].1);
     assert_eq!(pv.conversions(), 1);
+    assert_eq!(
+        previews(env, "p05"),
+        [
+            "p05-p1-thumb.png",
+            "p05-p1.png",
+            "p05-p2-thumb.png",
+            "p05-p2.png"
+        ]
+    );
 }

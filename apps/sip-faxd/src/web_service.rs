@@ -106,7 +106,6 @@ pub async fn start(
         ws_ping: web::api::events::PING_EVERY,
         store,
         data_dir: cfg.data_dir(base),
-        preview_cache_mb: cfg.fax_in.storage.preview_cache_mb,
         preview: Arc::default(),
         clock: Arc::new(SystemClock),
         https,

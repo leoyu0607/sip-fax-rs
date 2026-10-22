@@ -44,7 +44,7 @@ const RUNTIME: &str = "[sip]\nbind = \"127.0.0.1:0\"\n[call]\nmax_duration_secs 
 /// A configuration file; `extra` is added to the runtime tables.
 fn config(dir: &Path, extra: &str) -> PathBuf {
     let text = format!(
-        "[storage]\ndata_dir = {data:?}\n[capture]\nenabled = false\n[database]\nurl = {url:?}\n\
+        "[web]\nenabled = false\n[storage]\ndata_dir = {data:?}\n[capture]\nenabled = false\n[database]\nurl = {url:?}\n\
          [log]\nfile = \"\"\n[service]\npid_file = {pid:?}\nsocket = {sock:?}\n{RUNTIME}{extra}",
         data = slashes(&dir.join("data")),
         url = url_of(dir),

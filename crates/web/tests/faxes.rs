@@ -263,13 +263,14 @@ async fn w05_page_png_is_the_preview_file_with_etag_304_404_and_410() {
     assert_eq!(r.headers()["cache-control"], "private, max-age=3600");
     let tag = r.headers()["etag"].to_str().unwrap().to_string();
     let bytes = r.bytes().await.unwrap();
-    let cached = e
-        .state
-        .preview()
-        .await
-        .unwrap()
-        .cache_path(id, 1, PngKind::Full);
-    assert_eq!(bytes.as_ref(), std::fs::read(cached).unwrap().as_slice());
+    // the file next to the TIFF (ADR-057)
+    let rec = e.store.get(id).await.unwrap().unwrap();
+    let file = e.data_dir.join(store::png_rel_path(
+        rec.tiff_path.as_deref().unwrap(),
+        1,
+        PngKind::Full,
+    ));
+    assert_eq!(bytes.as_ref(), std::fs::read(file).unwrap().as_slice());
     let r = c
         .get(&url)
         .header("If-None-Match", &tag)

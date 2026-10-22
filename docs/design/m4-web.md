@@ -152,7 +152,7 @@ tls_names = []                   # 自簽憑證額外的 SAN（主機名稱或 I
 session_idle_hours = 8
 ```
 - `scheme = "http"` 時，bind 不是 loopback 位址會在啟動時記 warning（密碼會以明文傳送）。
-- 設定檔沒有 `[web]` 時 `enabled` 預設為 `false`（升級時不會突然多開一個 port）；`conf/sip-faxd.toml.example` 寫 `enabled = true`（ADR-056）。
+- **預設開啟**（2026-10-22 使用者決定，ADR-057）：設定檔沒有 `[web]` 也會以上面的預設值啟動；`enabled = false` 才關閉。
 
 ### 5.2 自簽憑證
 - `scheme = "https"` 且沒有設定 `cert`／`key`：如果 `conf/tls/self-signed.{crt,key}` 不存在，就用 `rcgen`（純 Rust）產生：
@@ -213,7 +213,7 @@ session_idle_hours = 8
 
 ## 8. M3 留下來的項目（納入 M4）
 - 手動重新投遞（§3 `redeliver`、CLI）。
-- 預覽快取：與清整的競態（清整標記 `files_purged_at` 之後，`Preview` 不再寫入快取；寫完快取後再確認一次，若已清整就刪除）；容量上限 `[storage] preview_cache_mb`（預設 2048），超過時依最後存取時間淘汰。
+- 預覽快取：與清整的競態（清整標記 `files_purged_at` 之後，`Preview` 不再寫入快取；寫完快取後再確認一次，若已清整就刪除）；容量上限 `[storage] preview_cache_mb`（預設 2048），超過時依最後存取時間淘汰（ADR-057 取消：PNG 改在收完傳真時產生、和 PDF 放在一起）。
 - 投遞服務關閉時的寬限逾時、執行中 DB 重啟、非 UTC 時區的檔名範本。
 
 ## 9. 新增依賴（需要 ADR）

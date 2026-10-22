@@ -105,6 +105,11 @@ cd sip-fax-rs-<version>-linux-x86_64
 
 這些指令需要 unix 系統（Linux；macOS 可用於測試），因為用到 flock、setsid 與 unix socket；其他系統只能使用 `serve`。
 
+## Web 介面
+
+預設開啟（設定檔沒有 `[web]` 也會啟動）：HTTPS，監聽 `0.0.0.0:8443`。沒有提供自己的憑證時，第一次啟動會在 `conf/tls/` 產生自簽憑證（有效期 825 天，到期前 30 天自動更新）；啟動 log 會印出 SHA-256 指紋，可以和瀏覽器的警告比對。第一次啟動時 `admin` 的密碼在 `conf/initial-admin-password`，第一次登入時必須修改。要關閉請設定 `[web] enabled = false`；位址、`http`、自己的憑證與 session 時間見 `conf/sip-faxd.toml.example` 的 `[web]`。API 在 `/api/v1`，網頁畫面在 M4c 提供。
+
+收到傳真時，每頁的 PNG 預覽會寫在 TIFF、PDF 旁邊（`<名稱>-p1.png`、`<名稱>-p1-thumb.png`……），清整時一起刪除。
 ## 傳真紀錄與資料庫
 
 每通來電在 `[database] url` 指定的資料庫的 `faxes` 資料表有一筆紀錄（預設為 SQLite 檔案 `data/sip-faxd.db`；也可用 `postgres://`、`mysql://`／`mariadb://`、`mssql://`，見 [docs/database.md](docs/database.md)）。通話開始時就建立紀錄（`fax_status = receiving`），對方每送完一頁，`pages` 就加一，通話結束時補齊：狀態（`received`、`partial`、`failed`、`no_fax`）、誰掛斷與原因（`hangup_direction`、`hangup_code`）、進線號碼（ANI）與撥打號碼（DNIS）、檔案路徑與大小，以及協商出來的解析度、速率、編碼和 ECM。來源不在任何 trunk 白名單的電話會被擋掉，不寫入紀錄。

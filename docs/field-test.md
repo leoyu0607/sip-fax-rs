@@ -54,10 +54,12 @@ peer = "<CS210 的 IP>:5060"
 ## 3. 防火牆
 - SIP：UDP 5060，只允許 CS210 的 IP 連入。
 - T.38：UDP 30000–30999，也就是 `port_range` 設定的範圍。
+- Web 介面：TCP 8443（HTTPS）。**預設開啟**，設定檔沒有 `[web]` 也會啟動；只開放給要使用介面的網段。不需要時在設定檔寫 `[web]` `enabled = false`。第一次啟動時密碼在 `conf/initial-admin-password`。
 
 ```sh
 firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=<CS210 IP> port port=5060 protocol=udp accept'
 firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=<CS210 IP> port port=30000-30999 protocol=udp accept'
+firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=<辦公室網段，例如 10.1.0.0/16> port port=8443 protocol=tcp accept'
 firewall-cmd --reload
 ```
 5060 是特權埠。非 root 執行時需要先給執行檔授權：

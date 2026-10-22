@@ -317,17 +317,18 @@ pub struct StorageConfig {
     /// Received faxes are written to `<data_dir>/faxes/<YYYY>/<MM>/<DD>/<call-id>.tif|.pdf`.
     /// A relative path is relative to the executable directory.
     pub data_dir: PathBuf,
-    /// Size limit of the PNG preview cache in MiB (`cache/png`); the least recently used pages
-    /// are deleted beyond it. Used by the web interface (M4b) through
-    /// `Preview::with_cache_limit_mb`.
-    pub preview_cache_mb: u64,
+    /// No longer used: the PNG previews are written next to the PDF and kept as long as it
+    /// (ADR-057). Still accepted so that an older configuration file loads; `config check`
+    /// warns about it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_cache_mb: Option<u64>,
 }
 
 impl Default for StorageConfig {
     fn default() -> Self {
         StorageConfig {
             data_dir: PathBuf::from("data"),
-            preview_cache_mb: 2048,
+            preview_cache_mb: None,
         }
     }
 }
@@ -849,6 +850,9 @@ impl FaxInConfig {
     /// Non-fatal observations (printed by `config check`).
     pub fn warnings(&self) -> Vec<String> {
         let mut w = Vec::new();
+        if self.storage.preview_cache_mb.is_some() {
+            w.push("[storage] preview_cache_mb is no longer used: the PNG previews are written next to the PDF and kept as long as it; remove the setting".to_string());
+        }
         if self.trunks.is_empty() {
             w.push(match self.sip.unknown_source {
                 UnknownSource::Log => "no [[trunks]] defined: every call is handled as an unknown source (unknown_source = \"log\")".to_string(),
