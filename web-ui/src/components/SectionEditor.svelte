@@ -127,6 +127,6 @@
   {/if}
   <div class="actions sticky">
     <button type="submit" class="primary" disabled={saving || !dirty}>{t(saving ? 'common.saving' : 'common.save')}</button>
-    {#if dirty}<span class="muted small">{t('config.unsaved')}</span>{/if}
+    {#if dirty}<span class="unsaved small" role="status">{t('config.unsaved')}</span>{/if}
   </div>
 </form>

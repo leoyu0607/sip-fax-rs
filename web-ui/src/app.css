@@ -171,6 +171,14 @@ button:disabled {
   cursor: default;
 }
 
+/* a primary button that cannot be used yet (nothing to save): plain, not a washed-out accent */
+button.primary:disabled {
+  opacity: 1;
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -283,9 +291,20 @@ legend {
 .actions.sticky {
   position: sticky;
   bottom: 0;
-  padding: 0.6rem 0;
+  padding: 0.7rem 0;
   background: var(--bg);
   border-top: 1px solid var(--border);
+}
+
+/* in a settings form: the bar is the bottom of the card, edge to edge, in the card's colour, with a
+   soft shadow so that it stands apart from the fields it covers while it sticks */
+.section-form > .actions.sticky {
+  margin: 1rem -1.2rem 0;
+  padding: 0.7rem 1.2rem;
+  background: var(--surface);
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: 0 -4px 10px -6px rgb(0 0 0 / 0.25);
+  z-index: 1;
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -799,5 +818,10 @@ dl.details dd {
 
 .setup-banner a {
   margin-left: 0.5rem;
+  font-weight: 600;
+}
+
+.unsaved {
+  color: var(--warn);
   font-weight: 600;
 }
