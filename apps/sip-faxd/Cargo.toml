@@ -31,5 +31,6 @@ rustix = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+reqwest = { workspace = true }
 url = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }

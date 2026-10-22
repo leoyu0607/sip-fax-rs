@@ -113,6 +113,37 @@ pub async fn test_record_schema_version(url: &str, version: i32) -> Result<()> {
     Ok(())
 }
 
+/// Test support: the number of rows of every copied table, in copy order (the schema must be
+/// current; nothing is migrated or written).
+#[doc(hidden)]
+pub async fn test_row_counts(url: &str) -> Result<Vec<(&'static str, u64)>> {
+    let st = open_sql(url, &ConnectOptions::default()).await?;
+    let mut out = Vec::new();
+    for name in copy::table_names() {
+        let rows = st
+            .raw()
+            .query(
+                &format!("SELECT COUNT(*) FROM {name}"),
+                &[],
+                &[db::Kind::Int],
+            )
+            .await;
+        let n = match rows {
+            Ok(r) => match r.first().and_then(|r| r.first()) {
+                Some(db::Val::I(Some(n))) => *n as u64,
+                _ => 0,
+            },
+            Err(e) => {
+                st.close().await;
+                return Err(e);
+            }
+        };
+        out.push((name, n));
+    }
+    st.close().await;
+    Ok(out)
+}
+
 /// Connect with default options (auto-migrate on).
 pub async fn connect(url: &str) -> Result<Arc<dyn FaxStore>> {
     connect_with(url, ConnectOptions::default()).await
