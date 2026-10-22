@@ -260,6 +260,10 @@ async fn set_read(
         .set_read(id, b.read, s.username())
         .await
         .map_err(store_error)?;
+    st.events.publish(
+        "fax.read_changed",
+        json!({"id": r.id, "is_read": r.is_read, "by": r.read_changed_by, "at": r.read_changed_at}),
+    );
     Ok(Json(fax_json(&r)))
 }
 
@@ -284,7 +288,13 @@ async fn set_note(
         .set_note(id, &b.text, s.username(), b.expected_updated_at)
         .await
     {
-        Ok(r) => Ok(Json(fax_json(&r))),
+        Ok(r) => {
+            st.events.publish(
+                "fax.note_changed",
+                json!({"id": r.id, "note": r.note, "by": r.note_updated_by, "at": r.note_updated_at}),
+            );
+            Ok(Json(fax_json(&r)))
+        }
         Err(store::Error::Conflict(_)) => {
             // W04: the current note, who wrote it and when, so the client can merge
             let cur = store
@@ -532,6 +542,9 @@ async fn redeliver(
         attempts = queued.len(),
         "web: redelivery"
     );
+    if !queued.is_empty() {
+        st.events.delivery_updated(id);
+    }
     let d = store.list_deliveries(id).await.map_err(store_error)?;
     Ok(Json(json!({
         "queued": queued,

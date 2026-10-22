@@ -127,12 +127,15 @@ async fn login(
     }
 }
 
-async fn logout(State(st): State<AppState>, _: Session, headers: HeaderMap) -> Response {
+async fn logout(State(st): State<AppState>, s: Session, headers: HeaderMap) -> Response {
     if let Some(t) = session::cookie_token(&headers)
         && let Err(e) = st.auth.logout(&t).await
     {
         return account_error(&e).into_response();
     }
+    // (sessions carry no id of their own: every connection of the account closes; another
+    // browser of it reconnects with its own session)
+    st.events.revoke_user(s.0.user.id);
     let mut r = StatusCode::NO_CONTENT.into_response();
     if let Ok(v) = HeaderValue::from_str(&session::clear_cookie(st.https)) {
         r.headers_mut().insert(header::SET_COOKIE, v);
@@ -171,7 +174,10 @@ async fn password(
         .await
     {
         // every session of the account ends; this request gets a new one
-        Ok(ok) => logged_in(&st, &ok),
+        Ok(ok) => {
+            st.events.revoke_user(s.0.user.id);
+            logged_in(&st, &ok)
+        }
         Err(e) => account_error(&e).into_response(),
     }
 }

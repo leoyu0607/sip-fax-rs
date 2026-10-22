@@ -131,6 +131,12 @@
 - 每個事件帶單調遞增的 `seq`。斷線重連時前端帶 `since=<seq>`，伺服器從記憶體中的環狀緩衝（最近 1000 筆）補送；超出範圍時送 `resync`，前端重新查詢列表。
 - 伺服器每 30 秒送 ping；60 秒沒有 pong 就關閉。
 - 帳號被停用或登出時，伺服器關閉該使用者的所有連線。
+- M4b 實作細節：
+  - 每則訊息是 `{"seq", "type", "at", "data"}`。連線後先送 `{"type": "hello", "seq": <目前最後一筆>}`，接著是 `since` 之後的事件，或 `{"type": "resync", "seq": …}`（`since` 比緩衝最舊的還舊，或比目前最後一筆還新，代表服務重新啟動過；`seq` 每次啟動從 1 開始）。
+  - `data`：`fax.created`／`fax.progress`／`fax.finalized` 是 `{id, call_id}`（progress 另有 `pages`），在寫進 DB 之後才送，前端用 `id` 讀 `GET /faxes/{id}`；`fax.read_changed` 是 `{id, is_read, by, at}`；`fax.note_changed` 是 `{id, note, by, at}`；`delivery.updated` 是 `{fax_id}`；`status.changed` 是 `{state, active_calls, trunks, pending_restart}`。
+  - 關閉代碼：4001 session 結束（登出、改密碼、停用、降級、重設密碼、刪除）、4002 沒有回 pong、4008 落後太多（超過 256 筆沒送出，前端以 `since` 重連）。
+  - 握手時 `Origin` 必須與 `Host` 相同（403 `origin`）。
+  - 以 CLI 停用帳號時，連線要等下次重連才會被拒絕（CLI 不經過服務）。
 
 ## 5. HTTP / HTTPS
 

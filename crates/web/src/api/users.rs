@@ -138,11 +138,13 @@ async fn update(
             .await
             .map_err(|e| account_error(&e))?;
         tracing::info!(user = %u.username, by = s.username(), "web: password reset");
+        st.events.revoke_user(u.id);
     }
     let changes = new_role.is_some()
         || b.disabled.is_some()
         || b.display_name.is_some()
         || b.locale.is_some();
+    let before = u.clone();
     let u = if changes {
         let u = st
             .auth
@@ -157,6 +159,11 @@ async fn update(
             .await
             .map_err(|e| account_error(&e))?;
         tracing::info!(user = %u.username, role = %u.role, disabled = u.disabled, by = s.username(), "web: account changed");
+        // the sessions of a disabled or demoted account are gone (AuthService): so are its
+        // connections
+        if (u.disabled && !before.disabled) || u.role != before.role {
+            st.events.revoke_user(u.id);
+        }
         u
     } else {
         // (a password reset alone: read it again for must_change_password)
@@ -176,6 +183,7 @@ async fn delete(
         .delete_user(&u.username, s.username())
         .await
         .map_err(|e| account_error(&e))?;
+    st.events.revoke_user(u.id);
     tracing::info!(user = %u.username, by = s.username(), "web: account deleted");
     Ok(StatusCode::NO_CONTENT)
 }

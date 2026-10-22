@@ -10,6 +10,7 @@
 pub mod api;
 pub mod config;
 pub mod error;
+pub mod events;
 pub mod extract;
 pub mod server;
 pub mod session;

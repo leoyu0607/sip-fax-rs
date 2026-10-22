@@ -2,18 +2,33 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use accounts::AuthService;
 use chrono::Utc;
+use fax_in::recorder::{RecordWritten, WrittenHook};
 use runtime_config::ConfigService;
 use store::{StoreSource, SystemClock};
 use web::config::Scheme;
+use web::events::{self, EventBus};
 use web::server::WebServer;
 use web::tls;
 use web::{ServiceStatus, StatusSource, TrunkState};
 
 use crate::service::hub::Hub;
 use crate::settings::AppConfig;
+
+/// How often `status.changed` compares the service's state.
+const STATUS_EVERY: Duration = Duration::from_secs(2);
+
+/// The recorder's writes as `fax.created` / `fax.progress` / `fax.finalized`.
+pub fn recorder_events(bus: Arc<EventBus>) -> WrittenHook {
+    Arc::new(move |w| match w {
+        RecordWritten::Created { id, call_id } => bus.fax_created(*id, call_id),
+        RecordWritten::Pages { id, call_id, pages } => bus.fax_progress(*id, call_id, *pages),
+        RecordWritten::Finalized { id, call_id } => bus.fax_finalized(*id, call_id),
+    })
+}
 
 /// Starts the web interface when `[web] enabled`. The certificate is loaded (or made) first;
 /// its fingerprint, a new or replaced self-signed certificate and a near end are logged.
@@ -27,6 +42,7 @@ pub async fn start(
     auth: Arc<AuthService>,
     config: Arc<ConfigService>,
     hub: Arc<Hub>,
+    events: Arc<EventBus>,
     store: Arc<dyn StoreSource>,
 ) -> Result<Option<WebServer>, String> {
     let w = &cfg.web;
@@ -73,10 +89,21 @@ pub async fn start(
         }
     };
     let https = tls.is_some();
+    let status: Arc<dyn StatusSource> = Arc::new(HubStatus(hub));
+    let pending = config.clone();
+    // (lives as long as the process)
+    events::watch_status(
+        events.clone(),
+        status.clone(),
+        move || pending.pending_restart(),
+        STATUS_EVERY,
+    );
     let state = web::AppState {
         auth,
         config,
-        status: Arc::new(HubStatus(hub)),
+        status,
+        events,
+        ws_ping: web::api::events::PING_EVERY,
         store,
         data_dir: cfg.data_dir(base),
         preview_cache_mb: cfg.fax_in.storage.preview_cache_mb,

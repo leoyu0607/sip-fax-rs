@@ -11,6 +11,7 @@ use store::{Clock, FaxStore, Preview, StoreSource};
 use tokio::sync::OnceCell;
 
 use crate::error::ApiError;
+use crate::events::EventBus;
 
 /// A request (headers, body, handler) that takes longer than this is answered with 408.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -58,6 +59,10 @@ pub struct AppState {
     pub config: Arc<ConfigService>,
     /// The service's state (`/status`).
     pub status: Arc<dyn StatusSource>,
+    /// The events of `/events`.
+    pub events: Arc<EventBus>,
+    /// Ping interval of `/events` ([`crate::api::events::PING_EVERY`]; shorter in tests).
+    pub ws_ping: Duration,
     /// The fax records (connected lazily: the database may be down at start).
     pub store: Arc<dyn StoreSource>,
     /// `[storage] data_dir`: the TIFF/PDF files and the PNG cache live under it.

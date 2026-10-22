@@ -258,10 +258,44 @@ pub struct RecorderConfig {
     /// that succeeded). Must not block: sip-faxd hands the id to the delivery engine here.
     /// Never called for a write that was given up on, nor by [`backfill`].
     pub on_finalized: Option<FinalizedHook>,
+    /// Called after every write that reached the database (the web interface's events). Must
+    /// not block.
+    pub on_written: Option<WrittenHook>,
 }
 
 /// Callback of [`RecorderConfig::on_finalized`].
 pub type FinalizedHook = Arc<dyn Fn(i64) + Send + Sync>;
+
+/// Callback of [`RecorderConfig::on_written`].
+pub type WrittenHook = Arc<dyn Fn(&RecordWritten) + Send + Sync>;
+
+/// A write of the recorder that reached the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordWritten {
+    /// The `receiving` row of an answered call.
+    Created {
+        /// Row id.
+        id: i64,
+        /// SIP Call-ID.
+        call_id: String,
+    },
+    /// The page count of a call in progress.
+    Pages {
+        /// Row id.
+        id: i64,
+        /// SIP Call-ID.
+        call_id: String,
+        /// Pages so far.
+        pages: u32,
+    },
+    /// The final result.
+    Finalized {
+        /// Row id.
+        id: i64,
+        /// SIP Call-ID.
+        call_id: String,
+    },
+}
 
 impl RecorderConfig {
     /// Defaults for `data_dir`.
@@ -273,6 +307,7 @@ impl RecorderConfig {
             max_queue: 10_000,
             sleeper: Arc::new(TokioSleeper),
             on_finalized: None,
+            on_written: None,
         }
     }
 }
@@ -517,6 +552,12 @@ impl Worker {
         }
     }
 
+    fn written(&self, w: &RecordWritten) {
+        if let Some(hook) = &self.cfg.on_written {
+            hook(w);
+        }
+    }
+
     async fn handle(&mut self, job: Job) {
         let sink = self.sink.clone();
         match job {
@@ -531,6 +572,10 @@ impl Worker {
                     .await
                 {
                     self.ids.insert(new.call_id.clone(), id);
+                    self.written(&RecordWritten::Created {
+                        id,
+                        call_id: new.call_id.clone(),
+                    });
                 }
             }
             Job::Pages { call_id, pages, at } => {
@@ -539,13 +584,17 @@ impl Worker {
                     return;
                 };
                 let what = format!("update the page count of call {call_id}");
-                let pages = i32::try_from(pages).unwrap_or(i32::MAX);
-                let _ = self
+                let count = i32::try_from(pages).unwrap_or(i32::MAX);
+                if self
                     .attempt(&what, || {
                         let sink = sink.clone();
-                        async move { sink.update_pages(id, pages, utc(at)).await }
+                        async move { sink.update_pages(id, count, utc(at)).await }
                     })
-                    .await;
+                    .await
+                    .is_some()
+                {
+                    self.written(&RecordWritten::Pages { id, call_id, pages });
+                }
             }
             Job::Finish {
                 new,
@@ -567,6 +616,7 @@ impl Worker {
                         if let Some(hook) = &self.cfg.on_finalized {
                             hook(id);
                         }
+                        self.written(&RecordWritten::Finalized { id, call_id });
                     }
                     None => self.spill(&call_id, &json).await,
                 }

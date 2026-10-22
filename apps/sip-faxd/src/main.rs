@@ -547,6 +547,11 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         live.delivery.clone(),
     );
     rcfg.on_finalized = Some(delivery.hook());
+    // the web interface's events: what reached the database, and the delivery changes
+    let web_events = Arc::new(web::events::EventBus::new());
+    rcfg.on_written = Some(web_service::recorder_events(web_events.clone()));
+    let bus = web_events.clone();
+    delivery.set_on_change(Arc::new(move |id| bus.delivery_updated(id)));
     let recorder = Arc::new(Recorder::start(db.clone(), rcfg));
     let purge_task = tokio::spawn(commands::purge_daily(db.clone(), data_dir));
 
@@ -594,6 +599,7 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         rt.auth.clone(),
         rt.config.clone(),
         hub.clone(),
+        web_events,
         db.clone(),
     )
     .await

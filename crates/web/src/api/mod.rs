@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod config;
+pub mod events;
 pub mod faxes;
 pub mod system;
 pub mod users;
@@ -18,4 +19,5 @@ pub fn routes() -> Router<AppState> {
         .merge(config::routes())
         .merge(users::routes())
         .merge(system::routes())
+        .merge(events::routes())
 }

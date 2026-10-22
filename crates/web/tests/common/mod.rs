@@ -7,6 +7,7 @@ use std::time::Duration;
 use accounts::{AuthConfig, AuthService, NewAccount, Role};
 use runtime_config::{ConfigService, RuntimeConfig, SecretBox};
 use store::{Clock, ConnectOptions, FaxStore, ManualClock, StoreSource};
+use web::events::EventBus;
 use web::server::WebServer;
 use web::{AppState, ServiceStatus, StatusSource, TrunkState, app};
 
@@ -23,6 +24,7 @@ pub struct Env {
     pub clock: Arc<ManualClock>,
     pub config: Arc<ConfigService>,
     pub status: Arc<FixedStatus>,
+    pub events: Arc<EventBus>,
     pub _dir: tempfile::TempDir,
 }
 
@@ -67,11 +69,17 @@ pub fn service_status() -> ServiceStatus {
 }
 
 pub async fn env() -> Env {
-    env_with(web::REQUEST_TIMEOUT).await
+    env_opts(web::REQUEST_TIMEOUT, web::api::events::PING_EVERY).await
 }
 
 /// [`env`] with another request deadline.
 pub async fn env_with(request_timeout: Duration) -> Env {
+    env_opts(request_timeout, web::api::events::PING_EVERY).await
+}
+
+/// [`env`] with another request deadline and WebSocket ping interval.
+pub async fn env_opts(request_timeout: Duration, ws_ping: Duration) -> Env {
+    let events = Arc::new(EventBus::new());
     let dir = tempfile::tempdir().unwrap();
     let clock = Arc::new(ManualClock::at_millis(T0));
     let url = format!("sqlite://{}/w.db", dir.path().display());
@@ -105,6 +113,8 @@ pub async fn env_with(request_timeout: Duration) -> Env {
         auth: auth.clone(),
         config: config.clone(),
         status: status.clone(),
+        events: events.clone(),
+        ws_ping,
         store: Arc::new(store.clone()),
         data_dir: data_dir.clone(),
         preview_cache_mb: 64,
@@ -127,6 +137,7 @@ pub async fn env_with(request_timeout: Duration) -> Env {
         clock,
         config,
         status,
+        events,
         _dir: dir,
     }
 }
