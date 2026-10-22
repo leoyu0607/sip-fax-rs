@@ -149,7 +149,8 @@
 - [x] [Opus] 撰寫 `docs/test-plans/M4e.md`（含設計摘要）
 - [x] [Any] 實作：`crates/store/src/copy.rs`（`copy_database`）、CLI `sip-faxd db copy --to <URL>`（`apps/sip-faxd/src/commands.rs::db_copy`）；文件：`docs/database.md`「換資料庫」、`docs/manual/it.md` §11、CHANGELOG 中英
   - 2026-10-22 手動驗證：SQLite → PostgreSQL／MSSQL／MySQL，再從 MSSQL、MySQL 複製回 SQLite，七個表逐列與原始相同；複製後 PostgreSQL、MSSQL 新增帳號的 id 接續（2）
-- [ ] [Sonnet] 依計畫實作 C01–C12 並寫 `docs/test-reports/M4e.md`（DB 矩陣、C12 在 Docker 內以 SpanDSP 收傳真）
+- [x] [Sonnet] 依計畫實作 C01–C13 並寫 `docs/test-reports/M4e.md`（DB 矩陣四種 DB 全過、C12 在 Docker 內以 SpanDSP 收傳真後搬到 PostgreSQL；沒有找到產品錯誤；store 涵蓋率 83.08%；待 Opus 審核）
+  - 測試：`crates/store/src/tests/copy_tests.rs`（C01–C06、C10、C13）、`apps/sip-faxd/tests/m4e_cli.rs`（C07–C09、C11）、`tools/fax-sim/tests/e2e_m4e.rs`（C12；`scripts/e2e-docker.sh` 會起 PostgreSQL 容器，CI 的 `e2e-spandsp` 有 postgres service）
 - [ ] [Opus] 審核
 
 ### 文件（優先級在功能開發之後）
