@@ -86,7 +86,11 @@ test('U25 the fax page shows the details and the note beside the pages, without 
       expect(b.x, `${sel} is right of the pages`).toBeGreaterThan(view.x + view.width - 1);
       expect(b.y + b.height, `${sel} is in the first screen`).toBeLessThan(800);
     }
-    // the technical details wait behind "More details"
+    // the technical details wait behind "More details", which starts at the left of its card
+    // (it once took the centred layout of the list's "load more" bar through a shared class name)
+    const more = page.getByText(tr('fax.more_details'), { exact: true });
+    const card = (await page.locator('.detail-side .card').first().boundingBox())!;
+    expect((await more.boundingBox())!.x - card.x).toBeLessThan(60);
     await expect(page.getByText(fax.call_id, { exact: true })).toBeHidden();
     await page.getByText(tr('fax.more_details'), { exact: true }).click();
     await expect(page.getByText(fax.call_id, { exact: true })).toBeVisible();

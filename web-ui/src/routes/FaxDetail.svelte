@@ -262,7 +262,7 @@
             <dt>{t('fax.resolution')}</dt><dd>{fax.resolution ? t(`fax.resolution_value.${fax.resolution}`) : ''}</dd>
             {#if fax.read_changed_by}<dt>{t('fax.read_by')}</dt><dd>{fax.read_changed_by} · {fmt(fax.read_changed_at)}</dd>{/if}
           </dl>
-          <details class="more">
+          <details class="more-details">
             <summary>{t('fax.more_details')}</summary>
             <dl class="details">
               <dt>{t('fax.ended_at')}</dt><dd>{fmt(fax.ended_at)}</dd>

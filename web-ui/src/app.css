@@ -826,20 +826,20 @@ dl.details dd {
   margin-top: 0.5rem;
 }
 
-details.more {
+/* (not `.more`: that is the "load more" bar of the fax list) */
+details.more-details {
   margin-top: 0.75rem;
   border-top: 1px solid var(--border);
   padding-top: 0.5rem;
 }
 
-details.more summary {
-  text-align: left;
+details.more-details summary {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.9rem;
 }
 
-details.more[open] summary {
+details.more-details[open] summary {
   margin-bottom: 0.5rem;
 }
 
