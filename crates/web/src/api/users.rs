@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-use crate::api::auth::{account_error, user_json};
+use crate::api::auth::{account_error, check_locale, user_json};
 use crate::error::ApiError;
 use crate::extract::ApiJson;
 use crate::session::Session;
@@ -74,6 +74,7 @@ async fn create(
     ApiJson(b): ApiJson<CreateBody>,
 ) -> Result<Response, ApiError> {
     s.need(Capability::ManageUsers)?;
+    check_locale(b.locale.as_deref())?;
     let account = NewAccount {
         username: &b.username,
         role: role(&b.role)?,
@@ -120,6 +121,9 @@ async fn update(
     s.need(Capability::ManageUsers)?;
     let u = by_id(&st, &id).await?;
     let new_role = b.role.as_deref().map(role).transpose()?;
+    if let Some(l) = &b.locale {
+        check_locale(l.as_deref())?;
+    }
     if b.must_change_password.is_some() && b.password.is_none() {
         return Err(ApiError::bad_request(
             "must_change_password goes with a new password",

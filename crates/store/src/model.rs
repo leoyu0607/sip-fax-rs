@@ -206,6 +206,9 @@ pub struct ListFilter {
     pub dnis_prefix: Option<String>,
     /// Exact trunk name.
     pub trunk: Option<String>,
+    /// Text anywhere in the ANI, the DNIS, the remote ident (TSI) or the note, ignoring case
+    /// (literal, like the prefixes).
+    pub q: Option<String>,
 }
 
 /// Opaque keyset cursor: position after (`started_at`, `id`) in `started_at DESC, id DESC` order.

@@ -1,0 +1,543 @@
+{
+  "app": {
+    "title": "sip-fax 傳真",
+    "loading": "載入中…"
+  },
+  "locale": {
+    "zh-TW": "繁體中文",
+    "en": "English"
+  },
+  "nav": {
+    "main": "主選單",
+    "faxes": "傳真",
+    "status": "系統狀態",
+    "settings": "設定",
+    "users": "帳號",
+    "audit": "稽核紀錄",
+    "language": "語言",
+    "logout": "登出"
+  },
+  "live": {
+    "on": "即時更新已連線",
+    "off": "即時更新已中斷，正在重新連線"
+  },
+  "common": {
+    "save": "儲存",
+    "saving": "儲存中…",
+    "saved": "已儲存",
+    "cancel": "取消",
+    "delete": "刪除",
+    "edit": "編輯",
+    "add": "新增",
+    "retry": "重試",
+    "actions": "動作",
+    "yes": "是",
+    "no": "否"
+  },
+  "login": {
+    "subtitle": "請登入",
+    "username": "帳號",
+    "password": "密碼",
+    "submit": "登入",
+    "signing_in": "登入中…"
+  },
+  "password": {
+    "title": "變更密碼",
+    "forced": "第一次登入，請先設定新密碼。",
+    "current": "目前的密碼",
+    "new": "新密碼",
+    "again": "再輸入一次新密碼",
+    "rules": "至少 10 個字元，不能和帳號相同。",
+    "mismatch": "兩次輸入的新密碼不同",
+    "submit": "變更密碼",
+    "changed": "密碼已變更"
+  },
+  "role": {
+    "admin": "管理員",
+    "agent": "座席"
+  },
+  "error": {
+    "unknown": "發生錯誤（{code}）",
+    "network": "無法連線到伺服器",
+    "bad_request": "請求內容不正確",
+    "csrf": "安全檢查失敗，請重新整理頁面",
+    "forbidden": "沒有權限",
+    "not_found": "找不到",
+    "method_not_allowed": "不支援這個操作",
+    "conflict": "資料已被其他人修改",
+    "invalid": "設定有誤",
+    "internal": "伺服器內部錯誤",
+    "unavailable": "資料庫暫時無法連線，請稍後再試",
+    "timeout": "伺服器回應逾時",
+    "too_large": "內容太大",
+    "too_long": "文字太長",
+    "unsupported_media_type": "格式不支援",
+    "unprocessable": "內容無法處理",
+    "origin": "來源不符",
+    "purged": "檔案已依保存期限清除",
+    "invalid_credentials": "帳號或密碼錯誤",
+    "account_locked": "登入失敗太多次，請 {minutes} 分鐘後再試",
+    "rate_limited": "嘗試太頻繁，請 {seconds} 秒後再試",
+    "account_disabled": "帳號已停用",
+    "unauthenticated": "請重新登入",
+    "session_expired": "登入已逾時，請重新登入",
+    "password_change_required": "請先變更密碼",
+    "password_too_short": "密碼至少要 10 個字元",
+    "password_too_long": "密碼太長",
+    "password_same_as_username": "密碼不能和帳號相同",
+    "wrong_password": "目前的密碼不正確",
+    "bad_username": "帳號只能使用英數字與 . _ -（最多 64 字元）",
+    "bad_role": "角色不正確",
+    "username_taken": "帳號已存在",
+    "last_admin": "不能停用、降級或刪除最後一個管理員",
+    "bad_locale": "語言不支援"
+  },
+  "validation": {
+    "unknown": "值不正確（{code}）",
+    "required": "必填",
+    "invalid": "格式不正確",
+    "wrong_type": "類型不正確",
+    "unknown_field": "不認得的欄位",
+    "out_of_range": "超出允許的範圍",
+    "empty": "不能是空的",
+    "too_long": "太長",
+    "duplicate": "重複",
+    "not_last": "預設路由必須是最後一條",
+    "unknown_preset": "不認得的預設組合",
+    "mismatch": "和其他設定不一致",
+    "removed": "這個設定已移除",
+    "secret_key": "加密金鑰無法使用，秘密欄位無法儲存"
+  },
+  "faxes": {
+    "title": "傳真",
+    "empty": "沒有符合的傳真",
+    "more": "載入更多",
+    "new": "有 {count} 份新傳真，按這裡顯示",
+    "read": {
+      "all": "全部",
+      "unread": "未讀",
+      "read": "已讀"
+    },
+    "filter": {
+      "read": "已讀狀態",
+      "toggle": "篩選",
+      "q": "搜尋（號碼、對方識別、備註）",
+      "status": "狀態",
+      "any": "不限",
+      "from": "開始日期",
+      "to": "結束日期",
+      "ani": "發話號碼開頭",
+      "dnis": "受話號碼開頭",
+      "trunk": "中繼（trunk）",
+      "apply": "套用",
+      "clear": "清除篩選"
+    }
+  },
+  "fax": {
+    "title": "來自 {ani} 的傳真",
+    "back": "回到傳真列表",
+    "started_at": "時間",
+    "ended_at": "結束時間",
+    "ani": "發話號碼",
+    "dnis": "受話號碼",
+    "remote_ident": "對方識別（TSI）",
+    "trunk": "中繼",
+    "pages": "頁數",
+    "note": "備註",
+    "status_label": "狀態",
+    "read_label": "已讀",
+    "read": "已讀",
+    "unread": "未讀",
+    "unknown_number": "（未顯示號碼）",
+    "mark_read": "標為已讀",
+    "mark_unread": "標為未讀",
+    "mark_read_of": "將 {time} 的傳真標為已讀",
+    "mark_unread_of": "將 {time} 的傳真標為未讀",
+    "receiving_page": "接收中，第 {page} 頁",
+    "status": {
+      "receiving": "接收中",
+      "received": "完成",
+      "partial": "部分完成",
+      "failed": "失敗",
+      "no_fax": "沒有傳真"
+    },
+    "download_pdf": "下載 PDF",
+    "download_tiff": "下載 TIFF",
+    "redeliver": "重新投遞",
+    "redelivered": "已重新排入 {count} 筆投遞",
+    "purged": "檔案已在 {at} 依保存期限清除，只保留紀錄。",
+    "no_pages": "沒有可預覽的頁面",
+    "pages_list": "頁面",
+    "page_n": "第 {page} 頁",
+    "page_of": "第 {page} / {pages} 頁",
+    "prev_page": "上一頁",
+    "next_page": "下一頁",
+    "zoom": "縮放",
+    "zoom_fit": "符合寬度",
+    "note_save": "儲存備註",
+    "note_by": "{by} 於 {at} 修改",
+    "note_conflict": "備註已被 {by} 修改，對方的版本：",
+    "note_take_theirs": "改用對方的版本",
+    "note_keep_mine": "用我的版本覆蓋",
+    "details": "詳細資料",
+    "duration": "通話長度",
+    "hangup_label": "結束原因",
+    "sip_status": "SIP 狀態碼",
+    "t30_code": "T.30 結果碼",
+    "resolution": "解析度",
+    "resolution_value": {
+      "standard": "標準",
+      "fine": "精細",
+      "superfine": "超精細"
+    },
+    "bit_rate": "速率（bit/s）",
+    "compression": "壓縮",
+    "ecm": "錯誤修正（ECM）",
+    "files": "檔案",
+    "read_by": "已讀狀態變更",
+    "call_id": "Call-ID",
+    "deliveries": "投遞",
+    "no_deliveries": "沒有投遞（沒有符合的路由）",
+    "direction": {
+      "remote": "對方掛斷",
+      "local": "本機結束",
+      "system": "系統"
+    },
+    "hangup": {
+      "completed": "傳真接收完成",
+      "peer_hangup": "對方在傳真完成前掛斷",
+      "peer_hangup_no_fax": "對方掛斷，沒有收到任何頁面",
+      "t30_failed": "傳真協定（T.30）失敗",
+      "no_fax_signal": "接通後一直沒有傳真訊號（可能是一般電話）",
+      "t38_rejected": "對方不接受 T.38",
+      "caller_cancelled": "來電者在接聽前取消",
+      "rejected": "本機拒絕來電",
+      "ack_timeout": "接聽後沒有收到 ACK",
+      "session_expired": "SIP session 逾時",
+      "max_duration": "通話超過最長時間",
+      "shutdown": "服務停止",
+      "internal_error": "內部錯誤"
+    }
+  },
+  "delivery": {
+    "kind": "方式",
+    "target": "目的地",
+    "status_label": "狀態",
+    "attempt": "嘗試次數",
+    "next_try": "下次嘗試",
+    "last_error": "最後的錯誤",
+    "kind_value": {
+      "folder": "資料夾",
+      "email": "電子郵件",
+      "webhook": "Webhook"
+    },
+    "status": {
+      "pending": "等待中",
+      "done": "完成",
+      "failed": "失敗（會重試）",
+      "giving_up": "已放棄"
+    }
+  },
+  "status": {
+    "title": "系統狀態",
+    "service": "服務",
+    "state": "狀態",
+    "state_value": {
+      "running": "執行中",
+      "stopping": "停止中（等待通話結束）"
+    },
+    "version": "版本",
+    "started_at": "啟動時間",
+    "uptime": "已執行",
+    "listen": "SIP 監聽",
+    "active_calls": "進行中的通話",
+    "database": "資料庫",
+    "db_ok": "正常",
+    "db_unavailable": "無法連線",
+    "schema": "資料表版本 {n}",
+    "config": "設定",
+    "config_source": {
+      "database": "設定來自資料庫",
+      "file_fallback": "資料庫無法使用，暫時使用設定檔的內容"
+    },
+    "trunks": "中繼（trunk）註冊",
+    "trunk": "中繼",
+    "registration_label": "註冊",
+    "registration": {
+      "none": "不需註冊",
+      "unregistered": "尚未註冊",
+      "registering": "註冊中",
+      "registered": "已註冊",
+      "failed": "註冊失敗",
+      "unknown": "不明"
+    }
+  },
+  "users": {
+    "title": "帳號",
+    "username": "帳號",
+    "display_name": "顯示名稱",
+    "role": "角色",
+    "state": "狀態",
+    "enabled": "啟用",
+    "disabled": "停用",
+    "must_change": "需改密碼",
+    "last_login": "最後登入",
+    "you": "你",
+    "locale": "介面語言",
+    "locale_browser": "依瀏覽器",
+    "edit": "編輯 {name}",
+    "reset_password": "重設密碼",
+    "reset_password_help": "留空表示不變更。重設後該帳號所有登入都會結束。",
+    "must_change_next": "下次登入時必須變更密碼",
+    "new": "新增帳號",
+    "initial_password": "初始密碼",
+    "create": "建立帳號",
+    "created": "已建立帳號 {name}",
+    "delete_confirm": "確定要刪除帳號 {name}？"
+  },
+  "account": {
+    "title": "我的帳號",
+    "language": "介面語言"
+  },
+  "audit": {
+    "title": "設定稽核紀錄",
+    "at": "時間",
+    "by": "操作者",
+    "section": "區段",
+    "action_label": "動作",
+    "details": "內容",
+    "before": "變更前",
+    "after": "變更後",
+    "empty": "沒有紀錄",
+    "action": {
+      "create": "新增",
+      "update": "修改",
+      "delete": "刪除",
+      "import": "匯入"
+    }
+  },
+  "config": {
+    "title": "設定",
+    "sections": "設定區段",
+    "section": {
+      "sip": "SIP",
+      "media": "媒體",
+      "call": "通話",
+      "capture": "通話擷取",
+      "trunks": "中繼（trunk）",
+      "routes": "投遞路由",
+      "delivery": "投遞參數",
+      "retention": "保存期限"
+    },
+    "trunk_title": "中繼：{name}",
+    "trunk_order": "中繼順序",
+    "trunks_help": "來電依序比對，第一個 allowed_sources 包含來源 IP 的中繼處理這通電話。",
+    "no_trunks": "沒有設定任何中繼",
+    "new_trunk": "新中繼名稱",
+    "new": "尚未儲存",
+    "order_saved": "順序已儲存",
+    "delete_trunk_confirm": "確定要刪除中繼 {name}？",
+    "move_up_of": "將 {n} 上移",
+    "move_down_of": "將 {n} 下移",
+    "saved": "設定已儲存並套用到之後的來電",
+    "invalid": "有欄位不正確，請修正後再儲存",
+    "conflict": "這個區段已被其他人修改，請重新載入後再編輯",
+    "reload": "重新載入",
+    "unsaved": "有尚未儲存的變更",
+    "warnings": "{count} 個提醒",
+    "restart_field": "變更後需要重新啟動服務才會生效",
+    "restart_required": "需要重新啟動服務才會生效：{fields}",
+    "pending_restart": "有設定等待重新啟動才會生效：{fields}",
+    "file_fallback": "資料庫無法使用：目前使用設定檔的內容，暫時無法修改。",
+    "undecryptable": "以下秘密欄位無法解密，請重新輸入：{fields}",
+    "default_value": "（預設）",
+    "one_per_line": "一行一個",
+    "secret_set": "已設定",
+    "secret_unset": "未設定",
+    "secret_new": "輸入新值以更換",
+    "secret_clear": "清除",
+    "routes_help": "依序比對，第一條符合的路由會執行它的全部投遞。所有條件都要成立；預設路由符合所有傳真，必須放在最後。",
+    "route_n": "路由 {n}",
+    "add_route": "新增路由",
+    "remove_route": "刪除路由",
+    "deliveries": "投遞方式",
+    "no_deliveries": "這條路由沒有投遞方式",
+    "remove_delivery": "刪除這個投遞",
+    "field": {
+      "sip": {
+        "bind": "監聽位址與埠",
+        "transports": "傳輸協定",
+        "transports_help": "都不勾選時依各中繼的設定開啟。",
+        "advertised": "對外位址（Via／Contact）",
+        "user_agent": "User-Agent",
+        "allow": "Allow 標頭",
+        "supported": "Supported 標頭",
+        "unknown_source": "來源不在任何中繼時"
+      },
+      "media": {
+        "address": "SDP 位址",
+        "audio_port": "音訊 RTP 埠",
+        "port_range": "T.38（UDPTL）埠範圍",
+        "port_range_help": "每通電話佔用一個偶數埠，例如 30000-30999 可同時 500 通。"
+      },
+      "call": {
+        "send_ringing": "接聽前送 180 Ringing",
+        "answer_delay_ms": "接聽延遲（毫秒）",
+        "max_duration_secs": "通話最長時間（秒）",
+        "fax_session": "T.38 建立後",
+        "station_id": "本機識別（CSI）",
+        "reinvite_timeout_secs": "re-INVITE 逾時（秒）",
+        "max_491_retries": "491 重試次數"
+      },
+      "capture": {
+        "enabled": "寫入通話擷取",
+        "dir": "目錄",
+        "keep": "保留",
+        "udptl": "udptl.log 內容",
+        "udptl_help": "「完整」會把傳真影像內容寫進 log，只在診斷時使用。",
+        "max_bytes_per_call": "每通上限（位元組）"
+      },
+      "delivery": {
+        "catch_up_hours": "啟動時補投遞的時間範圍（小時）",
+        "max_attempts": "每個投遞的最多嘗試次數"
+      },
+      "retention": {
+        "files_days": "檔案保存天數（0 = 永久）",
+        "records_days": "紀錄保存天數（0 = 永久）",
+        "run_at": "每天執行時間（HH:MM，伺服器時間）"
+      },
+      "trunk": {
+        "name": "名稱",
+        "preset": "預設組合",
+        "peer": "對端位址",
+        "allowed_sources": "允許的來源 IP／CIDR",
+        "allowed_sources_help": "留空時只允許對端位址的 IP。",
+        "transport": "傳輸協定",
+        "t38_policy": "T.38 建立方式",
+        "initiate_after_secs": "本機送 re-INVITE 前等待（秒）",
+        "audio_codecs": "音訊編碼（依優先順序）",
+        "numbers": {
+          "label": "號碼擷取",
+          "ani_sources": "發話號碼來源（依序）",
+          "dnis_sources": "受話號碼來源（依序）",
+          "strip_plus": "移除開頭的 +",
+          "ani_strip_prefix": "發話號碼移除前綴",
+          "dnis_strip_prefix": "受話號碼移除前綴"
+        },
+        "fax": {
+          "label": "傳真能力",
+          "resolutions": "解析度",
+          "ecm": "錯誤修正（ECM）與 MMR"
+        },
+        "t38": {
+          "label": "T.38 參數",
+          "max_version": "最高版本",
+          "max_bit_rate": "最高速率",
+          "rate_management": "速率管理",
+          "max_buffer": "MaxBuffer",
+          "max_datagram": "MaxDatagram",
+          "udp_ec": "UDP 錯誤修正",
+          "fec": "支援 FEC",
+          "redundancy_depth": "冗餘深度",
+          "fec_span": "FEC span",
+          "fec_entries": "FEC entries",
+          "fill_bit_removal": "Fill bit removal",
+          "transcoding_mmr": "MMR 轉碼",
+          "transcoding_jbig": "JBIG 轉碼"
+        },
+        "compat": {
+          "label": "相容性",
+          "accept_unknown_require": "接受不認得的 Require",
+          "min_max_datagram": "MaxDatagram 下限"
+        },
+        "register": {
+          "label": "註冊（REGISTER）",
+          "enabled": "向對端註冊",
+          "registrar": "註冊伺服器",
+          "domain": "網域",
+          "aor": "AoR",
+          "username": "使用者名稱",
+          "password": "密碼",
+          "expires": "有效時間（秒）",
+          "backoff_initial_secs": "失敗後第一次重試（秒）",
+          "backoff_max_secs": "重試間隔上限（秒）"
+        }
+      },
+      "route": {
+        "name": "名稱",
+        "dnis": "受話號碼（完全相同）",
+        "dnis_prefix": "受話號碼開頭",
+        "trunk": "中繼名稱",
+        "default": "預設路由（符合所有傳真）",
+        "deliver_partial": "部分完成的傳真也投遞"
+      },
+      "target": {
+        "folder": {
+          "dir": "目錄",
+          "filename": "檔名範本",
+          "filename_help": "可用 {date} {time} {ani} {dnis} {id} {trunk} {pages} 等；副檔名會自動加上。",
+          "formats": "檔案格式",
+          "create_dir": "目錄不存在時建立"
+        },
+        "email": {
+          "host": "SMTP 伺服器",
+          "port": "埠",
+          "security": "加密方式",
+          "tls_insecure": "接受任何伺服器憑證（僅測試）",
+          "username": "帳號",
+          "password": "密碼",
+          "from": "寄件者",
+          "to": "收件者",
+          "subject": "主旨範本",
+          "body": "內文範本",
+          "attachment_name": "附件檔名範本",
+          "attach_tiff": "也附上 TIFF",
+          "timeout_secs": "逾時（秒）"
+        },
+        "webhook": {
+          "url": "網址",
+          "secret": "HMAC 金鑰",
+          "signature_header": "簽章標頭名稱",
+          "attach_pdf": "附上 PDF（multipart）",
+          "headers": "額外標頭",
+          "timeout_secs": "逾時（秒）"
+        }
+      }
+    },
+    "option": {
+      "unknown_source": {
+        "drop": "直接丟棄",
+        "reject": "回 403",
+        "log": "以 generic 處理並記錄"
+      },
+      "fax_session": {
+        "t38": "接收傳真",
+        "hold": "只保持通話（測試用）"
+      },
+      "keep": {
+        "all": "全部",
+        "failed": "只保留失敗的"
+      },
+      "udptl": {
+        "summary": "摘要",
+        "off": "不寫",
+        "full": "完整（含影像內容）"
+      },
+      "t38_policy": {
+        "auto": "自動",
+        "wait-peer": "等對方發起",
+        "initiate": "本機發起",
+        "audio-only": "只用音訊"
+      },
+      "resolutions": {
+        "standard": "標準",
+        "fine": "精細"
+      },
+      "security": {
+        "starttls": "STARTTLS（587）",
+        "smtps": "SMTPS（465）",
+        "none": "不加密（25）"
+      }
+    }
+  }
+}

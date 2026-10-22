@@ -205,6 +205,26 @@ jobs:
           echo "service container: $SIP_FAXD_TEST_DB_CONTAINER"
           cargo test -p store -- --test-threads=4
 
+  # M4c: the web interface (spec docs/design/m4-web.md 6): lint, svelte-check, vitest with the
+  # coverage gate, production build
+  web-ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      - run: npm run coverage
+      - run: npm run build
+
   build-musl:
     runs-on: ubuntu-latest
     strategy:
@@ -222,7 +242,17 @@ jobs:
         with:
           version: 0.14.1
       - run: pip install cargo-zigbuild
+      # the release binary embeds the web interface (web crate build.rs); without it the build fails
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web-ui
       - run: cargo zigbuild --release --locked --target ${{ matrix.target }} -p sip-faxd
+        env:
+          SIPFAX_REQUIRE_WEB_UI: "1"
       - name: Verify static linking
         run: |
           BIN=target/${{ matrix.target }}/release/sip-faxd
@@ -289,7 +319,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, test, coverage, db-matrix, smoke-rhel, e2e-spandsp]
+    needs: [lint, test, coverage, db-matrix, smoke-rhel, e2e-spandsp, web-ui]
     runs-on: ubuntu-latest
     permissions:
       contents: write

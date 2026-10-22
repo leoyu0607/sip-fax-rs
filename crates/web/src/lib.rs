@@ -6,6 +6,7 @@
 //! * [`session`]: the session cookie, CSRF, the capability of a route
 //! * [`api`]: the routes under `/api/v1`
 //! * [`error`], [`extract`]: the error shape and the JSON body of the API
+//! * [`ui`]: the embedded web interface (`web-ui/dist`)
 
 pub mod api;
 pub mod config;
@@ -16,6 +17,7 @@ pub mod server;
 pub mod session;
 pub mod state;
 pub mod tls;
+pub mod ui;
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -28,13 +30,14 @@ pub use state::{AppState, REQUEST_TIMEOUT, ServiceStatus, StatusSource, TrunkSta
 
 use crate::error::ApiError;
 
-/// The application: the API under `/api/v1`, the request deadline (W11), the error shape of
-/// answers that did not come from a handler (W10) and the security headers (HSTS with HTTPS).
+/// The application: the API under `/api/v1`, the web interface for everything else, the request
+/// deadline (W11), the error shape of answers that did not come from a handler (W10) and the
+/// security headers (HSTS with HTTPS).
 pub fn app(state: AppState) -> Router {
     let https = state.https;
     let r = Router::new()
         .nest("/api/v1", api::routes())
-        .fallback(error::not_found)
+        .fallback(ui::serve)
         .layer(middleware::from_fn_with_state(state.clone(), deadline))
         .layer(middleware::map_response(|r: Response| async {
             error::json_errors(r)

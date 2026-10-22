@@ -1470,3 +1470,75 @@ async fn outage_body(env: &Env, container: &str, id: i64) {
         .await
         .unwrap();
 }
+
+db_case!(s07c_list_search, s07c_list_search_body);
+async fn s07c_list_search_body(env: &Env) {
+    let st = env.dyn_store();
+    let tr = "s07c";
+    let mut a = nf("call-s07c-a", tr, T0 + 1);
+    a.ani = Some("0912345678".into());
+    a.dnis = Some("025570001".into());
+    let a = st.insert_receiving(&a).await.unwrap();
+    let mut b = nf("call-s07c-b", tr, T0 + 2);
+    b.ani = None;
+    b.dnis = Some("0800%_[9".into());
+    let b = st.insert_receiving(&b).await.unwrap();
+    let mut fb = ff(T0 + 3, FaxStatus::Received, 1);
+    fb.remote_ident = Some("ACME Sales".into());
+    st.finalize(b, &fb).await.unwrap();
+    let mut c = nf("call-s07c-c", tr, T0 + 4);
+    c.ani = None;
+    c.dnis = None;
+    let c = st.insert_receiving(&c).await.unwrap();
+    st.set_note(c, "請回電 Wang 先生", "u", None).await.unwrap();
+    let find = |q: &str| {
+        let st = st.clone();
+        let q = q.to_string();
+        async move {
+            let f = ListFilter {
+                trunk: Some(tr.into()),
+                q: Some(q),
+                ..Default::default()
+            };
+            let mut ids: Vec<i64> = st
+                .list(&f, PageRequest::default())
+                .await
+                .unwrap()
+                .items
+                .iter()
+                .map(|r| r.id)
+                .collect();
+            ids.sort();
+            ids
+        }
+    };
+    // anywhere in the ANI / DNIS, not only the start
+    assert_eq!(find("2345").await, vec![a], "{}", lbl(env, "ani"));
+    assert_eq!(find("5570").await, vec![a], "{}", lbl(env, "dnis"));
+    // the remote ident and the note, ignoring case
+    assert_eq!(find("acme sales").await, vec![b], "{}", lbl(env, "ident"));
+    assert_eq!(find("WANG").await, vec![c], "{}", lbl(env, "note"));
+    assert_eq!(find("回電").await, vec![c], "{}", lbl(env, "note cjk"));
+    // wildcards are literal
+    assert_eq!(find("%_[").await, vec![b], "{}", lbl(env, "literal"));
+    assert_eq!(find("_").await, vec![b], "{}", lbl(env, "underscore"));
+    assert_eq!(find("%").await, vec![b], "{}", lbl(env, "percent"));
+    assert!(find("!").await.is_empty(), "{}", lbl(env, "escape char"));
+    assert!(find("nothing-like-this").await.is_empty());
+    // with the other filters (AND)
+    let f = ListFilter {
+        trunk: Some(tr.into()),
+        q: Some("0".into()),
+        fax_status: Some(FaxStatus::Received),
+        ..Default::default()
+    };
+    let got: Vec<i64> = st
+        .list(&f, PageRequest::default())
+        .await
+        .unwrap()
+        .items
+        .iter()
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(got, vec![b], "{}", lbl(env, "and"));
+}

@@ -10,6 +10,7 @@
       "smoke-rhel (rockylinux/rockylinux:9)",
       "smoke-rhel (almalinux:10)",
       "e2e-spandsp",
+      "web-ui",
       "db-matrix (postgres)",
       "db-matrix (mysql)",
       "db-matrix (mariadb)",

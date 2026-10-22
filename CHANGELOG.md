@@ -12,6 +12,8 @@ All notable changes to this project are documented here. Versions follow [Semant
 - Log file `logs/sip-faxd.log` with rotation by size or day, `[log] keep` files kept, gzip-compressed (`[log]`, `[service]` in the configuration).
 - **Web interface server** (M4b): HTTPS on `0.0.0.0:8443` with a self-signed certificate (825 days, renewed 30 days before it ends; its SHA-256 fingerprint is logged) or your own; REST API under `/api/v1` for login, faxes (list, details, read flag, note, page previews, PDF/TIFF download, redelivery), configuration, accounts and status; live updates over a WebSocket (`/api/v1/events`). The browser pages follow in M4c.
 - **PNG page previews are written with the fax**: next to `<name>.tif` and `<name>.pdf` come `<name>-p1.png` (whole page) and `<name>-p1-thumb.png` (300 px wide) for every page. They are deleted with the TIFF and the PDF.
+- **Web interface** (M4c), built into the `sip-faxd` binary, in Traditional Chinese and English: the fax list (unread in bold, filters, search in numbers, remote ID and notes, endless scrolling, faxes being received shown live page by page without reloading), the fax page (thumbnails, zoomable page view, PDF/TIFF download, read/unread switch, notes with a warning when someone else changed them meanwhile, delivery status, redelivery), and for administrators the settings (SIP, media, calls, capture, trunks, delivery routes, delivery, retention; settings that need a restart are marked), accounts and the settings audit log; the service status for everyone. Usable with the keyboard alone.
+- `GET /api/v1/faxes` takes `q`: text anywhere in the calling or called number, the remote ID or the note (ignoring case). `PUT /api/v1/auth/me` sets the account's own language. `GET /api/v1/config` lists the settings that need a restart (`restart_fields`).
 
 ### Changed
 - **The web interface is on by default**, also when the configuration file has no `[web]` table: an upgraded server starts listening on TCP 8443. Open it in the firewall only for the networks that use it, or turn it off with `[web] enabled = false`.
@@ -54,6 +56,8 @@ All notable changes to this project are documented here. Versions follow [Semant
 - Log 檔 `logs/sip-faxd.log`，依大小或每天輪替，保留 `[log] keep` 份並以 gzip 壓縮（設定檔新增 `[log]`、`[service]` 選項）。
 - **Web 介面伺服器**（M4b）：HTTPS，監聽 `0.0.0.0:8443`；沒有提供憑證時使用自簽憑證（有效期 825 天，到期前 30 天自動更新，啟動時在 log 印出 SHA-256 指紋），也可以使用自己的憑證。`/api/v1` 提供登入、傳真（列表、詳細資料、已讀、備註、頁面預覽、下載 PDF／TIFF、重新投遞）、設定、帳號與狀態的 REST API，並以 WebSocket（`/api/v1/events`）即時推送更新。網頁畫面在 M4c 提供。
 - **PNG 頁面預覽隨傳真一起產生**：在 `<名稱>.tif`、`<名稱>.pdf` 旁邊，每頁寫出 `<名稱>-p1.png`（整頁）與 `<名稱>-p1-thumb.png`（寬 300 px 的縮圖），清整時和 TIFF、PDF 一起刪除。
+- **Web 介面**（M4c），內建在 `sip-faxd` 執行檔中，提供繁體中文與英文：傳真列表（未讀加粗、篩選、搜尋號碼／對方識別／備註、捲動自動載入，接收中的傳真即時逐頁顯示，不必重新整理）、傳真內容（縮圖、可縮放的整頁預覽、下載 PDF／TIFF、切換已讀／未讀、備註編輯並在別人同時修改時提示、投遞狀態、重新投遞）；管理員另有設定（SIP、媒體、通話、擷取、中繼、投遞路由、投遞參數、保存期限；需要重啟才生效的設定會標示）、帳號管理與設定稽核紀錄；所有人都可看系統狀態。可以只用鍵盤操作。
+- `GET /api/v1/faxes` 新增 `q`：在發話／受話號碼、對方識別或備註中任何位置搜尋（不分大小寫）。`PUT /api/v1/auth/me` 設定自己帳號的介面語言。`GET /api/v1/config` 列出需要重啟才生效的設定（`restart_fields`）。
 
 #### 變更
 - **Web 介面預設開啟**，設定檔沒有 `[web]` 也會啟動：升級後的伺服器會開始監聽 TCP 8443。請在防火牆只開放給要使用介面的網段，或以 `[web] enabled = false` 關閉。

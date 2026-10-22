@@ -22,8 +22,23 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
-        .route("/auth/me", get(me))
+        .route("/auth/me", get(me).put(update_me))
         .route("/auth/password", post(password))
+}
+
+/// The languages of the interface (`users.locale`; `null`: the browser's).
+pub const LOCALES: &[&str] = &["zh-TW", "en"];
+
+/// 422 `bad_locale` unless `l` is one of [`LOCALES`] (or absent).
+pub fn check_locale(l: Option<&str>) -> Result<(), ApiError> {
+    match l {
+        Some(v) if !LOCALES.contains(&v) => Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_locale",
+            "locale must be zh-TW, en or null",
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// An account in API responses.
@@ -145,6 +160,28 @@ async fn logout(State(st): State<AppState>, s: Session, headers: HeaderMap) -> R
 
 async fn me(s: Session) -> Json<Value> {
     Json(json!({ "user": user_json(&s.0.user), "csrf": s.0.csrf }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MeBody {
+    /// `null`: follow the browser.
+    locale: Option<String>,
+}
+
+/// The account's own preferences (the language; everything else is the administrator's).
+async fn update_me(
+    State(st): State<AppState>,
+    s: Session,
+    ApiJson(b): ApiJson<MeBody>,
+) -> Result<Json<Value>, ApiError> {
+    check_locale(b.locale.as_deref())?;
+    let u = st
+        .auth
+        .update_user(s.username(), None, None, None, Some(b.locale), s.username())
+        .await
+        .map_err(|e| account_error(&e))?;
+    Ok(Json(json!({ "user": user_json(&u) })))
 }
 
 #[derive(Deserialize)]

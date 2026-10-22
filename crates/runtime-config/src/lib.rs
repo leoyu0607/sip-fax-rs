@@ -26,3 +26,6 @@ pub use service::{
     to_toml,
 };
 pub use validate::{FieldError, SectionValue, parse_section};
+
+/// The settings that wait for a restart when they change (`GET /config` lists them).
+pub use fax_in::config::RESTART_FIELDS;

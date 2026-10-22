@@ -8,6 +8,19 @@ ARCH="${TARGET%%-*}"
 NAME="sip-fax-rs-${VERSION}-linux-${ARCH}"
 STAGE="$ROOT/dist/$NAME"
 
+# The binary must carry the web interface of this checkout (spec docs/design/m4-web.md 6): build
+# web-ui first (npm ci && npm run build) and the binary with SIPFAX_REQUIRE_WEB_UI=1.
+BIN="$ROOT/target/$TARGET/release/sip-faxd"
+ENTRY="$(ls "$ROOT"/web-ui/dist/assets/index-*.js 2>/dev/null | head -1 || true)"
+if [ -z "$ENTRY" ]; then
+  echo "error: web-ui/dist is missing: run 'npm ci && npm run build' in web-ui/ and build again" >&2
+  exit 1
+fi
+if ! grep -q "$(basename "$ENTRY")" "$BIN"; then
+  echo "error: $BIN does not embed web-ui/dist ($(basename "$ENTRY")): build it again after the web-ui build" >&2
+  exit 1
+fi
+
 rm -rf "$STAGE" && mkdir -p "$STAGE"/{conf,data,logs}
 cp "$ROOT/target/$TARGET/release/sip-faxd" "$STAGE/"
 cp "$ROOT/conf/sip-faxd.toml.example" "$STAGE/conf/"
