@@ -5,7 +5,7 @@ import {
 } from './schema';
 
 describe('schema helpers', () => {
-  it('paths', () => {
+  it('U07 paths', () => {
     expect(splitPath('routes[1].deliveries[0].url')).toEqual(['routes', 1, 'deliveries', 0, 'url']);
     expect(joinPath('', 'a')).toBe('a');
     expect(joinPath('a', 'b')).toBe('a.b');
@@ -21,7 +21,7 @@ describe('schema helpers', () => {
     expect(setPath({}, 'a[1].b', 1)).toEqual({ a: [undefined, { b: 1 }] });
   });
 
-  it('lists, maps, secrets', () => {
+  it('U07 lists, maps, secrets', () => {
     expect(linesToList(' a \n\n b\n')).toEqual(['a', 'b']);
     expect(linesToMap('X-A: 1\nbad\n: x\nX-B: a:b')).toEqual({ 'X-A': '1', 'X-B': 'a:b' });
     expect(mapToLines({ a: '1', b: 2 })).toBe('a: 1\nb: 2');
@@ -31,7 +31,7 @@ describe('schema helpers', () => {
     expect(secretIsSet('plain')).toBe(false);
   });
 
-  it('restart marks', () => {
+  it('U07 restart marks', () => {
     const r = ['sip.bind', 'capture'];
     expect(needsRestart(r, 'sip', 'bind')).toBe(true);
     expect(needsRestart(r, 'sip', 'user_agent')).toBe(false);
@@ -39,7 +39,7 @@ describe('schema helpers', () => {
     expect(needsRestart(r, 'media', 'port_range')).toBe(false);
   });
 
-  it('new values', () => {
+  it('U07 new values', () => {
     for (const k of DELIVERY_KINDS) expect(newDelivery(k).kind).toBe(k);
     expect(newRoute().deliveries).toEqual([]);
     expect(newTrunk('gw')).toEqual({ name: 'gw', preset: 'generic', peer: '' });

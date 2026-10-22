@@ -165,8 +165,9 @@ async fn me(s: Session) -> Json<Value> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MeBody {
-    /// `null`: follow the browser.
-    locale: Option<String>,
+    /// `null`: follow the browser. Absent is an error (an empty body must not clear it).
+    #[serde(default, deserialize_with = "crate::api::users::nullable")]
+    locale: Option<Option<String>>,
 }
 
 /// The account's own preferences (the language; everything else is the administrator's).
@@ -175,10 +176,15 @@ async fn update_me(
     s: Session,
     ApiJson(b): ApiJson<MeBody>,
 ) -> Result<Json<Value>, ApiError> {
-    check_locale(b.locale.as_deref())?;
+    let Some(locale) = b.locale else {
+        return Err(ApiError::bad_request(
+            "locale is missing (null follows the browser)",
+        ));
+    };
+    check_locale(locale.as_deref())?;
     let u = st
         .auth
-        .update_user(s.username(), None, None, None, Some(b.locale), s.username())
+        .update_user(s.username(), None, None, None, Some(locale), s.username())
         .await
         .map_err(|e| account_error(&e))?;
     Ok(Json(json!({ "user": user_json(&u) })))

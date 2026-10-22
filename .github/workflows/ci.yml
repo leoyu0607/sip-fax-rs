@@ -224,6 +224,9 @@ jobs:
       - run: npm run check
       - run: npm run coverage
       - run: npm run build
+      # U06: package.sh refuses a missing web-ui/dist and a binary without this dist
+      - run: scripts/test-package.sh
+        working-directory: .
 
   build-musl:
     runs-on: ubuntu-latest

@@ -93,7 +93,9 @@ async fn create(
 }
 
 /// `absent` → `None`, `null` → `Some(None)`, a value → `Some(Some(v))`.
-fn nullable<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+pub(crate) fn nullable<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<String>>, D::Error> {
     Option::<String>::deserialize(d).map(Some)
 }
 

@@ -9,6 +9,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 if command -v cargo-deny >/dev/null; then cargo deny check; else echo "warn: cargo-deny not installed, skipping"; fi
 cargo test --workspace --all-targets
 cargo test --workspace --doc
+# U06: package.sh refuses a missing web-ui/dist and a binary without this dist
+scripts/test-package.sh
 # web-ui (the CI job of the same name): needs Node 24 and npm
 if command -v npm >/dev/null; then
   (cd web-ui && npm ci --no-audit --no-fund && npm run lint && npm run check && npm run coverage && npm run build)

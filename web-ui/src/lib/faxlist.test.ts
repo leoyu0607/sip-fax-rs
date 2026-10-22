@@ -43,7 +43,7 @@ afterEach(() => vi.unstubAllGlobals());
 const ids = () => faxList.items.map((f) => f.id);
 
 describe('fax list', () => {
-  it('loads pages with the filter and the cursor', async () => {
+  it('U07 loads pages with the filter and the cursor', async () => {
     pages = [
       { items: [fax(3, '2026-10-03T00:00:00Z'), fax(2, '2026-10-02T00:00:00Z')], next_cursor: 'k1' },
       { items: [fax(2, '2026-10-02T00:00:00Z'), fax(1, '2026-10-01T00:00:00Z')], next_cursor: null },
@@ -60,7 +60,7 @@ describe('fax list', () => {
     expect(urls.length).toBe(2);
   });
 
-  it('a new fax goes on top at the top of the page, waits when scrolled (spec 6)', async () => {
+  it('U07 a new fax goes on top at the top of the page, waits when scrolled (spec 6)', async () => {
     pages = [{ items: [fax(1, '2026-10-01T00:00:00Z')], next_cursor: null }];
     await faxList.reload();
     rows.set(2, fax(2, '2026-10-02T00:00:00Z', { fax_status: 'receiving', pages: 0 }));
@@ -81,7 +81,7 @@ describe('fax list', () => {
     expect(faxList.pending).toEqual([]);
   });
 
-  it('U11 progress and finalisation update the row in place', async () => {
+  it('U07 progress and finalisation update the row in place', async () => {
     pages = [{ items: [fax(5, '2026-10-05T00:00:00Z', { fax_status: 'receiving', pages: 0 })], next_cursor: null }];
     await faxList.reload();
     for (const p of [1, 2, 3]) await faxList.event({ seq: p, type: 'fax.progress', data: { id: 5, pages: p } }, false);
@@ -93,7 +93,7 @@ describe('fax list', () => {
     expect(faxList.items[0]?.fax_status).toBe('received');
   });
 
-  it('read and note changes; a row that stops matching the filter leaves', async () => {
+  it('U07 read and note changes; a row that stops matching the filter leaves', async () => {
     pages = [{ items: [fax(1, '2026-10-01T00:00:00Z'), fax(2, '2026-10-02T00:00:00Z')], next_cursor: null }];
     faxList.filter = { ...EMPTY_FILTER, read: 'unread' };
     await faxList.reload();
@@ -105,7 +105,7 @@ describe('fax list', () => {
     expect(faxList.items[0]?.note).toBe('local');
   });
 
-  it('a created fax that does not match, or cannot be read, is ignored', async () => {
+  it('U07 a created fax that does not match, or cannot be read, is ignored', async () => {
     pages = [{ items: [], next_cursor: null }];
     faxList.filter = { ...EMPTY_FILTER, status: 'failed' };
     await faxList.reload();
@@ -116,7 +116,7 @@ describe('fax list', () => {
     expect(ids()).toEqual([]);
   });
 
-  it('a progress event of an unknown row fetches it', async () => {
+  it('U07 a progress event of an unknown row fetches it', async () => {
     pages = [{ items: [], next_cursor: null }];
     await faxList.reload();
     rows.set(8, fax(8, '2026-10-08T00:00:00Z', { fax_status: 'receiving', pages: 1 }));
@@ -124,7 +124,7 @@ describe('fax list', () => {
     expect(ids()).toEqual([8]);
   });
 
-  it('a failed load keeps the error', async () => {
+  it('U07 a failed load keeps the error', async () => {
     vi.stubGlobal('fetch', async () => Response.json({ error: { code: 'unavailable', message: '' } }, { status: 503 }));
     await faxList.reload();
     expect(faxList.error).toMatchObject({ code: 'unavailable' });

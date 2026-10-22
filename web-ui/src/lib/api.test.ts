@@ -17,7 +17,7 @@ function stub(status: number, body: unknown, headers: Record<string, string> = {
 }
 
 describe('api client', () => {
-  it('GET has no CSRF header; changes are JSON with the token', async () => {
+  it('U07 GET has no CSRF header; changes are JSON with the token', async () => {
     const calls = stub(200, { ok: 1 });
     setCsrf('tok');
     expect(await get('/x')).toEqual({ ok: 1 });
@@ -32,7 +32,7 @@ describe('api client', () => {
     expect(calls[2]!.init.body).toBe('{}');
   });
 
-  it('errors keep the code, fields and Retry-After', async () => {
+  it('U07 errors keep the code, fields and Retry-After', async () => {
     stub(423, { error: { code: 'account_locked', message: 'm', fields: { a: 1 } } }, { 'Retry-After': '900' });
     const e = await get('/x').catch((x: unknown) => x);
     expect(e).toBeInstanceOf(ApiError);
@@ -41,7 +41,7 @@ describe('api client', () => {
     expect(plain.code).toBe('http_502');
   });
 
-  it('401 tells the app the session is gone (not for the login itself)', async () => {
+  it('U07 401 tells the app the session is gone (not for the login itself)', async () => {
     let gone = 0;
     setOnUnauthenticated(() => (gone += 1));
     stub(401, { error: { code: 'unauthenticated', message: '' } });
@@ -50,7 +50,7 @@ describe('api client', () => {
     expect(gone).toBe(1);
   });
 
-  it('a network failure is code network; 204 is undefined', async () => {
+  it('U07 a network failure is code network; 204 is undefined', async () => {
     vi.stubGlobal('fetch', async () => {
       throw new TypeError('down');
     });
@@ -59,7 +59,7 @@ describe('api client', () => {
     expect(await post('/auth/logout')).toBeUndefined();
   });
 
-  it('query skips empty values', () => {
+  it('U07 query skips empty values', () => {
     expect(query({ a: 1, b: '', c: null, d: undefined, e: false })).toBe('?a=1&e=false');
     expect(query({})).toBe('');
   });
