@@ -1,10 +1,17 @@
-# 現場試接指南（v0.3.0-alpha）
+# 現場試接指南（v0.4.0-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
 
+0.4.0 新增的功能（M4e、M4f）：
+- **設定檔只留啟動設定**：資料庫、Web、存檔目錄、log 與服務管理；SIP、中繼、投遞等在 Web 介面設定（見第 2 節）。新安裝第一次啟動時沒有中繼，所有來電都會被拒絕，log 與 Web 介面會提示到 設定 → 中繼 新增。
+- **資料庫分欄位填寫**，密碼原樣填（或 `password_file`）；`./sip-faxd db check` 測試連線並說明連不上的原因；`./sip-faxd db copy` 把全部資料搬到另一個資料庫（例如從 SQLite 改用 SQL Server）。sip-faxd 需要自己專用的資料庫。
+- Web 介面：頁首的「外觀」可以選 跟隨系統／明亮／深色；系統狀態的已執行時間每秒更新。
+
+**從 0.3.0 升級**：停止舊版，把新版解壓到新目錄，再把舊目錄的 `conf/sip-faxd.toml`、`conf/secret.key`、`data/` 複製過去後啟動。舊設定檔裡的執行設定區段（`[sip]`、`[[trunks]]` 等）已經在資料庫裡，不會再匯入；啟動 log 與 `./sip-faxd config check` 會列出可以從設定檔刪除的區段。
+
 0.3.0 新增的功能（M4）：
 - **Web 介面**（預設開啟，HTTPS 8443）：即時看到收進來的傳真（接收中會逐頁顯示）、預覽與下載、已讀與備註；管理員可以在網頁上修改設定與帳號。使用說明見壓縮檔內的 `docs/web.md`。
-- **設定在 Web 介面**：設定檔只剩資料庫等啟動設定；SIP、中繼、投遞等在 Web 設定，存在資料庫，大部分不必重啟就套用（見第 2 節）。資料庫可以分欄位填寫，`./sip-faxd db check` 測試連線，`./sip-faxd db copy` 換資料庫。
+- **設定存在資料庫**：SIP、中繼、投遞等存在資料庫，在 Web 修改，大部分不必重啟就套用。
 - **服務管理**：`./sip-faxd start|stop|restart|status|logs`，以及終端機畫面 `./sip-faxd tui`（見第 4 節）。
 
 0.2.0 新增的功能（M3）：
@@ -20,8 +27,8 @@
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.3.0-linux-x86_64.tar.gz
-cd sip-fax-rs-0.3.0-linux-x86_64
+tar xzf sip-fax-rs-0.4.0-linux-x86_64.tar.gz
+cd sip-fax-rs-0.4.0-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```

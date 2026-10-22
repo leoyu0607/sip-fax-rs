@@ -5,6 +5,10 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.4.0-alpha] - 2026-10-23
+Milestone M4e/M4f: moving to another database, simpler database settings, the configuration file holds the startup settings only.
+
 ### Added
 - **`[database]` field by field**: `type`, `host`, `port`, `name`, `user`, `password` (written as it is, no percent-encoding) or `password_file`, `trust_server_certificate`; SQLite: `type = "sqlite"`, `path`. `url` still works.
 - **`sip-faxd db check`**: test the database connection (server version, schema version, time); changes nothing, explains why a connection fails (host, password, missing database, certificate). `--url URL --password-stdin` tests another database.
@@ -74,6 +78,10 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.4.0-alpha] - 2026-10-23
+里程碑 M4e／M4f：換資料庫、資料庫設定簡化、設定檔只留啟動設定。
+
 #### 新增
 - **`[database]` 可以分欄位填寫**：`type`、`host`、`port`、`name`、`user`、`password`（原樣填寫，不用百分比編碼）或 `password_file`、`trust_server_certificate`；SQLite 為 `type = "sqlite"`、`path`。`url` 照樣可用。
 - **`sip-faxd db check`**：測試資料庫連線（伺服器版本、資料表版本、耗時），不做任何修改；連不上時說明原因（主機、密碼、資料庫不存在、憑證）。`--url URL --password-stdin` 可以測試另一個資料庫。

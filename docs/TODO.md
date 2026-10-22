@@ -65,6 +65,7 @@
 - [ ] [使用者] 以 0.1.1 再對接 AudioCodes 一次，確認 8 頁都收到；同意後才能把 `udptl = "full"` 的擷取（含影像資料）放進 repo
 - [x] [Any] 發佈 v0.1.1-alpha
 - [x] [Any] 發佈 v0.2.0-alpha（M3）
+- [x] [Any] 發佈 v0.4.0-alpha（M4e、M4f，2026-10-23）：版本 0.4.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（從 0.3.0 升級）、兩份手冊的適用版本；tag 在 main
 - [x] [Any] 發佈 v0.3.0-alpha（M4，2026-10-22，tag 在 main 的 merge commit `8911040`）：版本 0.3.0、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（升級說明）；`scripts/release-notes.sh` 改用 awk 反轉行（macOS 沒有 `tac`）；發版時 CI 的 `cargo deny` 擋下當天公布的 RUSTSEC-2026-0384（tokio 1.54.0 的 `Interval` 競態，已被撤下），升到 1.54.1 並寫進 CHANGELOG 的安全性
 
 ## M3 — Store / Delivery / ECM
@@ -166,7 +167,7 @@
   - 2026-10-23：GitHub CI 的 `e2e-web` 連續兩次通過，U18 沒有重現（視為偶發）；CI run 39824400230 全綠（含 db-matrix 新 step）
 - [x] [Any] `docs/database.md` 與 `docs/manual/it.md` 要明白寫：sip-faxd 需要自己專用的資料庫（不要與其他系統共用；`users`、`sessions`、`settings`、`schema_migrations` 等通用表名可能衝突，MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 會悄悄沿用別的系統的表）。使用者 2026-10-22 決定：只要求專用資料庫，不做衝突檢查，不加表名前綴
 - [x] [Opus] 審核 `docs/test-reports/M4f.md`（2026-10-23 通過，報告 §9；審核時修正新安裝的 log 訊息、Windows 的編譯警告，新增 `.gitattributes`）
-- [ ] [Any] 合併順序：先把 `m4e-db-copy`（審核已通過；確認其 CI run 39794768007 為綠）合進 main，再合 `m4f-config`，然後依 CLAUDE.md 發版檢查清單發 v0.4.0-alpha
+- [x] [Any] 合併順序：先把 `m4e-db-copy`（審核已通過；確認其 CI run 39794768007 為綠）合進 main，再合 `m4f-config`，然後依 CLAUDE.md 發版檢查清單發 v0.4.0-alpha（2026-10-23：兩個分支以 merge commit 合進 main）
 - 備註：RUSTSEC-2026-0381/0382/0383（rustls-webpki、webpki-roots、webpki-root-certs，2026-10-19/20）已於 2026-10-23 檢查：main、m4e、m4f、v0.2.0、v0.3.0 的 lock 檔都已是修正版（0.103.16、1.0.10），不需處理
 
 ## Web 介面改善（2026-10-23 使用者提出）
