@@ -104,7 +104,11 @@ test('U26 a field that needs a restart has a mark at its label; the sentence is 
   try {
     await page.goto('/#/settings/sip');
     await expect(page.getByRole('heading', { name: tr('config.section.sip'), exact: true })).toBeVisible();
-    await expect(page.getByText(tr('config.restart_legend'), { exact: true })).toBeVisible();
+    // (the line starts with the mark itself)
+    const legend = page.locator('.restart-legend');
+    await expect(legend).toHaveCount(1);
+    await expect(legend).toBeVisible();
+    await expect(legend).toContainText(tr('config.restart_legend'));
     // the long sentence is not shown under every field any more (it stays for screen readers)
     const sentence = page.getByText(tr('config.restart_field'), { exact: true });
     expect(await sentence.count()).toBeGreaterThan(1);
