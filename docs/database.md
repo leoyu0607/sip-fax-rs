@@ -22,6 +22,16 @@
 - 資料庫需先建好（空的即可），程式只建立資料表，不建立資料庫。
 - 建議的資料庫設定：MySQL/MariaDB 使用 `utf8mb4`；MSSQL 使用任何預設定序皆可（欄位為 `NVARCHAR`）。
 
+## 換資料庫（`sip-faxd db copy`，M4e）
+
+例如從 SQLite 改用 MSSQL，任何兩種資料庫之間都可以：
+
+1. 在新的資料庫伺服器建立一個空的資料庫（程式只建立資料表，不建立資料庫）。
+2. 停止服務：`./sip-faxd stop`（或 `systemctl stop sip-faxd`）。服務執行中時 `db copy` 會拒絕。
+3. 複製：`./sip-faxd db copy --to "mssql://user:pass@host:1433/faxdb?trust_server_certificate=true"`。來源是設定檔的 `[database] url`；目標會先建立資料表，而且必須是空的。全部資料表（傳真、投遞、設定、稽核、帳號、登入 session）原樣複製，`id` 不變，在一個交易內完成：失敗時目標不會留下任何資料；完成後逐表核對筆數。
+4. 把設定檔的 `[database] url` 改成新的資料庫，**沿用同一份 `conf/secret.key`**（設定中的密碼以它加密），再啟動服務。
+5. 傳真檔案（`data/faxes/`）不在資料庫裡，不用搬。原本的資料庫留著當備份即可。
+
 ## 時間
 
 所有時間以 **UTC、毫秒精度**儲存，讀回時完全相等；顯示時區由介面決定。

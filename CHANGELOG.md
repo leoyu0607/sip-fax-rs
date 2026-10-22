@@ -5,6 +5,8 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Added
+- **`sip-faxd db copy --to <URL>`**: move to another database, also of another kind (for example from the built-in SQLite to SQL Server). Every table is copied with its ids (faxes with read flags and notes, deliveries, settings, audit log, accounts, sessions) in one transaction into an empty target, then checked table by table. The service must be stopped; afterwards set `[database] url` to the target and keep `conf/secret.key`.
 
 ## [0.3.0-alpha] - 2026-10-22
 Milestone M4: the web interface, accounts, settings in the database, service management, TUI.
@@ -61,6 +63,8 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 新增
+- **`sip-faxd db copy --to <URL>`**：換資料庫，也可以換成另一種（例如從內建的 SQLite 改用 SQL Server）。全部資料表（傳真與已讀、備註、投遞、設定、稽核紀錄、帳號、登入 session）連同 `id` 在一個交易內複製到空的目標資料庫，完成後逐表核對。服務必須先停止；之後把 `[database] url` 改成目標，並沿用 `conf/secret.key`。
 
 ### [0.3.0-alpha] - 2026-10-22
 里程碑 M4：Web 介面、帳號、設定存資料庫、服務管理、TUI。

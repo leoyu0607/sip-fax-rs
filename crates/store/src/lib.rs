@@ -10,6 +10,7 @@
 pub mod admin;
 mod backend;
 pub mod clock;
+pub mod copy;
 pub mod db;
 pub mod error;
 pub mod migrate;
@@ -28,6 +29,7 @@ pub use admin::{
     UserUpdate,
 };
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use copy::{CopyReport, copy_database};
 pub use db::BackendKind;
 pub use error::{Error, Result};
 pub use migrate::{MigrateReport, latest_version};

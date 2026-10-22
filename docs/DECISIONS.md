@@ -475,3 +475,19 @@ ADR-005 決定以 axum 加內嵌的 Svelte SPA 提供介面、只發佈一個執
 - **儲存後重讀區段**：設定表單儲存成功後以 `GET /config/{section}` 重讀，秘密欄位立刻顯示新的「已設定／未設定」，也不會在下一次儲存時再送出明文。
 - **`PUT /auth/me` 必須帶 `locale`**：沒有這個欄位回 400（`null` 才是改回依瀏覽器），避免空 body 把語言清掉。
 - **列表的即時事件在登入期間一直訂閱**（`App.svelte`），不在列表頁時新傳真進「有 N 份新傳真」。
+
+## ADR-059：換資料庫的工具 `sip-faxd db copy`（2026-10-22，M4e）
+**背景**
+
+使用者問到：一開始用 SQLite，之後想改用 MSSQL 要怎麼辦。原本只能以 `config export/import` 搬設定、`db backfill` 從 `result.json` 重建通話，已讀、備註、投遞紀錄、稽核與帳號都會遺失。2026-10-22 使用者同意新增搬移功能。
+
+**決策**
+
+- `sip-faxd db copy --to <URL>`：來源是設定檔的 `[database] url`，四種資料庫任兩者之間都可以（含同種）。
+- **前提**：服務停止（PID 檔的 flock）；來源 schema 等於執行檔版本；目標不是來源；目標建立 schema 後七個資料表都必須是空的。不提供覆寫目標的選項，避免誤刪。
+- **原樣複製、保留 `id`**：傳真的網址、投遞與 session 的外鍵、Web 的事件與連結都維持有效。`schema_migrations` 不複製，由目標自己的 migration 寫入。秘密欄位原樣複製，沿用同一份 `conf/secret.key`。
+- **單一交易、單一連線**：在目標的 migration session（專用連線，同時持有 migration 鎖，避免同時有服務在目標上啟動）中完成全部寫入，失敗就 rollback。各資料庫的差異：PostgreSQL `OVERRIDING SYSTEM VALUE` 加 `setval`；MSSQL 在每個 `INSERT` 的同一個 batch 內 `SET IDENTITY_INSERT`（參數化語句以 `sp_executesql` 執行，自成 batch）；MySQL／MariaDB 以 `SET autocommit = 0`／`COMMIT`／`ROLLBACK`（`START TRANSACTION` 不能以 prepared statement 執行）；SQLite 的 session 本身就是 exclusive 交易。
+- **分批**：來源以主鍵分頁讀取（每頁 500 列）；寫入以多列 `INSERT`，每批參數不超過 2000（MSSQL 上限 2100）。
+- **核對**：交易提交後，另以一般連線比對每個表的 `COUNT(*)` 與 `MAX(id)`。
+- 欄位清單寫在 `store::copy` 的表格中；之後新增欄位或資料表的 migration，必須同時更新這份清單（測試會比對 schema 的欄位）。
+
