@@ -3,10 +3,20 @@
 
 use std::time::Duration;
 
+mod common;
+
 use chrono::NaiveDate;
 use web::config::WebConfig;
 use web::server::{CSP, HSTS, WebServer};
 use web::tls;
+
+fn state_of(e: &common::Env) -> web::AppState {
+    web::AppState {
+        auth: e.auth.clone(),
+        clock: e.clock.clone(),
+        https: false,
+    }
+}
 
 fn today() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 10, 22).unwrap()
@@ -14,10 +24,8 @@ fn today() -> NaiveDate {
 
 #[tokio::test]
 async fn h07_plain_http_has_the_security_headers_and_no_hsts() {
-    let srv = WebServer::start("127.0.0.1:0".parse().unwrap(), web::app(false), None)
-        .await
-        .unwrap();
-    let url = format!("http://{}/api/v1/nope", srv.local_addr());
+    let e = common::env().await;
+    let url = e.url("/api/v1/nope");
     let r = reqwest::get(&url).await.unwrap();
     assert_eq!(r.status(), 404);
     let h = r.headers().clone();
@@ -32,7 +40,7 @@ async fn h07_plain_http_has_the_security_headers_and_no_hsts() {
     let body: serde_json::Value = r.json().await.unwrap();
     assert_eq!(body["error"]["code"], "not_found");
     assert!(body["error"]["message"].is_string());
-    srv.shutdown(Duration::from_secs(1)).await;
+    e.stop().await;
 }
 
 #[tokio::test]
@@ -44,9 +52,12 @@ async fn h01_h07_https_with_the_self_signed_certificate_verifies_for_localhost_a
     };
     let names = tls::subject_names(Some("faxsrv"), "127.0.0.1".parse().unwrap(), &[], &[]);
     let m = tls::load(&cfg, dir.path(), dir.path(), &names, today()).unwrap();
+    let e = common::env().await;
+    let mut state = state_of(&e);
+    state.https = true;
     let srv = WebServer::start(
         "127.0.0.1:0".parse().unwrap(),
-        web::app(true),
+        web::app(state),
         Some(m.config.clone()),
     )
     .await
@@ -81,11 +92,9 @@ async fn h01_h07_https_with_the_self_signed_certificate_verifies_for_localhost_a
 
 #[tokio::test]
 async fn h00_shutdown_stops_accepting() {
-    let srv = WebServer::start("127.0.0.1:0".parse().unwrap(), web::app(false), None)
-        .await
-        .unwrap();
-    let addr = srv.local_addr();
-    srv.shutdown(Duration::from_secs(1)).await;
+    let e = common::env().await;
+    let addr = e.srv.local_addr();
+    e.stop().await;
     assert!(
         tokio::net::TcpStream::connect(addr).await.is_err(),
         "the port is closed after the shutdown"

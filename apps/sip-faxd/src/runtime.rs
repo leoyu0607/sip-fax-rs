@@ -136,7 +136,10 @@ impl Runtime {
         let auth = Arc::new(AuthService::new(
             src,
             Arc::new(SystemClock),
-            AuthConfig::default(),
+            AuthConfig {
+                idle: chrono::Duration::hours(i64::from(cfg.web.session_idle_hours)),
+                ..AuthConfig::default()
+            },
         ));
         // A database that did not answer a moment ago is not asked again here (a connection
         // attempt can take half a minute): the file's configuration serves until the retry

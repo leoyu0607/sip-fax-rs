@@ -588,7 +588,7 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
     );
     hub.set_reloader(Arc::new(runtime::ConfigReloader(rt.config.clone())));
     // the web interface before the control socket: a service that answers `status` serves it
-    let web = match web_service::start(&cfg, &base).await {
+    let web = match web_service::start(&cfg, &base, rt.auth.clone()).await {
         Ok(w) => w,
         Err(e) => {
             tracing::error!("{e}");

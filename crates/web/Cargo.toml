@@ -8,6 +8,8 @@ publish = false
 description = "The HTTP/HTTPS server of the web interface: REST API, WebSocket, TLS with self-signed certificates (M4b)"
 
 [dependencies]
+accounts = { path = "../accounts" }
+store = { path = "../store" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -21,7 +23,7 @@ rcgen = { workspace = true }
 x509-parser = { workspace = true }
 if-addrs = { workspace = true }
 ring = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -34,4 +36,4 @@ rustix = { workspace = true, features = ["system"] }
 tempfile = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "macros"] }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }

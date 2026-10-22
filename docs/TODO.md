@@ -101,6 +101,7 @@
   - 2026-10-22 使用者決定：自簽憑證改為有效期 825 天、到期前 30 天自動更新（macOS／iOS 拒絕超過 825 天的憑證；ADR-056）。
   - 分階段：① web crate 骨架與 HTTP/HTTPS（H）② 登入、session、CSRF、權限（A 的 HTTP 部分）③ 傳真 API（W01–W08）④ 設定、帳號、狀態 API（W09–W11）⑤ WebSocket（V）⑥ Sonnet 依計畫補測試並寫報告。分支 `m4b-web`。
   - [x] ① web crate 骨架與 HTTP/HTTPS
+  - [x] ② 登入、登出、`/auth/me`、改密碼；session cookie（HttpOnly、SameSite=Strict、HTTPS 加 Secure）；CSRF（JSON＋`X-Sipfax-Csrf`）；第一次登入強制改密碼；IP 限流 429、帳號鎖定 423（`Retry-After`）
 - [ ] [Sonnet] M4c：web-ui（Svelte SPA、i18n、Playwright E2E）
 - [x] [Sonnet] M4d：控制 socket、start/stop/restart/status/logs、log 輪替、TUI
   - 2026-10-22：實作完成（分支 `m4d-service-management`，已 rebase 到含 M4a 的 main），測試報告 `docs/test-reports/M4d.md`，**Opus 審核通過**（§9）；ADR-055。

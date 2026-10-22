@@ -12,7 +12,7 @@ repository = "https://github.com/leoyu0607/sip-fax-rs"
 
 [workspace.dependencies]
 # web (M4b, ADR-056): HTTP/HTTPS with rustls (ring provider), self-signed certificates
-axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "query", "tokio", "ws"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "query", "tokio", "ws", "original-uri"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 tower-http = { version = "0.6", default-features = false, features = ["set-header", "limit", "timeout"] }
 hyper = { version = "1", default-features = false, features = ["http1", "http2", "server"] }

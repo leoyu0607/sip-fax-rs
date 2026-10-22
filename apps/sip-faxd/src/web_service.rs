@@ -1,8 +1,11 @@
 //! The web interface inside `serve` (M4b): `[web]`, the certificate, the listener.
 
 use std::path::Path;
+use std::sync::Arc;
 
+use accounts::AuthService;
 use chrono::Utc;
+use store::SystemClock;
 use web::config::Scheme;
 use web::server::WebServer;
 use web::tls;
@@ -15,7 +18,11 @@ use crate::settings::AppConfig;
 /// # Errors
 /// The certificate cannot be used or the address cannot be bound; the message names the file
 /// or the address.
-pub async fn start(cfg: &AppConfig, base: &Path) -> Result<Option<WebServer>, String> {
+pub async fn start(
+    cfg: &AppConfig,
+    base: &Path,
+    auth: Arc<AuthService>,
+) -> Result<Option<WebServer>, String> {
     let w = &cfg.web;
     if !w.enabled {
         return Ok(None);
@@ -60,7 +67,12 @@ pub async fn start(cfg: &AppConfig, base: &Path) -> Result<Option<WebServer>, St
         }
     };
     let https = tls.is_some();
-    let srv = WebServer::start(w.bind, web::app(https), tls)
+    let state = web::AppState {
+        auth,
+        clock: Arc::new(SystemClock),
+        https,
+    };
+    let srv = WebServer::start(w.bind, web::app(state), tls)
         .await
         .map_err(|e| format!("[web] cannot listen on {}: {e}", w.bind))?;
     tracing::info!(
