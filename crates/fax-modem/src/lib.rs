@@ -6,6 +6,8 @@
 //! * [`level`]: dBm0 and signal power.
 //! * [`goertzel`]: single-frequency power.
 //! * [`tone`]: the CNG detector, tone generators (CED), the signal-present detector.
+//! * [`hdlc`]: HDLC flags, bit stuffing and FCS for the T.30 control channel.
+//! * [`v21`]: V.21 channel 2 FSK (300 bit/s), sender and receiver.
 //!
 //! Written from the ITU-T recommendations (V.21, V.27ter, V.29, T.30, G.711); no SpanDSP code is
 //! used. SpanDSP serves as the independent counterpart in the tests only.
@@ -22,8 +24,10 @@
 )]
 
 pub mod goertzel;
+pub mod hdlc;
 pub mod level;
 pub mod tone;
+pub mod v21;
 
 /// The sample rate of everything in this crate (G.711).
 pub const SAMPLE_RATE: u32 = 8000;

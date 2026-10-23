@@ -14,9 +14,13 @@
 //! that glues `t38`, `t30` and `t4`. M2d adds [`t38session`], the real [`session::FaxSession`]:
 //! a UDPTL socket on the call's pool port, the engine on a real-time clock, and the TIFF / PDF
 //! output under `[storage] data_dir`.
+//!
+//! M5 adds [`audioengine`], the sans-IO G.711 passthrough engine (8 kHz audio in and out, the
+//! same T.30 receiver).
 
 #![deny(missing_docs)]
 
+pub mod audioengine;
 pub mod capture;
 pub mod config;
 pub mod controller;
