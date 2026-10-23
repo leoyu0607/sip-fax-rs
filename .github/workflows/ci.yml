@@ -135,6 +135,7 @@ jobs:
       - run: cargo llvm-cov -p t38 --fail-under-lines 85
       - run: cargo llvm-cov -p t4 --fail-under-lines 85
       - run: cargo llvm-cov -p t30 --fail-under-lines 85
+      - run: cargo llvm-cov -p fax-modem --fail-under-lines 85
       # store (M3a): non-protocol crate gate, line coverage >= 80 % (SQLite run). The three server
       # drivers (postgres, mysql, mssql: about 600 lines that only run against a server, M3b review)
       # are left out of this number; the db-matrix job runs the same suite on them.

@@ -13,6 +13,7 @@
 //!   that runs them.
 //! * [`dialog`] and [`endpoint`]: dialogs, UAS / UAC core, session timers and the high-level API.
 //! * [`registration`]: REGISTER client with digest authentication, refresh and backoff.
+//! * [`rtp`]: RTP packets, G.711 and a receive jitter buffer (audio calls, M5).
 
 #![deny(missing_docs)]
 #![cfg_attr(
@@ -31,6 +32,7 @@ pub mod endpoint;
 pub mod message;
 pub mod net;
 pub mod registration;
+pub mod rtp;
 pub mod sdp;
 pub mod transaction;
 pub mod transport;

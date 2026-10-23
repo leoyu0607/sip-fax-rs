@@ -209,7 +209,8 @@
 ## M5 — G.711 passthrough
 > 2026-10-23 使用者決定（ADR-061）：只做 V.27ter 與 V.29（最高 9600），不做 V.17；`auto` 時對方直接送 CNG 仍先試 T.38，被拒才 G.711。分期 M5a–M5e，M5e 完成即發版。
 - [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
-- [ ] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
+- [x] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
+  - 2026-10-23：`crates/sip-core/src/rtp/{g711,packet,jitter}.rs`（G.711 依規格重寫，sipress 的有誤，見 sipress-extraction.md）、`crates/fax-modem/src/{level,goertzel,tone}.rs`；單元測試 fax-modem 5 個（行涵蓋率 98.6%）、sip-core rtp 11 個；CI coverage 納入 `fax-modem ≥ 85%`。下一步：Sonnet 依計畫補 G01–G05、J01–J05、J07、N01–N04（含 SpanDSP 對照：`alaw_to_linear`／`ulaw_to_linear`、`modem_connect_tones_rx`）
 - [ ] [Sonnet] M5a 測試 G01–G05、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`
 - [ ] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D；`tools/fax-sim` 的 spandsp-sys 補 `fsk_tx`／`fsk_rx`／`hdlc_tx`／`v27ter_tx`／`v29_tx`
 - [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
