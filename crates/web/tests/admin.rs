@@ -654,6 +654,14 @@ async fn w09_status_reports_service_database_and_config() {
     assert_eq!(v["config"]["source"], "database");
     assert_eq!(v["config"]["key"], json!(e.config.status().key));
     assert_eq!(v["config"]["pending_restart"], json!([]));
+    // the space of the data directory's file system (unix; null elsewhere)
+    if cfg!(unix) {
+        let free = v["storage"]["free_bytes"].as_u64().expect("free_bytes");
+        let total = v["storage"]["total_bytes"].as_u64().expect("total_bytes");
+        assert!(total > 0 && free <= total, "{v}");
+    } else {
+        assert!(v["storage"].is_null(), "{v}");
+    }
     e.stop().await;
 }
 

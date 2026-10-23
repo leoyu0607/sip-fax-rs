@@ -50,6 +50,18 @@
     };
   });
 
+  // the live connection: nothing to see while it works; a notice when it has been down for a
+  // few seconds (not at every short reconnect)
+  let liveDown = $state(false);
+  $effect(() => {
+    if (live.connected || !signedIn) {
+      liveDown = false;
+      return;
+    }
+    const timer = setTimeout(() => (liveDown = true), 3000);
+    return () => clearTimeout(timer);
+  });
+
   // the unread badge of "Faxes"
   $effect(() => {
     if (!signedIn) {
@@ -168,10 +180,11 @@
       </ul>
     </nav>
     <div class="tools">
-      <span class="live" class:off={!live.connected} title={t(live.connected ? 'live.on' : 'live.off')}>
-        <span aria-hidden="true">{live.connected ? '●' : '○'}</span>
-        <span class="sr-only">{t(live.connected ? 'live.on' : 'live.off')}</span>
-      </span>
+      {#if liveDown}
+        <span class="live off" role="status"><span aria-hidden="true">⚠</span> {t('live.off')}</span>
+      {:else}
+        <span class="sr-only" role="status">{t(live.connected ? 'live.on' : 'live.connecting')}</span>
+      {/if}
       <details class="user-menu" bind:this={menu} bind:open={menuOpen}>
         <summary aria-label={t('nav.menu_of', { name: session.user.display_name ?? session.user.username })}>
           <span class="avatar" aria-hidden="true">{(session.user.display_name ?? session.user.username).slice(0, 1).toUpperCase()}</span>

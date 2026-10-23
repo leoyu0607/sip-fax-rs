@@ -3,11 +3,13 @@
   import { ApiError, BASE, get, post, put, type Delivery, type Fax } from '../lib/api';
   import { errorText } from '../lib/errors';
   import { faxList } from '../lib/faxlist.svelte';
-  import { hangupKey } from '../lib/faxes';
+  import { hangupKey, neighbours } from '../lib/faxes';
+  import { href } from '../lib/route';
   import { fmt, formatBytes, formatDuration, hasKey, t } from '../lib/i18n.svelte';
   import { onEvent, onResync } from '../lib/live.svelte';
   import { session } from '../lib/session.svelte';
   import FaxStatus from '../components/FaxStatus.svelte';
+  import { guardUnsaved } from '../lib/unsaved';
 
   let { id }: { id: number } = $props();
 
@@ -25,6 +27,7 @@
   let noteSaved = $state(false);
   let conflict = $state<{ note: string | null; by: string | null; at: string | null } | null>(null);
   const noteDirty = $derived(fax !== null && note !== (fax.note ?? ''));
+  $effect(() => guardUnsaved(() => noteDirty));
 
   let redelivering = $state(false);
   let redelivered = $state<number | null>(null);
@@ -155,6 +158,16 @@
     }
   }
 
+  // the previous / next fax of the list as it was left (its filter and order); at the end of what
+  // is loaded, "older" loads the next part first
+  const near = $derived(neighbours(faxList.loaded ? faxList.items.map((f) => f.id) : [], id));
+  const moreBelow = $derived(faxList.loaded && near.older === undefined && faxList.items.some((f) => f.id === id) && faxList.cursor !== null);
+  async function olderAfterMore() {
+    await faxList.more();
+    const n = neighbours(faxList.items.map((f) => f.id), id).older;
+    if (n !== undefined) location.hash = href({ page: 'fax', id: n });
+  }
+
   function pngUrl(n: number, kind: 'full' | 'thumb'): string {
     return `${BASE}/faxes/${id}/pages/${n}.png?kind=${kind}`;
   }
@@ -177,7 +190,16 @@
 <svelte:window onkeydown={onKey} />
 
 <section class="page fax-detail" aria-labelledby="fax-title">
-  <p><a href="#/faxes">← {t('fax.back')}</a></p>
+  <nav class="detail-nav" aria-label={t('fax.nav')}>
+    <a href="#/faxes">← {t('fax.back')}</a>
+    {#if near.newer !== undefined || near.older !== undefined || moreBelow}
+      <span class="spacer"></span>
+      {#if near.newer !== undefined}<a class="button" href={href({ page: 'fax', id: near.newer })}>‹ {t('fax.newer')}</a>{:else}<span class="button disabled" aria-disabled="true">‹ {t('fax.newer')}</span>{/if}
+      {#if near.older !== undefined}<a class="button" href={href({ page: 'fax', id: near.older })}>{t('fax.older')} ›</a>
+      {:else if moreBelow}<button type="button" onclick={olderAfterMore}>{t('fax.older')} ›</button>
+      {:else}<span class="button disabled" aria-disabled="true">{t('fax.older')} ›</span>{/if}
+    {/if}
+  </nav>
   {#if loadError}
     <p class="error" role="alert">{errorText(loadError)}</p>
   {:else if fax === null}

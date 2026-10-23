@@ -250,8 +250,12 @@ label.check {
   margin-bottom: 0.8rem;
 }
 
+/* every control of a form the same width: a line, a list of lines, a set of options */
 .field > input:not([type='checkbox']),
-.field > select {
+.field > select,
+.field > textarea,
+.field > fieldset.options,
+.field > .password-field {
   width: min(28rem, 100%);
 }
 
@@ -436,6 +440,34 @@ details.warning {
   gap: 0.4rem;
 }
 
+/* the password with its show / hide button */
+.password-field {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.password-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.password-field .reveal {
+  flex: none;
+}
+
+/* the language of the sign-in page, apart from the form */
+.login-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 .card.narrow .primary {
   margin-top: 0.6rem;
   justify-content: center;
@@ -500,10 +532,6 @@ details.warning {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.live {
-  color: var(--ok);
 }
 
 /* the unread badge next to "Faxes" */
@@ -605,8 +633,14 @@ details.warning {
   color: var(--muted);
 }
 
+/* shown only while the live updates are down */
 .live.off {
   color: var(--danger);
+  background: var(--danger-bg);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .page {
@@ -674,6 +708,52 @@ details.warning {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
   gap: 1rem;
+}
+
+/* the status page: today at a glance */
+dl.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+dl.stats > div {
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+dl.stats dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+dl.stats dd {
+  margin: 0.2rem 0 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+dl.stats > div.warn {
+  background: var(--warn-bg);
+}
+
+dl.stats > div.warn dd {
+  color: var(--warn);
+}
+
+dl.stats > div.bad {
+  background: var(--danger-bg);
+}
+
+dl.stats > div.bad dd {
+  color: var(--danger);
+}
+
+meter.disk {
+  width: 100%;
+  height: 0.8rem;
 }
 
 /* ------------------------------------------------------------------ tables */
@@ -758,8 +838,16 @@ tr.unread td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* the fax list: every column as wide as its content, the note takes the rest (and is cut with
+   "…" when longer; the whole note is its title) */
+table.faxes th,
+table.faxes td {
+  white-space: nowrap;
+}
+
 .note-cell {
-  max-width: 16rem;
+  width: 100%;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -788,6 +876,23 @@ dl.details dd {
 }
 
 /* ------------------------------------------------------------------ fax viewer */
+
+/* back to the list, and the previous / next fax */
+.detail-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.detail-nav .spacer {
+  flex: 1;
+}
+
+.button.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 
 /* the pages, and beside them the details, the note and the deliveries */
 .detail-layout {

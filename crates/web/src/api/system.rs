@@ -59,5 +59,32 @@ async fn status(State(st): State<AppState>, s: Session) -> Result<Json<Value>, A
         "service": svc,
         "database": database(&st).await,
         "config": config,
+        "storage": storage(&st.data_dir),
     })))
+}
+
+/// The space of the file system that holds `[storage] data_dir`: `{"free_bytes", "total_bytes"}`
+/// (free for an unprivileged writer), or `null` when it cannot be read (and off unix).
+fn storage(dir: &std::path::Path) -> Value {
+    #[cfg(unix)]
+    {
+        match rustix::fs::statvfs(dir) {
+            Ok(v) => {
+                let unit = v.f_frsize.max(1);
+                json!({
+                    "free_bytes": v.f_bavail.saturating_mul(unit),
+                    "total_bytes": v.f_blocks.saturating_mul(unit),
+                })
+            }
+            Err(e) => {
+                tracing::warn!("web: status: the free space of {}: {e}", dir.display());
+                Value::Null
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Value::Null
+    }
 }

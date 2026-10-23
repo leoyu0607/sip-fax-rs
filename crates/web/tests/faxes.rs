@@ -225,6 +225,43 @@ async fn w03b_counts_gives_the_number_of_unread_faxes_as_the_read_flags_change()
     assert_eq!(unread().await, 1);
     assert_eq!(read(a, false).await.unwrap().status(), 200);
     assert_eq!(unread().await, 2);
+    // since: the faxes from then on; the deliveries for whoever may see them (agents may)
+    let get = |q: &str| {
+        let url = e.url(&format!("/api/v1/faxes/counts{q}"));
+        let c = &c;
+        async move { body(c.get(url).send().await.unwrap()).await }
+    };
+    let (s, v) = get("?since=2000-01-01T00:00:00Z").await;
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["since"], 2);
+    assert_eq!(v["deliveries"], json!({"failed": 0, "giving_up": 0}));
+    let (_, v) = get("?since=2999-01-01T00:00:00Z").await;
+    assert_eq!(v["since"], 0);
+    let (_, v) = get("").await;
+    assert!(v.get("since").is_none(), "{v}");
+    // a failed and a given-up delivery are counted apart
+    for (target, status) in [
+        ("x", DeliveryStatus::Failed),
+        ("y", DeliveryStatus::GivingUp),
+        ("z", DeliveryStatus::GivingUp),
+    ] {
+        e.store
+            .add_delivery(&NewDelivery {
+                fax_id: a,
+                target: target.into(),
+                kind: "folder".into(),
+                attempt: 1,
+                status,
+                next_try_at: None,
+            })
+            .await
+            .unwrap();
+    }
+    let (_, v) = get("").await;
+    assert_eq!(v["deliveries"], json!({"failed": 1, "giving_up": 2}));
+    // a bad time or an unknown parameter is a 400
+    assert_eq!(get("?since=yesterday").await.0, 400);
+    assert_eq!(get("?until=2000-01-01T00:00:00Z").await.0, 400);
     // not signed in
     let anon = reqwest::Client::new();
     assert_eq!(

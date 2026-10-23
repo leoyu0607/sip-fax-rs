@@ -670,6 +670,10 @@ async fn s05_read_flag_body(env: &Env) {
     let ids = |p: Page<FaxRecord>| p.items.iter().map(|r| r.id).collect::<Vec<_>>();
     // a record being received is unread too
     assert_eq!(st.count_unread().await.unwrap(), 3);
+    // since: started_at >= since (the three start at T0, T0 + 1, T0 + 2 ms)
+    assert_eq!(st.count_since(t(T0)).await.unwrap(), 3);
+    assert_eq!(st.count_since(t(T0 + 1)).await.unwrap(), 2);
+    assert_eq!(st.count_since(t(T0 + 3)).await.unwrap(), 0);
     assert_eq!(
         ids(st
             .list(&unread(false), PageRequest::default())
@@ -1356,6 +1360,15 @@ async fn s13_delivery_queue_body(env: &Env) {
         .add_delivery(&mk("d", DeliveryStatus::Done, Some(T0 - 1_000)))
         .await
         .unwrap();
+    assert_eq!(
+        st.count_deliveries(DeliveryStatus::Pending).await.unwrap(),
+        3
+    );
+    assert_eq!(st.count_deliveries(DeliveryStatus::Done).await.unwrap(), 1);
+    assert_eq!(
+        st.count_deliveries(DeliveryStatus::Failed).await.unwrap(),
+        0
+    );
     // Nothing due before the first next_try_at except the NULL one.
     let due = st.due_deliveries(t(T0 + 500), 10).await.unwrap();
     assert_eq!(due.iter().map(|d| d.id).collect::<Vec<_>>(), vec![c]);
@@ -1381,6 +1394,18 @@ async fn s13_delivery_queue_body(env: &Env) {
         .find(|d| d.id == b)
         .unwrap();
     assert_eq!(row.status, DeliveryStatus::Failed);
+    assert_eq!(
+        st.count_deliveries(DeliveryStatus::Failed).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        st.count_deliveries(DeliveryStatus::Pending).await.unwrap(),
+        2
+    );
+    assert_eq!(
+        st.count_deliveries(DeliveryStatus::GivingUp).await.unwrap(),
+        0
+    );
     assert_eq!(row.last_error.as_deref(), Some(err));
     assert_eq!(row.next_try_at, None);
     assert_eq!(row.created_at, t(T0));

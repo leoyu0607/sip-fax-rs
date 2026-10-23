@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Fax } from './api';
-import { EMPTY_FILTER, compare, filterParams, isEmpty, localDay, matches, upsert, type FaxFilter } from './faxes';
+import { EMPTY_FILTER, compare, filterParams, isEmpty, localDay, matches, neighbours, upsert, type FaxFilter } from './faxes';
 
 function fax(id: number, started: string, o: Partial<Fax> = {}): Fax {
   return {
@@ -65,5 +65,18 @@ describe('filter', () => {
     // replaced in place, removed when it stops matching
     expect(upsert(items, { ...a, pages: 9 }, EMPTY_FILTER, true)[0]?.pages).toBe(9);
     expect(upsert(items, { ...a, is_read: true }, f({ read: 'unread' }), true).map((x) => x.id)).toEqual([3, 2]);
+  });
+});
+
+describe('neighbours', () => {
+  it('gives the newer and the older fax of the list, nothing past its ends', () => {
+    expect(neighbours([9, 7, 4], 7)).toEqual({ newer: 9, older: 4 });
+    expect(neighbours([9, 7, 4], 9)).toEqual({ newer: undefined, older: 7 });
+    expect(neighbours([9, 7, 4], 4)).toEqual({ newer: 7, older: undefined });
+    expect(neighbours([9], 9)).toEqual({ newer: undefined, older: undefined });
+  });
+  it('gives nothing for a fax that is not in the list', () => {
+    expect(neighbours([9, 7], 5)).toEqual({});
+    expect(neighbours([], 5)).toEqual({});
   });
 });
