@@ -192,6 +192,8 @@
       - [x] ⑬ 表單欄位寬度一致（28rem）
       - [x] ⑯ 系統狀態的今日概況與磁碟空間（`FaxStore::count_since`、`count_deliveries`；`GET /faxes/counts?since=`；`/status` 的 `storage`，rustix `statvfs`）U33
       - [x] ⑰ 登入頁：拿掉「請登入」、顯示密碼、語言移到下方 U27
+      - [x] 手冊截圖重跑（登入頁、系統狀態的今日概況與磁碟、內容頁的上一份／下一份）；截圖抓到磁碟顯示「957531.1 MB」：`formatBytes` 補上 GB、TB
+      - [x] `sip-core` E04 偶發失敗（CI run 39917590693：`dialog_count()` 讀到 1）：dialog 在 `bye()` 回 200 之後才從表中移除，測試改為最多等 1 秒（與同一測試的 task 數檢查相同做法）
       - [x] v0.4.1-alpha 的 release run 39915367748 中 U22 偶發失敗：帳號選單的「點外面關閉」要等 `toggle` 事件才掛上監聽器，打開後立刻點外面會漏掉。改為登入期間一直掛著、直接看 `details.open`。（那次 release 重跑失敗的 job 發佈，0.4.1 內仍有此問題，實際操作幾乎碰不到）
     - ④ 手機與窄螢幕版面：2026-10-23 使用者決定不做（介面以桌機瀏覽器為主）
     - [x] 手冊截圖（`docs/manual/images/`）重跑，座席與 IT 手冊內文同步（帳號選單、未讀數、整列可點、資訊欄、⟲ 標記、新增帳號按鈕）
