@@ -169,6 +169,7 @@
 - [x] [Any] `docs/database.md` 與 `docs/manual/it.md` 要明白寫：sip-faxd 需要自己專用的資料庫（不要與其他系統共用；`users`、`sessions`、`settings`、`schema_migrations` 等通用表名可能衝突，MySQL／MariaDB 的 `CREATE TABLE IF NOT EXISTS` 會悄悄沿用別的系統的表）。使用者 2026-10-22 決定：只要求專用資料庫，不做衝突檢查，不加表名前綴
 - [x] [Opus] 審核 `docs/test-reports/M4f.md`（2026-10-23 通過，報告 §9；審核時修正新安裝的 log 訊息、Windows 的編譯警告，新增 `.gitattributes`）
 - [x] [Any] 合併順序：先把 `m4e-db-copy`（審核已通過；確認其 CI run 39794768007 為綠）合進 main，再合 `m4f-config`，然後依 CLAUDE.md 發版檢查清單發 v0.4.0-alpha（2026-10-23：兩個分支以 merge commit 合進 main）
+- 備註：RUSTSEC-2026-0385（`ctutils` < 0.4.4，2026-10-23 公布）讓 main 的 `cargo deny` 失敗：`ctutils` 更新到 0.4.4（`Cargo.lock`、`tools/Cargo.lock`），CHANGELOG 中英的安全性段落
 - 備註：RUSTSEC-2026-0381/0382/0383（rustls-webpki、webpki-roots、webpki-root-certs，2026-10-19/20）已於 2026-10-23 檢查：main、m4e、m4f、v0.2.0、v0.3.0 的 lock 檔都已是修正版（0.103.16、1.0.10），不需處理
 
 ## Web 介面改善（2026-10-23 使用者提出）

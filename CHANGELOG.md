@@ -5,6 +5,9 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Security
+- `ctutils` (via `hmac` / `digest`, used for webhook signatures) updated to 0.4.4 ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385): constant-time masks could compile to branches). 0.4.1 and earlier ship 0.4.2.
+
 ### Added
 - Web interface: "Today" on the status page (faxes received today, unread, deliveries failed and given up) and the free disk space of the data directory; `GET /api/v1/faxes/counts?since=` and `storage` in `GET /api/v1/status`.
 - Web interface: previous / next fax buttons on the fax page, in the order of the list.
@@ -105,6 +108,9 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 安全性
+- `ctutils`（經由 `hmac`／`digest`，用於 Webhook 簽章）更新到 0.4.4（[RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)：常數時間的遮罩可能被編譯成分支）。0.4.1 以前的版本使用 0.4.2。
+
 #### 新增
 - Web 介面：系統狀態頁的「今日概況」（今天收到、未讀、投遞失敗與已放棄）與存檔目錄所在磁碟的剩餘空間；`GET /api/v1/faxes/counts?since=`、`GET /api/v1/status` 的 `storage`。
 - Web 介面：傳真內容頁的「上一份／下一份」，依列表順序。
