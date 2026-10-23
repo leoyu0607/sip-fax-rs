@@ -11,6 +11,11 @@
 //!   timestamp was seen already is dropped ([`JitterStats::duplicate`]).
 //! * A new SSRC, or a timestamp more than [`JitterConfig::resync_after`] away from the playout
 //!   position, starts over ([`JitterStats::resyncs`]).
+//! * When the buffer runs dry (nothing buffered at or after the playout position: a sender clock
+//!   slower than ours, a stall) playout does not carry on by the clock, which would leave it
+//!   ahead of every packet still to come and every one of them late for good: it waits for
+//!   `start_depth` samples again, at the position where it ran dry, and plays the silence of the
+//!   wait as a gap ([`Pulled::gap`]).
 //! * Sender clock drift fills the buffer slowly; past `max_depth` the oldest samples are dropped
 //!   down to `start_depth` at once ([`JitterStats::dropped`]), never one by one in the middle of
 //!   the signal.
@@ -74,6 +79,8 @@ pub struct JitterBuffer {
     frames: BTreeMap<i64, Vec<i16>>,
     /// Playout position (extended timestamp of the next sample), once started.
     next: Option<i64>,
+    /// Playout ran dry and waits for `start_depth` samples again (`next` is kept).
+    priming: bool,
     stats: JitterStats,
 }
 
@@ -86,6 +93,7 @@ impl JitterBuffer {
             last: None,
             frames: BTreeMap::new(),
             next: None,
+            priming: false,
             stats: JitterStats::default(),
         }
     }
@@ -115,6 +123,7 @@ impl JitterBuffer {
     fn restart(&mut self) {
         self.frames.clear();
         self.next = None;
+        self.priming = false;
         self.last = None;
         self.stats.resyncs += 1;
     }
@@ -194,10 +203,23 @@ impl JitterBuffer {
     /// missing).
     pub fn pull(&mut self, out: &mut [i16]) -> Pulled {
         out.fill(0);
-        if self.next.is_none() {
+        if self.next.is_some() && self.frames.is_empty() {
+            self.priming = true;
+        }
+        if self.next.is_none() || self.priming {
             let first = self.frames.keys().next().copied();
             match (first, self.end()) {
-                (Some(f), Some(e)) if e - f >= self.cfg.start_depth as i64 => self.next = Some(f),
+                (Some(f), Some(e)) if e - f >= self.cfg.start_depth as i64 => {
+                    // after a dry spell carry on at the position where it ran dry (or at the
+                    // first packet, when the ones in between were lost)
+                    self.next = Some(self.next.map_or(f, |n| n.max(f)));
+                    self.priming = false;
+                }
+                _ if self.next.is_some() => {
+                    let gap = out.len() as u32;
+                    self.stats.gap_samples += gap as u64;
+                    return Pulled { playing: true, gap };
+                }
                 _ => return Pulled::default(),
             }
         }

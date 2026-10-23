@@ -58,7 +58,10 @@ impl CngDetector {
                 let total = block_mean_square(&self.block);
                 let tone = self.g.take();
                 self.block.clear();
-                if dbm0(total) >= ON_DBM0 && tone >= CNG_PURITY * total {
+                // gate at the end-of-signal level, not the start level: a tone at exactly -43 dBm0
+                // (the quietest a receiver must handle) has blocks that fall just below -43 with
+                // any noise on the line and would never make 17 in a row
+                if dbm0(total) >= OFF_DBM0 && tone >= CNG_PURITY * total {
                     self.run += 1;
                     if self.run >= CNG_BLOCKS && !self.reported {
                         self.reported = true;

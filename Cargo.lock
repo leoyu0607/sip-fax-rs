@@ -1037,6 +1037,9 @@ dependencies = [
 [[package]]
 name = "fax-modem"
 version = "0.4.1"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "fdeflate"

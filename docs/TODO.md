@@ -211,7 +211,8 @@
 - [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
 - [x] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
   - 2026-10-23：`crates/sip-core/src/rtp/{g711,packet,jitter}.rs`（G.711 依規格重寫，sipress 的有誤，見 sipress-extraction.md）、`crates/fax-modem/src/{level,goertzel,tone}.rs`；單元測試 fax-modem 5 個（行涵蓋率 98.6%）、sip-core rtp 11 個；CI coverage 納入 `fax-modem ≥ 85%`。下一步：Sonnet 依計畫補 G01–G05、J01–J05、J07、N01–N04（含 SpanDSP 對照：`alaw_to_linear`／`ulaw_to_linear`、`modem_connect_tones_rx`）
-- [ ] [Sonnet] M5a 測試 G01–G05、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`
+- [x] [Sonnet] M5a 測試 G01–G04、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`（待 Opus 審核；G05、J06 延到 M5e）
+  - 2026-10-23：測試在 `crates/sip-core/tests/m5a_{g,j}.rs`、`crates/fax-modem/tests/m5a_n.rs`，SpanDSP 對照在 `tools/fax-sim/tests/{g01_g02_g711_spandsp,n03_ced_spandsp}.rs`（`spandsp-sys` 補了 `g711_*`、`modem_connect_tones_rx_*`）。測試發現並修了三個產品問題：jitter buffer 見底後永遠回不來（送端時脈 −200 ppm 約 150 s 後全部 gap，改為見底後重新等 `start_depth`）、CNG 偵測器在 −43 dBm0 偵測不到（門檻改用 −48）、μ-law 編碼負值不奇對稱（與 SpanDSP 差 127 個輸入）。涵蓋率 fax-modem 98.6%、sip-core 93.8%。審核重點見報告 §4（N04 的「判定延遲」解讀）與 §5
 - [ ] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D；`tools/fax-sim` 的 spandsp-sys 補 `fsk_tx`／`fsk_rx`／`hdlc_tx`／`v27ter_tx`／`v29_tx`
 - [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
 - [ ] [Any] M5c：`fax-modem::v27ter` 收端

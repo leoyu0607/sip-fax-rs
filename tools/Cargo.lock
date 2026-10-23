@@ -457,11 +457,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fax-modem"
+version = "0.4.1"
+
+[[package]]
 name = "fax-sim"
 version = "0.4.1"
 dependencies = [
  "chrono",
  "fax-in",
+ "fax-modem",
  "hmac",
  "interop",
  "serde_json",
