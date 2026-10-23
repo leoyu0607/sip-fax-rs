@@ -129,12 +129,18 @@ export function formatWhen(
   return `${date} ${hm}`;
 }
 
-/** `1.2 MB` */
+/** `1.2 MB`, up to TB (a disk's size) */
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return '';
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
 }
 
 /** `1:05:03` / `5:03` */

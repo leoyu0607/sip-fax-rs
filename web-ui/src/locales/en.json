@@ -22,7 +22,8 @@
   },
   "live": {
     "on": "Live updates connected",
-    "off": "Live updates disconnected, reconnecting"
+    "off": "Live updates disconnected, reconnecting",
+    "connecting": "Connecting live updates"
   },
   "common": {
     "save": "Save",
@@ -35,14 +36,17 @@
     "retry": "Retry",
     "actions": "Actions",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "leave_unsaved": "There are unsaved changes. Leave this page anyway?"
   },
   "login": {
     "subtitle": "Please sign in",
     "username": "User name",
     "password": "Password",
     "submit": "Sign in",
-    "signing_in": "Signing in…"
+    "signing_in": "Signing in…",
+    "show_password": "Show",
+    "hide_password": "Hide"
   },
   "password": {
     "title": "Change password",
@@ -135,7 +139,8 @@
       "trunk": "Trunk",
       "apply": "Apply",
       "clear": "Clear"
-    }
+    },
+    "empty_none": "No faxes yet. They appear here as they arrive."
   },
   "fax": {
     "title": "Fax from {ani}",
@@ -222,7 +227,10 @@
       "shutdown": "The service stopped",
       "internal_error": "Internal error"
     },
-    "more_details": "More details"
+    "more_details": "More details",
+    "newer": "Previous",
+    "older": "Next",
+    "nav": "Between faxes"
   },
   "delivery": {
     "kind": "Kind",
@@ -280,7 +288,15 @@
       "registered": "Registered",
       "failed": "Failed",
       "unknown": "Unknown"
-    }
+    },
+    "today": "Today",
+    "received_today": "Received today",
+    "unread": "Unread",
+    "deliveries_failed": "Deliveries failed (retrying)",
+    "deliveries_giving_up": "Deliveries given up",
+    "disk": "Disk space",
+    "disk_free": "{free} free of {total} ({percent} %)",
+    "disk_unknown": "Not available"
   },
   "users": {
     "title": "Accounts",

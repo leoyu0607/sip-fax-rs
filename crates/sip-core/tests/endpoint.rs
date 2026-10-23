@@ -400,6 +400,14 @@ async fn e04_fifty_concurrent_calls_do_not_mix_up_and_leave_no_tasks_behind() {
         served, got,
         "the server saw exactly the calls the clients made"
     );
+    // a dialog leaves the table when its task ends, a moment after bye() has returned the 200:
+    // allow it that moment (it once read 1 on a loaded CI runner)
+    for _ in 0..100 {
+        if uac.dialog_count() == 0 && uas.dialog_count() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert_eq!(uac.dialog_count(), 0);
     assert_eq!(uas.dialog_count(), 0);
     let mid = handle.metrics().num_alive_tasks();

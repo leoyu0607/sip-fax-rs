@@ -38,8 +38,10 @@ add('time', [
 add('live', [
   ['on', '即時更新已連線', 'Live updates connected'],
   ['off', '即時更新已中斷，正在重新連線', 'Live updates disconnected, reconnecting'],
+  ['connecting', '正在連線即時更新', 'Connecting live updates'],
 ]);
 add('common', [
+  ['leave_unsaved', '有尚未儲存的變更，確定要離開這一頁嗎？', 'There are unsaved changes. Leave this page anyway?'],
   ['save', '儲存', 'Save'],
   ['saving', '儲存中…', 'Saving…'],
   ['saved', '已儲存', 'Saved'],
@@ -53,6 +55,8 @@ add('common', [
   ['no', '否', 'No'],
 ]);
 add('login', [
+  ['show_password', '顯示', 'Show'],
+  ['hide_password', '隱藏', 'Hide'],
   ['subtitle', '請登入', 'Please sign in'],
   ['username', '帳號', 'User name'],
   ['password', '密碼', 'Password'],
@@ -128,6 +132,7 @@ add('validation', [
   ['secret_key', '加密金鑰無法使用，秘密欄位無法儲存', 'The encryption key is not usable: secrets cannot be stored'],
 ]);
 add('faxes', [
+  ['empty_none', '還沒有收到傳真。傳真進來時會自動出現在這裡。', 'No faxes yet. They appear here as they arrive.'],
   ['title', '傳真', 'Faxes'],
   ['empty', '沒有符合的傳真', 'No faxes match'],
   ['more', '載入更多', 'Load more'],
@@ -149,6 +154,9 @@ add('faxes', [
   ['filter.clear', '清除篩選', 'Clear'],
 ]);
 add('fax', [
+  ['newer', '上一份', 'Previous'],
+  ['older', '下一份', 'Next'],
+  ['nav', '傳真之間切換', 'Between faxes'],
   ['more_details', '更多資訊', 'More details'],
   ['title', '來自 {ani} 的傳真', 'Fax from {ani}'],
   ['back', '回到傳真列表', 'Back to the faxes'],
@@ -248,6 +256,14 @@ add('setup', [
   ['no_trunk_agent', '尚未設定電話線路，無法接收傳真，請聯絡管理員。', 'No line is configured yet, faxes cannot be received: contact your administrator.'],
 ]);
 add('status', [
+  ['today', '今日概況', 'Today'],
+  ['received_today', '今天收到', 'Received today'],
+  ['unread', '未讀', 'Unread'],
+  ['deliveries_failed', '投遞失敗（會重試）', 'Deliveries failed (retrying)'],
+  ['deliveries_giving_up', '投遞已放棄', 'Deliveries given up'],
+  ['disk', '磁碟空間', 'Disk space'],
+  ['disk_free', '剩餘 {free}（共 {total}，{percent}%）', '{free} free of {total} ({percent} %)'],
+  ['disk_unknown', '無法讀取', 'Not available'],
   ['title', '系統狀態', 'Status'],
   ['service', '服務', 'Service'],
   ['state', '狀態', 'State'],

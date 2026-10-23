@@ -237,6 +237,15 @@ export interface Status {
   service: ServiceStatus;
   database: { state: 'ok' | 'unavailable'; schema?: number };
   config: ConfigStatus;
+  /** The file system of the data directory; `null` when it cannot be read. */
+  storage: { free_bytes: number; total_bytes: number } | null;
+}
+
+/** `GET /faxes/counts?since=…` */
+export interface Counts {
+  unread: number;
+  since?: number;
+  deliveries?: { failed: number; giving_up: number };
 }
 
 export interface AuditEntry {

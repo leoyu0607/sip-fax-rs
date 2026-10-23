@@ -22,7 +22,8 @@
   },
   "live": {
     "on": "即時更新已連線",
-    "off": "即時更新已中斷，正在重新連線"
+    "off": "即時更新已中斷，正在重新連線",
+    "connecting": "正在連線即時更新"
   },
   "common": {
     "save": "儲存",
@@ -35,14 +36,17 @@
     "retry": "重試",
     "actions": "動作",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "leave_unsaved": "有尚未儲存的變更，確定要離開這一頁嗎？"
   },
   "login": {
     "subtitle": "請登入",
     "username": "帳號",
     "password": "密碼",
     "submit": "登入",
-    "signing_in": "登入中…"
+    "signing_in": "登入中…",
+    "show_password": "顯示",
+    "hide_password": "隱藏"
   },
   "password": {
     "title": "變更密碼",
@@ -135,7 +139,8 @@
       "trunk": "中繼（trunk）",
       "apply": "套用",
       "clear": "清除篩選"
-    }
+    },
+    "empty_none": "還沒有收到傳真。傳真進來時會自動出現在這裡。"
   },
   "fax": {
     "title": "來自 {ani} 的傳真",
@@ -222,7 +227,10 @@
       "shutdown": "服務停止",
       "internal_error": "內部錯誤"
     },
-    "more_details": "更多資訊"
+    "more_details": "更多資訊",
+    "newer": "上一份",
+    "older": "下一份",
+    "nav": "傳真之間切換"
   },
   "delivery": {
     "kind": "方式",
@@ -280,7 +288,15 @@
       "registered": "已註冊",
       "failed": "註冊失敗",
       "unknown": "不明"
-    }
+    },
+    "today": "今日概況",
+    "received_today": "今天收到",
+    "unread": "未讀",
+    "deliveries_failed": "投遞失敗（會重試）",
+    "deliveries_giving_up": "投遞已放棄",
+    "disk": "磁碟空間",
+    "disk_free": "剩餘 {free}（共 {total}，{percent}%）",
+    "disk_unknown": "無法讀取"
   },
   "users": {
     "title": "帳號",

@@ -422,6 +422,22 @@ impl FaxStore for SqlStore {
         .await
     }
 
+    async fn count_since(&self, since: DateTime<Utc>) -> Result<u64> {
+        self.count(
+            "SELECT COUNT(*) FROM faxes WHERE started_at >= ?",
+            &[tv(since)],
+        )
+        .await
+    }
+
+    async fn count_deliveries(&self, status: DeliveryStatus) -> Result<u64> {
+        self.count(
+            "SELECT COUNT(*) FROM delivery_attempts WHERE status = ?",
+            &[status.as_str().into()],
+        )
+        .await
+    }
+
     async fn set_read(&self, id: i64, read: bool, by: &str) -> Result<FaxRecord> {
         check_len("by", by, 64)?;
         let now = self.clock.now();

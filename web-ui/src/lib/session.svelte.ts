@@ -1,8 +1,9 @@
 // The signed-in account and the router state.
 
 import { ApiError, get, post, setCsrf, type LoginOk, type User } from './api';
-import { i18n, pickLocale } from './i18n.svelte';
+import { i18n, pickLocale, t } from './i18n.svelte';
 import { parseRoute, type Route } from './route';
+import { hasUnsaved, onBeforeUnload } from './unsaved';
 
 let user = $state<User | null>(null);
 let ready = $state(false);
@@ -27,9 +28,16 @@ export const router = {
 };
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('hashchange', () => {
+  // leaving a page with unsaved changes asks first; "stay" puts the address back without a new
+  // history entry
+  window.addEventListener('hashchange', (e) => {
+    if (hasUnsaved() && !confirm(t('common.leave_unsaved'))) {
+      history.replaceState(history.state, '', new URL(e.oldURL).hash || '#');
+      return;
+    }
     route = parseRoute(location.hash);
   });
+  window.addEventListener('beforeunload', onBeforeUnload);
 }
 
 function browserLanguages(): readonly string[] {

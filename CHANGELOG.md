@@ -5,6 +5,18 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Added
+- Web interface: "Today" on the status page (faxes received today, unread, deliveries failed and given up) and the free disk space of the data directory; `GET /api/v1/faxes/counts?since=` and `storage` in `GET /api/v1/status`.
+- Web interface: previous / next fax buttons on the fax page, in the order of the list.
+- Web interface: leaving a page with an unsaved note or settings asks first.
+- Web interface: the password can be shown on the sign-in page.
+
+### Changed
+- Web interface: the live-updates dot is gone; a notice appears only when the live updates have been down for a few seconds.
+- Web interface: an empty fax list says whether there are no faxes yet or none that match the filter (with a button to clear it); the note column takes the room left in the list; the fields of a form all have the same width.
+
+### Fixed
+- Web interface: a click outside the account menu right after opening it did not close it.
 
 ## [0.4.1-alpha] - 2026-10-23
 Web interface improvements.
@@ -93,6 +105,18 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 新增
+- Web 介面：系統狀態頁的「今日概況」（今天收到、未讀、投遞失敗與已放棄）與存檔目錄所在磁碟的剩餘空間；`GET /api/v1/faxes/counts?since=`、`GET /api/v1/status` 的 `storage`。
+- Web 介面：傳真內容頁的「上一份／下一份」，依列表順序。
+- Web 介面：備註或設定還沒儲存就要離開這一頁時會先詢問。
+- Web 介面：登入頁可以顯示輸入的密碼。
+
+#### 變更
+- Web 介面：拿掉即時連線的圓點，只在連線中斷超過幾秒時顯示提示。
+- Web 介面：傳真列表空的時候說明是還沒有傳真、還是篩選不到（附「清除篩選」）；備註欄占用列表剩下的寬度；表單欄位寬度一致。
+
+#### 修正
+- Web 介面：帳號選單剛打開時立刻點選單外面，選單不會關閉。
 
 ### [0.4.1-alpha] - 2026-10-23
 Web 介面改善。

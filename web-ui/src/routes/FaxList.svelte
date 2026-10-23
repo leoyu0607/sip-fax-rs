@@ -177,7 +177,17 @@
           </tr>
         {:else}
           {#if faxList.loaded && !faxList.loading}
-            <tr><td colspan="8" class="empty">{t('faxes.empty')}</td></tr>
+            <!-- nothing at all, or nothing that matches: say which, and offer the way out -->
+            <tr>
+              <td colspan="8" class="empty">
+                {#if isEmpty(faxList.filter)}
+                  {t('faxes.empty_none')}
+                {:else}
+                  <p>{t('faxes.empty')}</p>
+                  <button type="button" onclick={clear}>{t('faxes.filter.clear')}</button>
+                {/if}
+              </td>
+            </tr>
           {/if}
         {/each}
       </tbody>

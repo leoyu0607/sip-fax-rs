@@ -50,6 +50,18 @@
     };
   });
 
+  // the live connection: nothing to see while it works; a notice when it has been down for a
+  // few seconds (not at every short reconnect)
+  let liveDown = $state(false);
+  $effect(() => {
+    if (live.connected || !signedIn) {
+      liveDown = false;
+      return;
+    }
+    const timer = setTimeout(() => (liveDown = true), 3000);
+    return () => clearTimeout(timer);
+  });
+
   // the unread badge of "Faxes"
   $effect(() => {
     if (!signedIn) {
@@ -66,18 +78,22 @@
   });
 
   // the account menu (account page, language, theme, sign out): closes on a click outside it,
-  // Escape, or when a page is chosen in it
+  // Escape, or when a page is chosen in it. The listeners stay while someone is signed in and look
+  // at the element itself: `bind:open` follows the `toggle` event, which comes a moment after the
+  // click that opened it, and a click outside within that moment was once missed.
   let menu = $state<HTMLDetailsElement | null>(null);
-  let menuOpen = $state(false);
+  function closeMenu() {
+    if (menu) menu.open = false;
+  }
   $effect(() => {
-    if (!menuOpen) return;
+    if (!signedIn) return;
     const outside = (e: MouseEvent) => {
-      if (menu && !menu.contains(e.target as Node)) menuOpen = false;
+      if (menu?.open && !menu.contains(e.target as Node)) closeMenu();
     };
     const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        menuOpen = false;
-        menu?.querySelector('summary')?.focus();
+      if (e.key === 'Escape' && menu?.open) {
+        closeMenu();
+        menu.querySelector('summary')?.focus();
       }
     };
     document.addEventListener('click', outside);
@@ -168,18 +184,19 @@
       </ul>
     </nav>
     <div class="tools">
-      <span class="live" class:off={!live.connected} title={t(live.connected ? 'live.on' : 'live.off')}>
-        <span aria-hidden="true">{live.connected ? '●' : '○'}</span>
-        <span class="sr-only">{t(live.connected ? 'live.on' : 'live.off')}</span>
-      </span>
-      <details class="user-menu" bind:this={menu} bind:open={menuOpen}>
+      {#if liveDown}
+        <span class="live off" role="status"><span aria-hidden="true">⚠</span> {t('live.off')}</span>
+      {:else}
+        <span class="sr-only" role="status">{t(live.connected ? 'live.on' : 'live.connecting')}</span>
+      {/if}
+      <details class="user-menu" bind:this={menu}>
         <summary aria-label={t('nav.menu_of', { name: session.user.display_name ?? session.user.username })}>
           <span class="avatar" aria-hidden="true">{(session.user.display_name ?? session.user.username).slice(0, 1).toUpperCase()}</span>
           <span class="name">{session.user.display_name ?? session.user.username}</span>
           <span class="caret" aria-hidden="true">▾</span>
         </summary>
         <div class="menu-panel">
-          <a href="#/account" onclick={() => (menuOpen = false)}>{t('account.title')}</a>
+          <a href="#/account" onclick={closeMenu}>{t('account.title')}</a>
           <div class="menu-field">
             <label for="locale">{t('nav.language')}</label>
             <select id="locale" value={i18n.locale} onchange={setLocale}>

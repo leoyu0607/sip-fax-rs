@@ -14,7 +14,8 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use store::{
-    Cursor, DeliveryAttempt, FaxRecord, FaxStatus, ListFilter, PageRequest, PngKind, PreviewError,
+    Cursor, DeliveryAttempt, DeliveryStatus, FaxRecord, FaxStatus, ListFilter, PageRequest,
+    PngKind, PreviewError,
 };
 
 use crate::error::ApiError;
@@ -219,16 +220,31 @@ async fn list(
     })))
 }
 
-/// `GET /faxes/counts`: the number of unread faxes (the badge next to "Faxes" in the menu).
-async fn counts(State(st): State<AppState>, s: Session) -> Result<Json<Value>, ApiError> {
+/// `GET /faxes/counts[?since=RFC 3339]`: the number of unread faxes (the badge next to "Faxes"
+/// in the menu); with `since`, also the faxes since then (the status page sends the viewer's
+/// midnight); for whoever may see deliveries, the deliveries that failed or were given up.
+async fn counts(
+    State(st): State<AppState>,
+    s: Session,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
     s.need(Capability::ViewFaxes)?;
-    let unread = st
-        .store()
-        .await?
-        .count_unread()
-        .await
-        .map_err(store_error)?;
-    Ok(Json(json!({ "unread": unread })))
+    if let Some(k) = q.keys().find(|k| k.as_str() != "since") {
+        return Err(ApiError::bad_request(format!("unknown parameter {k:?}")));
+    }
+    let since = opt_time(&q, "since")?;
+    let store = st.store().await?;
+    let mut v = json!({ "unread": store.count_unread().await.map_err(store_error)? });
+    if let Some(t) = since {
+        v["since"] = json!(store.count_since(t).await.map_err(store_error)?);
+    }
+    if s.0.require(Capability::ViewDeliveries).is_ok() {
+        v["deliveries"] = json!({
+            "failed": store.count_deliveries(DeliveryStatus::Failed).await.map_err(store_error)?,
+            "giving_up": store.count_deliveries(DeliveryStatus::GivingUp).await.map_err(store_error)?,
+        });
+    }
+    Ok(Json(v))
 }
 
 // ------------------------------------------------------------------------------ one fax

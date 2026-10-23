@@ -39,6 +39,11 @@ pub trait FaxStore: crate::admin::AdminStore + Send + Sync {
     async fn list(&self, filter: &ListFilter, page: PageRequest) -> Result<Page<FaxRecord>>;
     /// Number of unread records (any status), for the badge of the web interface.
     async fn count_unread(&self) -> Result<u64>;
+    /// Number of records with `started_at >= since` (any status): "received today" of the status
+    /// page, the day being the viewer's.
+    async fn count_since(&self, since: DateTime<Utc>) -> Result<u64>;
+    /// Number of delivery attempts in `status` (the status page counts `failed` and `giving_up`).
+    async fn count_deliveries(&self, status: DeliveryStatus) -> Result<u64>;
     /// Set the shared read flag, recording who and when.
     async fn set_read(&self, id: i64, read: bool, by: &str) -> Result<FaxRecord>;
     /// Replace the note with an optimistic lock on `note_updated_at`. `expected_updated_at` is the

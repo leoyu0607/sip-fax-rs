@@ -103,3 +103,13 @@ export function upsert(items: Fax[], fax: Fax, f: FaxFilter, complete: boolean):
 export function hangupKey(code: string | null): string | null {
   return code === null ? null : `fax.hangup.${code}`;
 }
+
+/**
+ * The faxes next to `id` in the list as it is loaded (newest first): `newer` above it, `older`
+ * below; `undefined` at either end, or when `id` is not in the list.
+ */
+export function neighbours(ids: readonly number[], id: number): { newer?: number; older?: number } {
+  const i = ids.indexOf(id);
+  if (i < 0) return {};
+  return { newer: ids[i - 1], older: ids[i + 1] };
+}

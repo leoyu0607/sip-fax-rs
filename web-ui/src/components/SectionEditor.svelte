@@ -5,6 +5,7 @@
   import { t } from '../lib/i18n.svelte';
   import { setPath, type Field } from '../lib/schema';
   import FieldInput from './FieldInput.svelte';
+  import { guardUnsaved } from '../lib/unsaved';
 
   let {
     name,
@@ -46,6 +47,7 @@
   // svelte-ignore state_referenced_locally
   let saved = $state(JSON.stringify(initial));
   const dirty = $derived(JSON.stringify(body) !== saved);
+  $effect(() => guardUnsaved(() => dirty));
 
   function set(path: string, v: unknown) {
     body = setPath(body, path, v);

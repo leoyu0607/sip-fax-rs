@@ -108,7 +108,7 @@
 | `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`、`POST /auth/password` | 公開／登入 | |
 | `GET /faxes` | 登入 | 篩選：`is_read`、`status`、`from`、`to`、`ani`、`dnis`（前綴）、`trunk`、`q` |
 | `GET /faxes/{id}` | 登入 | 含投遞嘗試列表 |
-| `GET /faxes/counts` | 登入 | `{ "unread": N }`：未讀份數（頁首「傳真」旁的數字；2026-10-23 新增） |
+| `GET /faxes/counts[?since=]` | 登入 | `{ "unread": N, "since"?: N, "deliveries"?: { "failed": N, "giving_up": N } }`：未讀份數（頁首「傳真」旁的數字）；帶 `since`（RFC 3339，系統狀態頁送瀏覽器的當地午夜）時另有那之後的份數；可看投遞的角色另有失敗與已放棄的投遞筆數；其他參數 400（2026-10-23 新增） |
 | `PUT /faxes/{id}/read` | 登入 | `{ "read": true }` |
 | `PUT /faxes/{id}/note` | 登入 | `{ "text": "...", "expected_updated_at": "..." }`；衝突回 409 |
 | `GET /faxes/{id}/pages/{n}.png?kind=full\|thumb` | 登入 | M3e 的 `Preview`；有 `ETag`、`Cache-Control: private` |
@@ -120,7 +120,7 @@
 | `PUT /config/trunks/order` | admin | `{"order": [trunk 名稱…]}`，必須是現有 trunk 的排列（M4b 新增：trunk 依此順序比對來源） |
 | `GET /config/audit?limit=&before=` | admin | 新到舊；`next` 是下一頁的 `before` |
 | `GET/POST /users`、`PUT/DELETE /users/{id}` | admin | 不能停用、降級或刪除最後一個啟用中的 admin（409 `last_admin`）；`PUT` 可帶 `password` 重設密碼（該帳號所有 session 失效，預設下次登入要改密碼） |
-| `GET /status` | 登入 | `service`（版本、uptime、進行中的通話、各 trunk 註冊狀態）、`database`（`ok`／`unavailable`）、`config`（來源、待重啟的設定；admin 另有金鑰狀態與無法解密的秘密欄位） |
+| `GET /status` | 登入 | `service`（版本、uptime、進行中的通話、各 trunk 註冊狀態）、`database`（`ok`／`unavailable`）、`config`（來源、待重啟的設定；admin 另有金鑰狀態與無法解密的秘密欄位）、`storage`（`data_dir` 所在檔案系統的 `free_bytes`、`total_bytes`，讀不到或非 unix 時為 `null`；2026-10-23 新增） |
 
 - 每個請求最多 30 秒（含讀 body），逾時回 408 `timeout`；串流中的下載不受限。header 30 秒內沒送完就關閉連線。
 
