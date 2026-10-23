@@ -12,3 +12,4 @@ web-ui/playwright-report
 *.swp
 tools/target
 web-ui/.vitest
+.claude/scheduled_tasks.lock
