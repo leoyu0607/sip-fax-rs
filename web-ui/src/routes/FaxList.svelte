@@ -4,7 +4,8 @@
   import { errorText } from '../lib/errors';
   import { EMPTY_FILTER, FAX_STATUSES, isEmpty } from '../lib/faxes';
   import { faxList } from '../lib/faxlist.svelte';
-  import { fmt, t } from '../lib/i18n.svelte';
+  import { fmt, t, when } from '../lib/i18n.svelte';
+  import { href } from '../lib/route';
   import FaxStatus from '../components/FaxStatus.svelte';
 
   let sentinel = $state<HTMLElement | null>(null);
@@ -14,14 +15,27 @@
   // the form edits a copy; the list changes on submit
   let draft = $state({ ...faxList.filter });
 
+  // "today" / "yesterday" move on at midnight
+  let now = $state(new Date());
+
   onMount(() => {
+    const clock = setInterval(() => (now = new Date()), 60_000);
     if (!faxList.loaded) faxList.reload();
     else tick().then(() => window.scrollTo(0, faxList.scrollY));
     // (the events are followed by App.svelte, also while another page is open)
     return () => {
+      clearInterval(clock);
       faxList.scrollY = window.scrollY;
     };
   });
+
+  // a click anywhere on a row opens the fax, except on its button or link, or while selecting text
+  // (the keyboard uses the link in the first cell)
+  function openRow(e: MouseEvent, f: Fax) {
+    if ((e.target as HTMLElement).closest('a, button')) return;
+    if (window.getSelection()?.toString()) return;
+    location.hash = href({ page: 'fax', id: f.id });
+  }
 
   // keyset "infinite" scroll: the next page loads when the end of the list comes into view
   $effect(() => {
@@ -145,16 +159,16 @@
       </thead>
       <tbody>
         {#each faxList.items as f (f.id)}
-          <tr class:unread={!f.is_read} data-fax-id={f.id}>
+          <tr class:unread={!f.is_read} class="clickable" data-fax-id={f.id} onclick={(e) => openRow(e, f)}>
             <td>
-              <a href="#/faxes/{f.id}">{fmt(f.started_at)}{#if !f.is_read}<span class="sr-only"> {t('fax.unread')}</span>{/if}</a>
+              <a href="#/faxes/{f.id}" title={fmt(f.started_at)}>{when(f.started_at, now)}{#if !f.is_read}<span class="sr-only"> {t('fax.unread')}</span>{/if}</a>
             </td>
             <td>{f.ani ?? t('fax.unknown_number')}</td>
             <td>{f.dnis ?? ''}</td>
             <td><FaxStatus fax={f} /></td>
             <td class="num">{f.pages}</td>
             <td>{f.trunk ?? ''}</td>
-            <td class="note-cell">{f.note ?? ''}</td>
+            <td class="note-cell" title={f.note ?? undefined}>{f.note ?? ''}</td>
             <td>
               <button type="button" class="small" onclick={() => toggleRead(f)} aria-label={t(f.is_read ? 'fax.mark_unread_of' : 'fax.mark_read_of', { time: fmt(f.started_at) })}>
                 {t(f.is_read ? 'fax.mark_unread' : 'fax.mark_read')}

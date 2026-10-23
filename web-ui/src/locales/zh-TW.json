@@ -16,7 +16,9 @@
     "audit": "稽核紀錄",
     "language": "語言",
     "logout": "登出",
-    "theme": "外觀"
+    "theme": "外觀",
+    "unread": "{count} 份未讀",
+    "menu_of": "{name} 的帳號選單"
   },
   "live": {
     "on": "即時更新已連線",
@@ -219,7 +221,8 @@
       "max_duration": "通話超過最長時間",
       "shutdown": "服務停止",
       "internal_error": "內部錯誤"
-    }
+    },
+    "more_details": "更多資訊"
   },
   "delivery": {
     "kind": "方式",
@@ -300,7 +303,8 @@
     "initial_password": "初始密碼",
     "create": "建立帳號",
     "created": "已建立帳號 {name}",
-    "delete_confirm": "確定要刪除帳號 {name}？"
+    "delete_confirm": "確定要刪除帳號 {name}？",
+    "delete_of": "刪除 {name}"
   },
   "account": {
     "title": "我的帳號",
@@ -545,11 +549,16 @@
         "smtps": "SMTPS（465）",
         "none": "不加密（25）"
       }
-    }
+    },
+    "restart_legend": "標示 ⟲ 的欄位變更後需要重新啟動服務才會生效"
   },
   "theme": {
     "system": "跟隨系統",
     "light": "明亮",
     "dark": "深色"
+  },
+  "time": {
+    "today": "今天",
+    "yesterday": "昨天"
   }
 }

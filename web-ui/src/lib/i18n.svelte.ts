@@ -101,6 +101,34 @@ export function formatTime(iso: string | null | undefined, locale: Locale, timeZ
   }).format(d);
 }
 
+/** The calendar day of `d` in `timeZone`, as `2026-10-23`. */
+function dayKey(d: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(d);
+}
+
+/**
+ * A short time for a list: `today 19:24`, `yesterday 19:24`, `10/21 19:24` this year, the whole
+ * date before that (`words`: the translated "today" and "yesterday").
+ */
+export function formatWhen(
+  iso: string | null | undefined,
+  locale: Locale,
+  words: { today: string; yesterday: string },
+  now: Date = new Date(),
+  timeZone?: string,
+): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const hm = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone }).format(d);
+  const day = dayKey(d, timeZone);
+  if (day === dayKey(now, timeZone)) return `${words.today} ${hm}`;
+  if (day === dayKey(new Date(now.getTime() - 86_400_000), timeZone)) return `${words.yesterday} ${hm}`;
+  const sameYear = day.slice(0, 4) === dayKey(now, timeZone).slice(0, 4);
+  const date = new Intl.DateTimeFormat(locale, { year: sameYear ? undefined : 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(d);
+  return `${date} ${hm}`;
+}
+
 /** `1.2 MB` */
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return '';
@@ -121,4 +149,9 @@ export function formatDuration(secs: number | null | undefined): string {
 
 export function fmt(iso: string | null | undefined): string {
   return formatTime(iso, current);
+}
+
+/** [`formatWhen`] in the current language. */
+export function when(iso: string | null | undefined, now?: Date): string {
+  return formatWhen(iso, current, { today: t('time.today'), yesterday: t('time.yesterday') }, now);
 }

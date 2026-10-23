@@ -94,6 +94,9 @@
 </script>
 
 <form class="section-form" onsubmit={save} novalidate>
+  {#if restartSection !== '' && restartFields.some((f) => f.startsWith(`${restartSection}.`))}
+    <p class="restart-legend muted small"><span class="restart-mark" aria-hidden="true">⟲</span> {t('config.restart_legend')}</p>
+  {/if}
   {#each visible as f (f.key)}
     <FieldInput field={f} {body} path={f.key} {labels} section={restartSection} {errors} {restartFields} onchange={set} />
   {/each}
@@ -127,6 +130,6 @@
   {/if}
   <div class="actions sticky">
     <button type="submit" class="primary" disabled={saving || !dirty}>{t(saving ? 'common.saving' : 'common.save')}</button>
-    {#if dirty}<span class="muted small">{t('config.unsaved')}</span>{/if}
+    {#if dirty}<span class="unsaved small" role="status">{t('config.unsaved')}</span>{/if}
   </div>
 </form>

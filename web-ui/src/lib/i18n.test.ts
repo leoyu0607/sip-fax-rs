@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DICTS, flatten, formatBytes, formatDuration, formatTime, interpolate, pickLocale, translate } from './i18n.svelte';
+import { DICTS, flatten, formatBytes, formatDuration, formatTime, formatWhen, interpolate, pickLocale, translate } from './i18n.svelte';
 
 describe('locales', () => {
   it('U01 both locale files have the same keys and no empty text', () => {
@@ -55,5 +55,27 @@ describe('formats', () => {
     expect(formatDuration(null)).toBe('');
     expect(formatDuration(65)).toBe('1:05');
     expect(formatDuration(3723)).toBe('1:02:03');
+  });
+});
+
+describe('formatWhen', () => {
+  const words = { today: 'Today', yesterday: 'Yesterday' };
+  const now = new Date('2026-10-23T04:00:00Z'); // 12:00 in Taipei
+  const w = (iso: string, tz = 'Asia/Taipei', locale: 'en' | 'zh-TW' = 'en') => formatWhen(iso, locale, words, now, tz);
+  it('says today and yesterday by the calendar day of the time zone', () => {
+    expect(w('2026-10-23T01:05:00Z')).toBe('Today 09:05');
+    // 23:59 in Taipei the day before, but the same UTC day as now
+    expect(w('2026-10-22T15:59:00Z')).toBe('Yesterday 23:59');
+    // 00:00 in Taipei today, though it is the day before in UTC
+    expect(w('2026-10-22T16:00:00Z')).toBe('Today 00:00');
+  });
+  it('gives the date without the year this year, and with it before', () => {
+    expect(w('2026-10-21T04:00:00Z')).toBe('10/21 12:00');
+    expect(w('2025-12-31T04:00:00Z')).toBe('12/31/2025 12:00');
+    expect(w('2025-12-31T04:00:00Z', 'Asia/Taipei', 'zh-TW')).toBe('2025/12/31 12:00');
+  });
+  it('passes empty and broken values through like formatTime', () => {
+    expect(formatWhen(null, 'en', words, now)).toBe('');
+    expect(formatWhen('garbage', 'en', words, now)).toBe('garbage');
   });
 });

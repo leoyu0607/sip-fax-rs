@@ -98,6 +98,10 @@
   }
 </script>
 
+{#snippet mark()}
+  {#if restart}<span class="restart-mark" aria-hidden="true" title={t('config.restart_field')}>⟲</span>{/if}
+{/snippet}
+
 {#if field.kind === 'group'}
   <fieldset class="group">
     <legend>{t(`${labelKey}.label`)}</legend>
@@ -110,11 +114,11 @@
     {#if field.kind === 'bool'}
       <label class="check" for={id}>
         <input id={id} type="checkbox" checked={value === true} aria-describedby={describedBy} onchange={(e) => onchange(path, (e.currentTarget as HTMLInputElement).checked)} />
-        {label}
+        {label}{@render mark()}
       </label>
     {:else if field.kind === 'list' && field.options && !field.ordered}
       <fieldset class="options" aria-describedby={describedBy}>
-        <legend>{label}</legend>
+        <legend>{label}{@render mark()}</legend>
         {#each field.options as o (o)}
           <label class="check">
             <input type="checkbox" checked={Array.isArray(value) && value.includes(o)} onchange={(e) => toggleOption(o, (e.currentTarget as HTMLInputElement).checked, field.options ?? [])} />
@@ -123,7 +127,7 @@
         {/each}
       </fieldset>
     {:else}
-      <label for={id}>{label}</label>
+      <label for={id}>{label}{@render mark()}</label>
       {#if field.kind === 'text' && field.multiline}
         <textarea id={id} rows="6" value={typeof value === 'string' ? value : ''} aria-describedby={describedBy} aria-invalid={error !== undefined} oninput={(e) => text(e, field.nullable)}></textarea>
       {:else if field.kind === 'text'}
@@ -152,7 +156,7 @@
       {/if}
     {/if}
     {#if help}<p id="{id}-help" class="muted small">{help}</p>{/if}
-    {#if restart}<p id="{id}-restart" class="restart small"><span aria-hidden="true">⟲</span> {t('config.restart_field')}</p>{/if}
+    {#if restart}<span id="{id}-restart" class="sr-only">{t('config.restart_field')}</span>{/if}
     {#if error !== undefined}<p id="{id}-err" class="error small">{fieldErrorText(error)}</p>{/if}
   </div>
 {/if}

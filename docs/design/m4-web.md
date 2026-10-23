@@ -108,6 +108,7 @@
 | `POST /auth/login`、`POST /auth/logout`、`GET /auth/me`、`POST /auth/password` | 公開／登入 | |
 | `GET /faxes` | 登入 | 篩選：`is_read`、`status`、`from`、`to`、`ani`、`dnis`（前綴）、`trunk`、`q` |
 | `GET /faxes/{id}` | 登入 | 含投遞嘗試列表 |
+| `GET /faxes/counts` | 登入 | `{ "unread": N }`：未讀份數（頁首「傳真」旁的數字；2026-10-23 新增） |
 | `PUT /faxes/{id}/read` | 登入 | `{ "read": true }` |
 | `PUT /faxes/{id}/note` | 登入 | `{ "text": "...", "expected_updated_at": "..." }`；衝突回 409 |
 | `GET /faxes/{id}/pages/{n}.png?kind=full\|thumb` | 登入 | M3e 的 `Preview`；有 `ETag`、`Cache-Control: private` |

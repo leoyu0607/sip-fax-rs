@@ -37,6 +37,8 @@ pub trait FaxStore: crate::admin::AdminStore + Send + Sync {
     async fn get_by_call_id(&self, call_id: &str) -> Result<Option<FaxRecord>>;
     /// Filtered, keyset-paginated listing, newest first (`started_at DESC, id DESC`).
     async fn list(&self, filter: &ListFilter, page: PageRequest) -> Result<Page<FaxRecord>>;
+    /// Number of unread records (any status), for the badge of the web interface.
+    async fn count_unread(&self) -> Result<u64>;
     /// Set the shared read flag, recording who and when.
     async fn set_read(&self, id: i64, read: bool, by: &str) -> Result<FaxRecord>;
     /// Replace the note with an optimistic lock on `note_updated_at`. `expected_updated_at` is the

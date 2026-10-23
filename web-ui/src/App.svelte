@@ -6,6 +6,7 @@
   import { live, onEvent, onResync, startLive, stopLive } from './lib/live.svelte';
   import { ADMIN_PAGES, href } from './lib/route';
   import { setTheme, storedTheme, THEMES, type Theme } from './lib/theme';
+  import { unread } from './lib/unread.svelte';
   import { ended, logout, restore, router, session, storeLocale } from './lib/session.svelte';
   import Login from './routes/Login.svelte';
   import ChangePassword from './routes/ChangePassword.svelte';
@@ -46,6 +47,44 @@
     return () => {
       offEvent();
       offResync();
+    };
+  });
+
+  // the unread badge of "Faxes"
+  $effect(() => {
+    if (!signedIn) {
+      unread.reset();
+      return;
+    }
+    void unread.refresh();
+    const offEvent = onEvent((e) => unread.event(e));
+    const offResync = onResync(() => void unread.refresh());
+    return () => {
+      offEvent();
+      offResync();
+    };
+  });
+
+  // the account menu (account page, language, theme, sign out): closes on a click outside it,
+  // Escape, or when a page is chosen in it
+  let menu = $state<HTMLDetailsElement | null>(null);
+  let menuOpen = $state(false);
+  $effect(() => {
+    if (!menuOpen) return;
+    const outside = (e: MouseEvent) => {
+      if (menu && !menu.contains(e.target as Node)) menuOpen = false;
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        menuOpen = false;
+        menu?.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('click', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('click', outside);
+      document.removeEventListener('keydown', escape);
     };
   });
 
@@ -117,8 +156,13 @@
     <nav aria-label={t('nav.main')}>
       <ul>
         {#each nav as n (n.page)}
+          {@const badge = n.page === 'faxes' && unread.count ? unread.count : 0}
           <li>
-            <a href={n.link} aria-current={current(n.page) ? 'page' : undefined}>{t(n.label)}</a>
+            <!-- the link's name stays "Faxes"; the count is its description -->
+            <a href={n.link} aria-current={current(n.page) ? 'page' : undefined} aria-describedby={badge ? 'unread-count' : undefined}
+              >{t(n.label)}{#if badge}<span class="count" aria-hidden="true" title={t('nav.unread', { count: badge })}>{badge > 99 ? '99+' : badge}</span>{/if}</a
+            >
+            {#if badge}<span id="unread-count" class="sr-only">{t('nav.unread', { count: badge })}</span>{/if}
           </li>
         {/each}
       </ul>
@@ -128,20 +172,33 @@
         <span aria-hidden="true">{live.connected ? '●' : '○'}</span>
         <span class="sr-only">{t(live.connected ? 'live.on' : 'live.off')}</span>
       </span>
-      <label class="sr-only" for="locale">{t('nav.language')}</label>
-      <select id="locale" value={i18n.locale} onchange={setLocale}>
-        {#each LOCALES as l (l)}
-          <option value={l}>{t(`locale.${l}`)}</option>
-        {/each}
-      </select>
-      <label class="sr-only" for="theme">{t('nav.theme')}</label>
-      <select id="theme" value={theme} onchange={chooseTheme} title={t('nav.theme')}>
-        {#each THEMES as th (th)}
-          <option value={th}>{t(`theme.${th}`)}</option>
-        {/each}
-      </select>
-      <a href="#/account">{session.user.display_name ?? session.user.username}</a>
-      <button type="button" class="link" onclick={() => logout()}>{t('nav.logout')}</button>
+      <details class="user-menu" bind:this={menu} bind:open={menuOpen}>
+        <summary aria-label={t('nav.menu_of', { name: session.user.display_name ?? session.user.username })}>
+          <span class="avatar" aria-hidden="true">{(session.user.display_name ?? session.user.username).slice(0, 1).toUpperCase()}</span>
+          <span class="name">{session.user.display_name ?? session.user.username}</span>
+          <span class="caret" aria-hidden="true">▾</span>
+        </summary>
+        <div class="menu-panel">
+          <a href="#/account" onclick={() => (menuOpen = false)}>{t('account.title')}</a>
+          <div class="menu-field">
+            <label for="locale">{t('nav.language')}</label>
+            <select id="locale" value={i18n.locale} onchange={setLocale}>
+              {#each LOCALES as l (l)}
+                <option value={l}>{t(`locale.${l}`)}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="menu-field">
+            <label for="theme">{t('nav.theme')}</label>
+            <select id="theme" value={theme} onchange={chooseTheme}>
+              {#each THEMES as th (th)}
+                <option value={th}>{t(`theme.${th}`)}</option>
+              {/each}
+            </select>
+          </div>
+          <button type="button" class="menu-item" onclick={() => logout()}>{t('nav.logout')}</button>
+        </div>
+      </details>
     </div>
   </header>
   {#if trunks === 0}

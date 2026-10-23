@@ -16,7 +16,9 @@
     "audit": "Audit log",
     "language": "Language",
     "logout": "Sign out",
-    "theme": "Theme"
+    "theme": "Theme",
+    "unread": "{count} unread",
+    "menu_of": "Account menu of {name}"
   },
   "live": {
     "on": "Live updates connected",
@@ -219,7 +221,8 @@
       "max_duration": "The call exceeded the longest duration",
       "shutdown": "The service stopped",
       "internal_error": "Internal error"
-    }
+    },
+    "more_details": "More details"
   },
   "delivery": {
     "kind": "Kind",
@@ -300,7 +303,8 @@
     "initial_password": "Initial password",
     "create": "Create account",
     "created": "Account {name} created",
-    "delete_confirm": "Delete the account {name}?"
+    "delete_confirm": "Delete the account {name}?",
+    "delete_of": "Delete {name}"
   },
   "account": {
     "title": "My account",
@@ -545,11 +549,16 @@
         "smtps": "SMTPS (465)",
         "none": "None (25)"
       }
-    }
+    },
+    "restart_legend": "Fields marked ⟲ take effect after the service is restarted"
   },
   "theme": {
     "system": "System",
     "light": "Light",
     "dark": "Dark"
+  },
+  "time": {
+    "today": "Today",
+    "yesterday": "Yesterday"
   }
 }

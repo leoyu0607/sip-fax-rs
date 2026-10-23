@@ -3,7 +3,7 @@
 
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { HTTPS_URL, HTTP_URL, PW, base, csrf, faxByAni, signedIn, sql, startFax, tr } from './support';
+import { HTTPS_URL, HTTP_URL, PW, base, csrf, faxByAni, signOut, signedIn, sql, startFax, tr } from './support';
 
 test('U19 over HTTPS: sign in, a fax arrives live, open it, download, note, sign out; the cookie is Secure', async ({ browser }) => {
   const ANI = '0919000019';
@@ -60,7 +60,7 @@ test('U19 over HTTPS: sign in, a fax arrives live, open it, download, note, sign
     expect((await page.request.put(`/api/v1/faxes/${fax.id}/read`, { headers: { 'X-Sipfax-Csrf': await csrf(page.request) }, data: { read: false } })).status()).toBe(200);
 
     // sign out: the cookie is gone and the session is dead
-    await page.getByRole('button', { name: tr('nav.logout'), exact: true }).click();
+    await signOut(page);
     await expect(page.getByRole('button', { name: tr('login.submit') })).toBeVisible();
     expect((await context.cookies()).find((c) => c.name === 'sipfax_session')).toBeUndefined();
     expect((await page.request.get('/api/v1/faxes')).status()).toBe(401);

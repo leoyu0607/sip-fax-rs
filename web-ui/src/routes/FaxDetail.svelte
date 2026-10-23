@@ -211,121 +211,120 @@
       <p class="notice">{t('fax.no_pages')}</p>
     {/if}
 
-    {#if previews}
-      <div class="viewer">
-        <ol class="thumbs" aria-label={t('fax.pages_list')}>
-          {#each Array.from({ length: fax.pages }, (_, i) => i + 1) as n (n)}
-            <li>
-              <button type="button" class:current={n === page} aria-current={n === page ? 'true' : undefined} onclick={() => (page = n)}>
-                <img src={pngUrl(n, 'thumb')} alt={t('fax.page_n', { page: n })} loading="lazy" />
-                <span>{n}</span>
-              </button>
-            </li>
-          {/each}
-        </ol>
-        <div class="pageview">
-          <div class="toolbar">
-            <button type="button" onclick={() => (page = Math.max(1, page - 1))} disabled={page <= 1}>{t('fax.prev_page')}</button>
-            <span>{t('fax.page_of', { page, pages: fax.pages })}</span>
-            <button type="button" onclick={() => (page = Math.min(fax!.pages, page + 1))} disabled={page >= fax.pages}>{t('fax.next_page')}</button>
-            <label for="zoom">{t('fax.zoom')}</label>
-            <select id="zoom" bind:value={zoom}>
-              <option value="fit">{t('fax.zoom_fit')}</option>
-              {#each ZOOMS as z (z)}<option value={z}>{Math.round(z * 100)}%</option>{/each}
-            </select>
-          </div>
-          <div class="scroller">
-            <img
-              class:fit={zoom === 'fit'}
-              src={pngUrl(page, 'full')}
-              width={imgWidth}
-              alt={t('fax.page_n', { page })}
-              onload={(e) => (natural = (e.currentTarget as HTMLImageElement).naturalWidth)}
-            />
+    <!-- the pages on the left, what there is to know and do about the fax beside them -->
+    <div class="detail-layout" class:no-pages={!previews}>
+      {#if previews}
+        <div class="viewer">
+          <ol class="thumbs" aria-label={t('fax.pages_list')}>
+            {#each Array.from({ length: fax.pages }, (_, i) => i + 1) as n (n)}
+              <li>
+                <button type="button" class:current={n === page} aria-current={n === page ? 'true' : undefined} onclick={() => (page = n)}>
+                  <img src={pngUrl(n, 'thumb')} alt={t('fax.page_n', { page: n })} loading="lazy" />
+                  <span>{n}</span>
+                </button>
+              </li>
+            {/each}
+          </ol>
+          <div class="pageview">
+            <div class="toolbar">
+              <button type="button" onclick={() => (page = Math.max(1, page - 1))} disabled={page <= 1}>{t('fax.prev_page')}</button>
+              <span>{t('fax.page_of', { page, pages: fax.pages })}</span>
+              <button type="button" onclick={() => (page = Math.min(fax!.pages, page + 1))} disabled={page >= fax.pages}>{t('fax.next_page')}</button>
+              <label for="zoom">{t('fax.zoom')}</label>
+              <select id="zoom" bind:value={zoom}>
+                <option value="fit">{t('fax.zoom_fit')}</option>
+                {#each ZOOMS as z (z)}<option value={z}>{Math.round(z * 100)}%</option>{/each}
+              </select>
+            </div>
+            <div class="scroller">
+              <img
+                class:fit={zoom === 'fit'}
+                src={pngUrl(page, 'full')}
+                width={imgWidth}
+                alt={t('fax.page_n', { page })}
+                onload={(e) => (natural = (e.currentTarget as HTMLImageElement).naturalWidth)}
+              />
+            </div>
           </div>
         </div>
-      </div>
-    {/if}
+      {/if}
 
-    <div class="columns">
-      <section aria-labelledby="note-title" class="card">
-        <h2 id="note-title">{t('fax.note')}</h2>
-        <label class="sr-only" for="note">{t('fax.note')}</label>
-        <textarea id="note" rows="4" maxlength="4000" bind:value={note} oninput={() => (noteSaved = false)}></textarea>
-        {#if fax.note_updated_by}
-          <p class="muted small">{t('fax.note_by', { by: fax.note_updated_by, at: fmt(fax.note_updated_at) })}</p>
-        {/if}
-        {#if conflict}
-          <div class="conflict" role="alert">
-            <p>{t('fax.note_conflict', { by: conflict.by ?? '?' })}</p>
-            <blockquote>{conflict.note ?? ''}</blockquote>
-            <button type="button" onclick={takeTheirs}>{t('fax.note_take_theirs')}</button>
-            <button type="button" onclick={keepMine}>{t('fax.note_keep_mine')}</button>
+      <aside class="detail-side" aria-label={t('fax.details')}>
+        <section aria-labelledby="info-title" class="card">
+          <h2 id="info-title">{t('fax.details')}</h2>
+          <dl class="details">
+            <dt>{t('fax.started_at')}</dt><dd>{fmt(fax.started_at)}</dd>
+            <dt>{t('fax.ani')}</dt><dd>{fax.ani ?? t('fax.unknown_number')}</dd>
+            <dt>{t('fax.dnis')}</dt><dd>{fax.dnis ?? ''}</dd>
+            {#if fax.remote_ident}<dt>{t('fax.remote_ident')}</dt><dd>{fax.remote_ident}</dd>{/if}
+            <dt>{t('fax.trunk')}</dt><dd>{fax.trunk ?? ''}</dd>
+            <dt>{t('fax.pages')}</dt><dd>{fax.pages}</dd>
+            <dt>{t('fax.resolution')}</dt><dd>{fax.resolution ? t(`fax.resolution_value.${fax.resolution}`) : ''}</dd>
+            {#if fax.read_changed_by}<dt>{t('fax.read_by')}</dt><dd>{fax.read_changed_by} · {fmt(fax.read_changed_at)}</dd>{/if}
+          </dl>
+          <details class="more-details">
+            <summary>{t('fax.more_details')}</summary>
+            <dl class="details">
+              <dt>{t('fax.ended_at')}</dt><dd>{fmt(fax.ended_at)}</dd>
+              <dt>{t('fax.duration')}</dt><dd>{formatDuration(fax.duration_sec)}</dd>
+              <dt>{t('fax.hangup_label')}</dt><dd>{hangup(fax)}{fax.hangup_direction ? ` (${t(`fax.direction.${fax.hangup_direction}`)})` : ''}</dd>
+              {#if fax.sip_status !== null}<dt>{t('fax.sip_status')}</dt><dd>{fax.sip_status}</dd>{/if}
+              {#if fax.t30_code !== null}<dt>{t('fax.t30_code')}</dt><dd>{fax.t30_code}</dd>{/if}
+              <dt>{t('fax.bit_rate')}</dt><dd>{fax.bit_rate ?? ''}</dd>
+              <dt>{t('fax.compression')}</dt><dd>{fax.compression ?? ''}</dd>
+              <dt>{t('fax.ecm')}</dt><dd>{fax.ecm === null ? '' : t(fax.ecm ? 'common.yes' : 'common.no')}</dd>
+              <dt>{t('fax.files')}</dt><dd>{[fax.has_pdf ? `PDF ${formatBytes(fax.pdf_size)}` : '', fax.has_tiff ? `TIFF ${formatBytes(fax.tiff_size)}` : ''].filter(Boolean).join(', ')}</dd>
+              <dt>{t('fax.call_id')}</dt><dd class="mono">{fax.call_id}</dd>
+            </dl>
+          </details>
+        </section>
+
+        <section aria-labelledby="note-title" class="card">
+          <h2 id="note-title">{t('fax.note')}</h2>
+          <label class="sr-only" for="note">{t('fax.note')}</label>
+          <textarea id="note" rows="4" maxlength="4000" bind:value={note} oninput={() => (noteSaved = false)}></textarea>
+          {#if fax.note_updated_by}
+            <p class="muted small">{t('fax.note_by', { by: fax.note_updated_by, at: fmt(fax.note_updated_at) })}</p>
+          {/if}
+          {#if conflict}
+            <div class="conflict" role="alert">
+              <p>{t('fax.note_conflict', { by: conflict.by ?? '?' })}</p>
+              <blockquote>{conflict.note ?? ''}</blockquote>
+              <button type="button" onclick={takeTheirs}>{t('fax.note_take_theirs')}</button>
+              <button type="button" onclick={keepMine}>{t('fax.note_keep_mine')}</button>
+            </div>
+          {/if}
+          <div class="actions">
+            <button type="button" class="primary" onclick={() => saveNote()} disabled={noteSaving || !noteDirty}>{t('fax.note_save')}</button>
+            {#if noteSaved}<span class="ok" role="status">{t('common.saved')}</span>{/if}
           </div>
-        {/if}
-        <button type="button" class="primary" onclick={() => saveNote()} disabled={noteSaving || !noteDirty}>{t('fax.note_save')}</button>
-        {#if noteSaved}<span class="ok" role="status">{t('common.saved')}</span>{/if}
-      </section>
+        </section>
 
-      <section aria-labelledby="info-title" class="card">
-        <h2 id="info-title">{t('fax.details')}</h2>
-        <dl class="details">
-          <dt>{t('fax.ani')}</dt><dd>{fax.ani ?? t('fax.unknown_number')}</dd>
-          <dt>{t('fax.dnis')}</dt><dd>{fax.dnis ?? ''}</dd>
-          <dt>{t('fax.remote_ident')}</dt><dd>{fax.remote_ident ?? ''}</dd>
-          <dt>{t('fax.trunk')}</dt><dd>{fax.trunk ?? ''}</dd>
-          <dt>{t('fax.started_at')}</dt><dd>{fmt(fax.started_at)}</dd>
-          <dt>{t('fax.ended_at')}</dt><dd>{fmt(fax.ended_at)}</dd>
-          <dt>{t('fax.duration')}</dt><dd>{formatDuration(fax.duration_sec)}</dd>
-          <dt>{t('fax.pages')}</dt><dd>{fax.pages}</dd>
-          <dt>{t('fax.hangup_label')}</dt><dd>{hangup(fax)}{fax.hangup_direction ? ` (${t(`fax.direction.${fax.hangup_direction}`)})` : ''}</dd>
-          {#if fax.sip_status !== null}<dt>{t('fax.sip_status')}</dt><dd>{fax.sip_status}</dd>{/if}
-          {#if fax.t30_code !== null}<dt>{t('fax.t30_code')}</dt><dd>{fax.t30_code}</dd>{/if}
-          <dt>{t('fax.resolution')}</dt><dd>{fax.resolution ? t(`fax.resolution_value.${fax.resolution}`) : ''}</dd>
-          <dt>{t('fax.bit_rate')}</dt><dd>{fax.bit_rate ?? ''}</dd>
-          <dt>{t('fax.compression')}</dt><dd>{fax.compression ?? ''}</dd>
-          <dt>{t('fax.ecm')}</dt><dd>{fax.ecm === null ? '' : t(fax.ecm ? 'common.yes' : 'common.no')}</dd>
-          <dt>{t('fax.files')}</dt><dd>{[fax.has_pdf ? `PDF ${formatBytes(fax.pdf_size)}` : '', fax.has_tiff ? `TIFF ${formatBytes(fax.tiff_size)}` : ''].filter(Boolean).join(', ')}</dd>
-          {#if fax.read_changed_by}<dt>{t('fax.read_by')}</dt><dd>{fax.read_changed_by} · {fmt(fax.read_changed_at)}</dd>{/if}
-          <dt>{t('fax.call_id')}</dt><dd class="mono">{fax.call_id}</dd>
-        </dl>
-      </section>
-    </div>
-
-    {#if fax.deliveries !== undefined}
-      <section aria-labelledby="deliveries-title" class="card">
-        <h2 id="deliveries-title">{t('fax.deliveries')}</h2>
-        {#if fax.deliveries.length === 0}
-          <p class="muted">{t('fax.no_deliveries')}</p>
-        {:else}
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">{t('delivery.kind')}</th>
-                  <th scope="col">{t('delivery.target')}</th>
-                  <th scope="col">{t('delivery.status_label')}</th>
-                  <th scope="col" class="num">{t('delivery.attempt')}</th>
-                  <th scope="col">{t('delivery.next_try')}</th>
-                  <th scope="col">{t('delivery.last_error')}</th>
-                </tr>
-              </thead>
-              <tbody>
+        {#if fax.deliveries !== undefined}
+          <section aria-labelledby="deliveries-title" class="card">
+            <h2 id="deliveries-title">{t('fax.deliveries')}</h2>
+            {#if fax.deliveries.length === 0}
+              <p class="muted">{t('fax.no_deliveries')}</p>
+            {:else}
+              <ul class="delivery-list">
                 {#each fax.deliveries as d (d.id)}
-                  <tr>
-                    <td>{t(`delivery.kind_value.${d.kind}`)}</td>
-                    <td class="mono">{d.target.replace(/^[a-z]+:/, '')}</td>
-                    <td><span class="badge delivery-{d.status}">{t(`delivery.status.${d.status}`)}</span></td>
-                    <td class="num">{d.attempt}</td>
-                    <td>{fmt(d.next_try_at)}</td>
-                    <td class="mono small">{d.last_error ?? ''}</td>
-                  </tr>
+                  <li>
+                    <div class="delivery-head">
+                      <span>{t(`delivery.kind_value.${d.kind}`)}</span>
+                      <span class="badge delivery-{d.status}">{t(`delivery.status.${d.status}`)}</span>
+                    </div>
+                    <div class="mono small">{d.target.replace(/^[a-z]+:/, '')}</div>
+                    <div class="muted small">
+                      {t('delivery.attempt')} {d.attempt}{#if d.next_try_at} · {t('delivery.next_try')} {fmt(d.next_try_at)}{/if}
+                    </div>
+                    {#if d.last_error}<div class="mono small error">{d.last_error}</div>{/if}
+                  </li>
                 {/each}
-              </tbody>
-            </table>
-          </div>
+              </ul>
+            {/if}
+          </section>
         {/if}
-      </section>
-    {/if}
+      </aside>
+    </div>
   {/if}
 </section>

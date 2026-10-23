@@ -29,6 +29,7 @@ pub const MAX_LIMIT: u32 = 200;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/faxes", get(list))
+        .route("/faxes/counts", get(counts))
         .route("/faxes/{id}", get(show))
         .route("/faxes/{id}/read", put(set_read))
         .route("/faxes/{id}/note", put(set_note))
@@ -216,6 +217,18 @@ async fn list(
         "items": p.items.iter().map(fax_json).collect::<Vec<_>>(),
         "next_cursor": p.next.map(|c| c.to_string()),
     })))
+}
+
+/// `GET /faxes/counts`: the number of unread faxes (the badge next to "Faxes" in the menu).
+async fn counts(State(st): State<AppState>, s: Session) -> Result<Json<Value>, ApiError> {
+    s.need(Capability::ViewFaxes)?;
+    let unread = st
+        .store()
+        .await?
+        .count_unread()
+        .await
+        .map_err(store_error)?;
+    Ok(Json(json!({ "unread": unread })))
 }
 
 // ------------------------------------------------------------------------------ one fax

@@ -185,3 +185,16 @@ export async function ensureFax(request: APIRequestContext, ani: string, pages: 
   if (items.length === 0) await sendFax({ from: ani, pages, instance });
   return faxByAni(request, ani);
 }
+
+/** Opens the account menu of the header (account page, language, theme, sign out) if it is closed. */
+export async function userMenu(page: Page): Promise<void> {
+  const menu = page.locator('details.user-menu');
+  if (!(await menu.evaluate((d) => (d as HTMLDetailsElement).open))) await menu.locator('summary').click();
+  await expect(menu.locator('.menu-panel')).toBeVisible();
+}
+
+/** Signs out through the account menu. */
+export async function signOut(page: Page): Promise<void> {
+  await userMenu(page);
+  await page.getByRole('button', { name: tr('nav.logout'), exact: true }).click();
+}

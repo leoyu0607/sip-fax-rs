@@ -5,6 +5,17 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Added
+- Web interface: the number of unread faxes next to "Faxes" in the menu, live (`GET /api/v1/faxes/counts`).
+
+### Changed
+- Web interface: the language, the theme and signing out are in an account menu under your name.
+- Web interface: a click anywhere on a fax row opens it; times in the list are short ("Today 14:05", "Yesterday", the date before that), with the full time on hover.
+- Web interface: the fax page shows the details, the note and the deliveries beside the pages; the technical details are under "More details".
+- Web interface: settings that need a restart have a ⟲ mark at their label, explained once at the top; the save bar is part of the form; the new account form opens with its button.
+
+### Fixed
+- Web interface: the buttons of the account list were out of line with their rows.
 
 ## [0.4.0-alpha] - 2026-10-23
 Milestone M4e/M4f: moving to another database, simpler database settings, the configuration file holds the startup settings only.
@@ -78,6 +89,17 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 新增
+- Web 介面：選單的「傳真」旁顯示未讀份數，即時更新（`GET /api/v1/faxes/counts`）。
+
+#### 變更
+- Web 介面：語言、外觀與登出移到點自己名稱打開的帳號選單。
+- Web 介面：點傳真列表的一列任何地方就會開啟；列表的時間改為簡短顯示（「今天 14:05」、「昨天」、更早顯示日期），滑鼠移上去看完整時間。
+- Web 介面：傳真內容頁把詳細資料、備註與投遞放在預覽旁邊；技術欄位收在「更多資訊」。
+- Web 介面：需要重啟的設定改為欄位名稱旁的 ⟲ 標記，區段上方說明一次；儲存列改為表單的一部分；新增帳號的表單按按鈕才打開。
+
+#### 修正
+- Web 介面：帳號列表的按鈕與所在的列沒有對齊。
 
 ### [0.4.0-alpha] - 2026-10-23
 里程碑 M4e／M4f：換資料庫、資料庫設定簡化、設定檔只留啟動設定。

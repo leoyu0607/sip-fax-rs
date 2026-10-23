@@ -1,7 +1,7 @@
 // U17: the language switch changes every visible text.
 
 import { expect, test, type Page } from '@playwright/test';
-import { allTexts, ensureFax, login, signedIn, sql, tr } from './support';
+import { allTexts, ensureFax, login, signedIn, sql, tr, userMenu } from './support';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -95,6 +95,7 @@ test('U17 switching zh-TW <-> en changes every visible text on every page', asyn
   ];
   for (const loc of ['zh-TW', 'en'] as const) {
     // the switch in the menu bar
+    await userMenu(page);
     await page.locator('#locale').selectOption(loc);
     await expect(page.getByRole('link', { name: tr('nav.faxes', {}, loc), exact: true })).toBeVisible();
     for (const [hash, what] of pages) {
@@ -106,9 +107,11 @@ test('U17 switching zh-TW <-> en changes every visible text on every page', asyn
   expect(checked.length).toBe(2 + 2 * pages.length);
 
   // the control: the scan does find text of the other language (a Chinese page read as English)
+  await userMenu(page);
   await page.locator('#locale').selectOption('zh-TW');
   await go(page, '#/faxes');
   expect(foreignTexts(await readable(page), 'en').length, 'the check can fail').toBeGreaterThan(0);
+  await userMenu(page);
   await page.locator('#locale').selectOption('en');
   await go(page, '#/status');
   expect(foreignTexts(await readable(page), 'zh-TW').length, 'the check can fail').toBeGreaterThan(0);
@@ -117,7 +120,8 @@ test('U17 switching zh-TW <-> en changes every visible text on every page', asyn
 test('U17 the language of the account is kept on the server and used in a fresh browser', async ({ browser }) => {
   const a = await signedIn(browser, 'amy');
   try {
-    await a.page.getByRole('link', { name: 'amy', exact: true }).click();
+    await userMenu(a.page);
+    await a.page.getByRole('link', { name: tr('account.title'), exact: true }).click();
     await a.page.locator('#acc-locale').selectOption('en');
     await a.page.getByRole('button', { name: tr('common.save'), exact: true }).click();
     await expect(a.page.getByText(tr('common.saved', {}, 'en'), { exact: true })).toBeVisible();
