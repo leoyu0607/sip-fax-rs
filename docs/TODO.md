@@ -212,7 +212,8 @@
 - [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
 - [x] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
   - 2026-10-23：`crates/sip-core/src/rtp/{g711,packet,jitter}.rs`（G.711 依規格重寫，sipress 的有誤，見 sipress-extraction.md）、`crates/fax-modem/src/{level,goertzel,tone}.rs`；單元測試 fax-modem 5 個（行涵蓋率 98.6%）、sip-core rtp 11 個；CI coverage 納入 `fax-modem ≥ 85%`。下一步：Sonnet 依計畫補 G01–G05、J01–J05、J07、N01–N04（含 SpanDSP 對照：`alaw_to_linear`／`ulaw_to_linear`、`modem_connect_tones_rx`）
-- [ ] [Sonnet] M5a 測試 G01–G05、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`
+- [x] [Sonnet] M5a 測試 G01–G04、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`（待 Opus 審核；G05、J06 延到 M5e）
+  - 2026-10-23：測試在 `crates/sip-core/tests/m5a_{g,j}.rs`、`crates/fax-modem/tests/m5a_n.rs`，SpanDSP 對照在 `tools/fax-sim/tests/{g01_g02_g711_spandsp,n03_ced_spandsp}.rs`（`spandsp-sys` 補了 `g711_*`、`modem_connect_tones_rx_*`）。測試發現並修了三個產品問題：jitter buffer 見底後永遠回不來（送端時脈 −200 ppm 約 150 s 後全部 gap，改為見底後重新等 `start_depth`）、CNG 偵測器在 −43 dBm0 偵測不到（門檻改用 −48）、μ-law 編碼負值不奇對稱（與 SpanDSP 差 127 個輸入）。涵蓋率 fax-modem 98.6%、sip-core 93.8%。審核重點見報告 §4（N04 的「判定延遲」解讀）與 §5
 - [x] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D
   - 2026-10-23：`crates/fax-modem/src/{hdlc,v21}.rs`（HDLC 收送、FCS-16；V.21 相位連續 FSK 送、非同調收＋數位 PLL）、`crates/fax-in/src/audioengine.rs`（sans-IO，以樣本為時脈；CED、V.21 burst、TxComplete、半雙工、回應等對方訊號結束並在 75 ms 後才送；與 T.30 之間每個 octet 位元反轉）；`ReceivedPage::from_t30` 兩個引擎共用。單元測試：fax-modem 12 個（行涵蓋率 97.8%）、audioengine 2 個（答 CED＋CSI＋DIS；對方的 TSI＋DCS 經 V.21 送到 T.30）。高速收端（TCF、影像）在 M5c／M5d。
   - 留給 M5b 測試的 SpanDSP FFI（只在 `tools/`）：`fsk_tx`／`fsk_rx`、`hdlc_tx`，以及之後 M5c／M5d 用的 `v27ter_tx`／`v29_tx`
@@ -223,7 +224,7 @@
   - 已完成：`crates/fax-modem/src/dsp.rs`（複數、RRC、三次內插、二階迴路）；`crates/fax-modem/src/v27ter.rs` 的擾碼器（1 + x⁻⁶ + x⁻⁷ 加 8／9／12 位元的重複樣式保護：連續 33 個位置等於 8、9 或 12 位元前的位元就反轉下一位）、測試用發送端（`#[cfg(test)] testtx`，Segment 3／4／5 與 Table 4 逐項相同：暫存器 `0011110`，字串第一個字元是最新的位元，輸出 `1 ⊕ b6 ⊕ b7`，Segment 4 每三位取第一位）、收端（下變頻 1800 Hz、RRC 匹配濾波 α = 0.5、T/2 三次內插＋Gardner 時脈、T/2 等化器 15 taps（NLMS，初始中心 tap 必須在偶數索引）、決策導向二階載波迴路、Segment 3 鎖定、Segment 4 以 0°／180° 訓練、第一個非 0°／180° 的變化是 Segment 5、差分解碼、解擾）。
   - 測試狀態：`clean_signals_at_both_speeds_and_both_trainings` 通過（4800 與 2400、短與長訓練，9600 bit 0 錯）；Table 4、擾碼器 round-trip 通過。`quiet_offset_and_drifting_signals` **未通過，暫時 `#[ignore]`**：−43 dBm0、seed 3、9600 bit 時從第 2 個資料符號就錯（sent `[6,5,7,2,…]` got `[6,2,0,4,…]`），但同樣 −43 dBm0 的 100 bit（seed 1）完全正確，−10 dBm0 的 9600 bit 也正確；±7 Hz 與 ±100 ppm 還沒驗。除錯工具：`cargo test -p fax-modem --release debug_trace -- --ignored --nocapture`（印出每個符號的 |z|、殘差角度，以及送出與判定的相位變化）。
   - 下一步：① 找出上述失敗原因（懷疑方向：Segment 5 切換點、AGC 在 Data 凍結的時機、`loud` 判定在 −43 dBm0 附近反覆變化）；② 讓 ±7 Hz、±100 ppm、−43 dBm0 通過後拿掉 `#[ignore]`；③ 接進 `fax-in::audioengine`（DCS 解析出 V.27ter 速率 → 建 `V27terRx`；`RxEvent::Training`→`RxSignal::Training`，`Bits`→打包成 octet（第一個收到的位元是 MSB）→`Event::ImageData`，`CarrierLost`→`Event::DataEnd`）；④ M5c 測試交 Sonnet（A01–A09、M01，需在 `tools/fax-sim` 補 SpanDSP `v27ter_tx` FFI）。
-  - 並行中：Sonnet subagent 在獨立 worktree 依計畫寫 M5a 測試與 `docs/test-reports/M5a.md`（完成後要 Opus 審核並合進 `m5`）。
+  - M5a 測試已由 Sonnet 完成並合進 `m5`（2026-10-23）；**待 Opus 審核** `docs/test-reports/M5a.md`（§4 的 N04「判定延遲」解讀、§5 列出的未修小問題）。
 - [ ] [Sonnet] M5c 測試 A01–A09、M01，報告 `docs/test-reports/M5c.md`
 - [ ] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29
 - [ ] [Sonnet] M5d 測試 B01–B10、M02–M08，報告 `docs/test-reports/M5d.md`

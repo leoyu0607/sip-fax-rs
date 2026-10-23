@@ -7,3 +7,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }

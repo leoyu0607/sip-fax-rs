@@ -45,8 +45,10 @@ pub const fn alaw_to_linear(a: u8) -> i16 {
 
 /// 16-bit linear → μ-law.
 pub const fn linear_to_ulaw(sample: i16) -> u8 {
+    // mu-law is a sign-magnitude law: -x and x differ only in the sign bit (A-law below takes the
+    // one's complement of a negative value instead, as the A-law tables do)
     let (mask, linear) = if sample < 0 {
-        (0x7Fu8, ULAW_BIAS - sample as i32 - 1)
+        (0x7Fu8, ULAW_BIAS - sample as i32)
     } else {
         (0xFFu8, ULAW_BIAS + sample as i32)
     };

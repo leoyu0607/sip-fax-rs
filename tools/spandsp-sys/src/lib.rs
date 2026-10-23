@@ -150,3 +150,59 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn udptl_rx_packet(s: *mut udptl_state_t, buf: *const u8, len: c_int) -> c_int;
 }
+
+// ---------------------------------------------------------------------------------------------
+// G.711 and modem connect tones (M5a tests G01, G02, N03). `alaw_to_linear` and the other
+// per-sample converters are `static inline` in g711.h and not exported: the exported
+// `g711_encode` / `g711_decode` run exactly the same inline code over a buffer.
+
+opaque!(g711_state_t, modem_connect_tones_rx_state_t);
+
+/// g711.h: `G711_ALAW`
+pub const G711_ALAW: c_int = 0;
+/// g711.h: `G711_ULAW`
+pub const G711_ULAW: c_int = 1;
+
+/// modem_connect_tones.h: 1100 Hz calling tone
+pub const MODEM_CONNECT_TONES_FAX_CNG: c_int = 1;
+/// modem_connect_tones.h: `MODEM_CONNECT_TONES_ANS` (= `MODEM_CONNECT_TONES_FAX_CED`), 2100 Hz
+pub const MODEM_CONNECT_TONES_ANS: c_int = 2;
+/// modem_connect_tones.h: ANS with phase reversals
+pub const MODEM_CONNECT_TONES_ANS_PR: c_int = 3;
+/// modem_connect_tones.h: CED or the V.21 preamble
+pub const MODEM_CONNECT_TONES_FAX_CED_OR_PREAMBLE: c_int = 7;
+
+/// `void (*)(void *user_data, int code, int level, int delay)` (`span_tone_report_func_t`)
+pub type span_tone_report_func_t =
+    Option<unsafe extern "C" fn(user_data: *mut c_void, code: c_int, level: c_int, delay: c_int)>;
+
+unsafe extern "C" {
+    pub fn g711_init(s: *mut g711_state_t, mode: c_int) -> *mut g711_state_t;
+    pub fn g711_free(s: *mut g711_state_t) -> c_int;
+    pub fn g711_decode(
+        s: *mut g711_state_t,
+        amp: *mut i16,
+        g711_data: *const u8,
+        g711_bytes: c_int,
+    ) -> c_int;
+    pub fn g711_encode(
+        s: *mut g711_state_t,
+        g711_data: *mut u8,
+        amp: *const i16,
+        len: c_int,
+    ) -> c_int;
+
+    pub fn modem_connect_tones_rx_init(
+        s: *mut modem_connect_tones_rx_state_t,
+        tone_type: c_int,
+        tone_callback: span_tone_report_func_t,
+        user_data: *mut c_void,
+    ) -> *mut modem_connect_tones_rx_state_t;
+    pub fn modem_connect_tones_rx_free(s: *mut modem_connect_tones_rx_state_t) -> c_int;
+    pub fn modem_connect_tones_rx(
+        s: *mut modem_connect_tones_rx_state_t,
+        amp: *const i16,
+        len: c_int,
+    ) -> c_int;
+    pub fn modem_connect_tones_rx_get(s: *mut modem_connect_tones_rx_state_t) -> c_int;
+}
