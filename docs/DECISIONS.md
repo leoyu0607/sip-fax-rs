@@ -504,3 +504,12 @@ ADR-005 決定以 axum 加內嵌的 Svelte SPA 提供介面、只發佈一個執
 - **設定檔只留啟動設定**（修訂 ADR-051）：`conf/sip-faxd.toml.example` 只有 `[database]`、`[web]`、`[storage]`、`[log]`、`[service]`；執行設定的說明移到 `conf/runtime.toml.example`，給 `config import --file` 使用。第一次啟動沒有執行設定時，以預設值寫入資料庫（沒有中繼）；啟動 log、`config check` 與 Web（`/status` 的中繼數為 0 時顯示橫幅）都提示「沒有中繼，來電都會被拒絕」。
 - **相容**（使用者決定保留）：設定檔仍有執行設定區段、資料庫還沒有時，照舊匯入一次；資料庫已有時，啟動 log 與 `config check` 提示這些區段沒有使用、可以刪除。
 
+## ADR-061：G.711 passthrough 的設計與範圍（2026-10-23，M5）
+- **範圍（使用者決定）**：高速數據機只做 V.27ter（2400／4800）與 V.29（7200／9600），**不做 V.17**。DIS 只宣告這兩種，最高 9600 bit/s；一頁約多花幾秒，換來省下 TCM／Viterbi 這個最大的工程量。
+- **分層**：`fax-modem` 是純 DSP、sans-IO 的 crate（tone、V.21、HDLC、V.27ter、V.29 與共用的 AGC、時脈回復、載波回復、等化器、scrambler），不依賴任何其他 fax crate；`fax-in::audioengine` 把 8 kHz PCM 轉成 `t30::Event`、把 `t30::Action` 轉成 PCM；RTP 與 G.711 編解碼放在 `sip-core::rtp`（從 sipress 抽取 `RtpPacket` 並修正 decode）。`t30` 不改：音訊引擎看到交給 t30 的 DCS 時自己解析出數據機與速率。
+- **只收高速**：收傳真只需要高速數據機的收端；我方只送 CED 與 V.21。
+- **半雙工**：我方送 V.21 期間與之後 75 ms 忽略輸入，避免把自己的回音當成對方的訊號。
+- **進入 G.711 的條件**：對方拒絕我方 T.38 re-INVITE（488／415／606，或 `m=image` port 0），或 `t38_policy = "audio-only"`。`auto` 時對方在 audio 上直接送 CNG 而沒有 re-INVITE，仍照現行政策在 `initiate_after_secs` 由我方發 T.38 re-INVITE，被拒才走音訊（使用者決定：T.38 對封包遺失較耐受）；這段期間音訊引擎已經在收，不會漏掉 CNG 或 V.21。原本的 `g711_passthrough_unsupported` 改為走音訊。
+- **清潔室實作**：依 ITU-T V.21、V.27ter、V.29、T.30、G.711 規格自行撰寫，不參考也不複製 SpanDSP 原始碼；SpanDSP 只當測試對照（各數據機的送端、`fax_state`）。
+- 測試計畫：`docs/test-plans/M5.md`（分期 M5a–M5e）。
+

@@ -207,10 +207,20 @@
   - 截圖已可自動產生：`scripts/e2e-web.sh --config playwright.shots.config.ts`（`web-ui/e2e/manual.shots.ts`，Docker 裡真的 sip-faxd 與 SpanDSP 傳真），輸出到 `docs/manual/images/`；介面改了就重跑
 
 ## M5 — G.711 passthrough
-- [ ] [Opus] 撰寫 docs/test-plans/M5.md
-- [ ] [Sonnet] fax-modem：CNG/CED、V.21 HDLC、V.27ter、V.29、V.17（接收方向優先）
-- [ ] [Sonnet] RTP 接收 payload stream 和 jitter buffer
-- [ ] [Opus] 審核 docs/test-reports/M5.md
+> 2026-10-23 使用者決定（ADR-061）：只做 V.27ter 與 V.29（最高 9600），不做 V.17；`auto` 時對方直接送 CNG 仍先試 T.38，被拒才 G.711。分期 M5a–M5e，M5e 完成即發版。
+- [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
+- [ ] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
+- [ ] [Sonnet] M5a 測試 G01–G05、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`
+- [ ] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D；`tools/fax-sim` 的 spandsp-sys 補 `fsk_tx`／`fsk_rx`／`hdlc_tx`／`v27ter_tx`／`v29_tx`
+- [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
+- [ ] [Any] M5c：`fax-modem::v27ter` 收端
+- [ ] [Sonnet] M5c 測試 A01–A09、M01，報告 `docs/test-reports/M5c.md`
+- [ ] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29
+- [ ] [Sonnet] M5d 測試 B01–B10、M02–M08，報告 `docs/test-reports/M5d.md`
+- [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
+- [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`
+- [ ] [Opus] 審核 M5a–M5e 測試報告
+- [ ] [Any] 發版（M5）
 
 ## M6 — 互通強化與發佈
 - [ ] [Sonnet] T.38 latch 之後對方位址改變的處理（M2d 審核）
