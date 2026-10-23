@@ -65,6 +65,7 @@
 - [ ] [使用者] 以 0.1.1 再對接 AudioCodes 一次，確認 8 頁都收到；同意後才能把 `udptl = "full"` 的擷取（含影像資料）放進 repo
 - [x] [Any] 發佈 v0.1.1-alpha
 - [x] [Any] 發佈 v0.2.0-alpha（M3）
+- [x] [Any] 發佈 v0.4.1-alpha（Web 介面改善，2026-10-23）：版本 0.4.1（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（0.4.1 改善與從 0.4.0 升級）、兩份手冊的適用版本；tag 在 main
 - [x] [Any] 發佈 v0.4.0-alpha（M4e、M4f，2026-10-23）：版本 0.4.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（從 0.3.0 升級）、兩份手冊的適用版本；tag 在 main
 - [x] [Any] 發佈 v0.3.0-alpha（M4，2026-10-22，tag 在 main 的 merge commit `8911040`）：版本 0.3.0、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（升級說明）；`scripts/release-notes.sh` 改用 awk 反轉行（macOS 沒有 `tac`）；發版時 CI 的 `cargo deny` 擋下當天公布的 RUSTSEC-2026-0384（tokio 1.54.0 的 `Interval` 競態，已被撤下），升到 1.54.1 並寫進 CHANGELOG 的安全性
 

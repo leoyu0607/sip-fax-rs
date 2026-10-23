@@ -5,6 +5,10 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.4.1-alpha] - 2026-10-23
+Web interface improvements.
+
 ### Added
 - Web interface: the number of unread faxes next to "Faxes" in the menu, live (`GET /api/v1/faxes/counts`).
 
@@ -89,6 +93,10 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.4.1-alpha] - 2026-10-23
+Web 介面改善。
+
 #### 新增
 - Web 介面：選單的「傳真」旁顯示未讀份數，即時更新（`GET /api/v1/faxes/counts`）。
 
