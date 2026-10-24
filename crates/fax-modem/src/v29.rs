@@ -25,6 +25,16 @@
 // dead code outside the tests and the `testtx` feature.
 #![cfg_attr(not(any(test, feature = "testtx")), allow(dead_code))]
 
+use crate::SAMPLE_RATE;
+use crate::dsp::{C32, Loop2, cubic, rrc_taps, wrap};
+use crate::level::{block_mean_square, dbm0};
+use crate::tone::OFF_DBM0;
+use std::collections::VecDeque;
+use std::f32::consts::PI;
+
+/// Roll-off of the root-raised-cosine pulse (both ends).
+pub const ROLL_OFF: f32 = 0.25;
+
 /// Carrier frequency (Hz).
 pub const CARRIER_HZ: f32 = 1700.0;
 
@@ -190,6 +200,434 @@ pub(crate) fn figure4(rate: Rate) -> [(i8, i8); 4] {
     [point(4, false), point(7, q1), point(0, false), point(3, q1)]
 }
 
+// ----------------------------------------------------------------------------------- receiver
+
+/// What the receiver reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RxEvent {
+    /// Segment 3 started (its first point is C, after the A B alternation): the training is on.
+    Training,
+    /// Segment 3 ended: Segment 4 starts, the equalizer and the carrier are trained.
+    Trained,
+    /// Descrambled bits (from the start of Segment 4), first in time first.
+    Bits(Vec<bool>),
+    /// The carrier went away.
+    CarrierLost,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    /// Waiting for Segment 2 (A B alternation), then for the end of it.
+    Acquire,
+    /// Segment 3: the known C / D points train the equalizer and the carrier.
+    Train,
+    /// Segment 4 and the data: decision directed.
+    Data,
+}
+
+/// Equalizer taps (T/2 spaced: ±3.5 symbols).
+const EQ_TAPS: usize = 15;
+/// The tap that starts at 1. The input alternates on-symbol and half-way samples with the newest
+/// (index 0) on a symbol, so the centre must be an even index or it would pass the transitions.
+const EQ_CENTRE: usize = 6;
+/// Alternations in a row that lock the carrier on Segment 2 (A and B are 135° apart).
+const LOCK_PAIRS: u32 = 16;
+/// Samples per presence block (5 ms).
+const BLOCK: usize = 40;
+
+/// Table 1 inverted: the Q2 Q3 Q4 bits of a phase change in steps of 45°.
+const CHANGE_BITS: [u8; 8] = [0b001, 0b000, 0b010, 0b011, 0b111, 0b110, 0b100, 0b101];
+
+/// The mean power of the points of `rate` (216 / 16 at 9600 bit/s, 44 / 8 at 7200 bit/s). The
+/// time average of the matched filter output is proportional to the mean power of the symbols,
+/// so this is the level the automatic gain control aims at (the points have magnitude 3).
+fn constellation_power(rate: Rate) -> f32 {
+    match rate {
+        Rate::B9600 => 13.5,
+        Rate::B7200 => 5.5,
+    }
+}
+
+/// A point of the signal space as a complex number.
+fn complex(p: (i8, i8)) -> C32 {
+    C32::new(f32::from(p.0), f32::from(p.1))
+}
+
+/// Whether `z` follows `prev` by ±135° (the rotation from A to B, or from B to A).
+fn alternates(z: C32, prev: C32) -> bool {
+    let rot = (z * prev.conj()).arg();
+    (rot.abs() - 3.0 * PI / 4.0).abs() < PI / 8.0
+}
+
+/// The nearest point of `rate` to `z`: its absolute phase step and Q1.
+fn nearest(rate: Rate, z: C32) -> (u8, bool) {
+    let q1s: &[bool] = match rate {
+        Rate::B9600 => &[false, true],
+        Rate::B7200 => &[false],
+    };
+    let mut best = (f32::INFINITY, 0u8, false);
+    for p in 0..8u8 {
+        for &q1 in q1s {
+            let dist = (z - complex(point(p, q1))).norm_sqr();
+            if dist < best.0 {
+                best = (dist, p, q1);
+            }
+        }
+    }
+    (best.1, best.2)
+}
+
+/// The receiver for one speed.
+#[derive(Debug, Clone)]
+pub struct V29Rx {
+    rate: Rate,
+    /// Input samples per half symbol.
+    half: f32,
+    /// Mean power the gain control aims at.
+    target: f32,
+    taps: Vec<f32>,
+    // front end
+    nco: f32,
+    nco_step: f32,
+    bb: VecDeque<C32>,
+    mf: VecDeque<C32>,
+    /// Absolute index of `mf[0]`.
+    mf_base: u64,
+    /// Samples taken so far.
+    n: u64,
+    /// Next interpolation instant (absolute sample index, fractional).
+    t_next: f64,
+    /// The next interpolated sample is on a symbol (else half way).
+    on_symbol: bool,
+    prev_sym: C32,
+    mid: C32,
+    gain: f32,
+    power: f32,
+    // equalizer and carrier
+    eq_in: VecDeque<C32>,
+    w: Vec<C32>,
+    phase: f32,
+    pll: Loop2,
+    /// The previous symbol of Segment 2, in the current carrier frame.
+    raw_prev: C32,
+    /// Alternations in a row (before the lock).
+    run: u32,
+    /// The carrier is locked on Segment 2.
+    locked: bool,
+    /// After a lock: the last symbol of Segment 2 was an A.
+    last_a: bool,
+    // Segment 3 and the data
+    stage: Stage,
+    prbs: TrainingPrbs,
+    /// Symbols of Segment 3 still to come.
+    left: usize,
+    /// The absolute phase step of the last decided point (the reference of the next change).
+    ref_phase: u8,
+    scrambler: Scrambler,
+    // presence
+    block: Vec<i16>,
+    /// The last 5 ms block was at or above the turn-off threshold: a signal is present.
+    loud: bool,
+    quiet: u32,
+    #[cfg(test)]
+    pub(crate) trace: Vec<(u8, f32, f32)>,
+}
+
+impl V29Rx {
+    /// A receiver for `rate`.
+    pub fn new(rate: Rate) -> Self {
+        let sps = SAMPLE_RATE as f32 / rate.baud();
+        let mut w = vec![C32::default(); EQ_TAPS];
+        w[EQ_CENTRE] = C32::new(1.0, 0.0);
+        Self {
+            rate,
+            half: sps / 2.0,
+            target: constellation_power(rate),
+            taps: rrc_taps(sps, ROLL_OFF, 6.0),
+            nco: 0.0,
+            nco_step: 2.0 * PI * CARRIER_HZ / SAMPLE_RATE as f32,
+            bb: VecDeque::new(),
+            mf: VecDeque::new(),
+            mf_base: 0,
+            n: 0,
+            t_next: 0.0,
+            on_symbol: true,
+            prev_sym: C32::default(),
+            mid: C32::default(),
+            gain: 1.0,
+            power: 0.0,
+            eq_in: VecDeque::new(),
+            w,
+            phase: 0.0,
+            pll: Loop2::new(0.08, 0.002),
+            raw_prev: C32::default(),
+            run: 0,
+            locked: false,
+            last_a: false,
+            stage: Stage::Acquire,
+            prbs: TrainingPrbs::default(),
+            left: 0,
+            ref_phase: 0,
+            scrambler: Scrambler::default(),
+            block: Vec::with_capacity(BLOCK),
+            loud: false,
+            quiet: 0,
+            #[cfg(test)]
+            trace: Vec::new(),
+        }
+    }
+
+    /// The speed.
+    pub fn rate(&self) -> Rate {
+        self.rate
+    }
+
+    /// Whether the equalizer has been trained (Segment 4 started).
+    pub fn is_trained(&self) -> bool {
+        self.stage == Stage::Data
+    }
+
+    fn reset(&mut self) {
+        let rate = self.rate;
+        #[cfg(test)]
+        let trace = std::mem::take(&mut self.trace);
+        *self = Self::new(rate);
+        #[cfg(test)]
+        {
+            self.trace = trace;
+        }
+    }
+
+    /// Feeds samples.
+    pub fn feed(&mut self, samples: &[i16]) -> Vec<RxEvent> {
+        let mut ev = Vec::new();
+        let mut bits = Vec::new();
+        for &s in samples {
+            self.presence(s, &mut ev, &mut bits);
+            self.sample(s as f32, &mut ev, &mut bits);
+        }
+        if !bits.is_empty() {
+            ev.push(RxEvent::Bits(bits));
+        }
+        ev
+    }
+
+    fn presence(&mut self, s: i16, ev: &mut Vec<RxEvent>, bits: &mut Vec<bool>) {
+        self.block.push(s);
+        if self.block.len() < BLOCK {
+            return;
+        }
+        let level = dbm0(block_mean_square(&self.block));
+        self.block.clear();
+        self.loud = level >= OFF_DBM0;
+        if self.stage != Stage::Acquire {
+            self.quiet = if level < OFF_DBM0 { self.quiet + 1 } else { 0 };
+            if self.quiet >= 2 {
+                if !bits.is_empty() {
+                    ev.push(RxEvent::Bits(std::mem::take(bits)));
+                }
+                ev.push(RxEvent::CarrierLost);
+                self.reset();
+            }
+        }
+    }
+
+    fn sample(&mut self, x: f32, ev: &mut Vec<RxEvent>, bits: &mut Vec<bool>) {
+        // mix down
+        let lo = C32::from_angle(-self.nco);
+        self.nco += self.nco_step;
+        if self.nco > 2.0 * PI {
+            self.nco -= 2.0 * PI;
+        }
+        self.bb.push_back(lo.scale(x));
+        if self.bb.len() > self.taps.len() {
+            self.bb.pop_front();
+        }
+        if self.bb.len() < self.taps.len() {
+            self.n += 1;
+            return;
+        }
+        let mut m = C32::default();
+        for (b, &t) in self.bb.iter().zip(self.taps.iter()) {
+            m += b.scale(t);
+        }
+        // level → the constellation's mean power (slow; frozen once the data starts)
+        let p = m.norm_sqr();
+        if self.stage != Stage::Data {
+            // fast attack (a signal starting), slow release
+            let a = if p > self.power { 0.2 } else { 0.005 };
+            self.power += a * (p - self.power);
+            if self.power > 0.0 {
+                self.gain = (self.target / self.power).sqrt();
+            }
+        }
+        if self.mf.is_empty() {
+            self.mf_base = self.n;
+            self.t_next = self.n as f64 + 1.0;
+        }
+        self.mf.push_back(m);
+        self.n += 1;
+        // interpolate every instant that has two samples after it
+        while self.t_next + 2.0 <= (self.mf_base + self.mf.len() as u64) as f64 {
+            let i = self.t_next.floor();
+            let mu = (self.t_next - i) as f32;
+            let k = (i as i64 - self.mf_base as i64 - 1).max(0) as usize;
+            if k + 3 >= self.mf.len() {
+                break;
+            }
+            let y = [self.mf[k], self.mf[k + 1], self.mf[k + 2], self.mf[k + 3]];
+            let v = cubic(y, mu).scale(self.gain);
+            self.t_next += self.half as f64;
+            self.half_sample(v, ev, bits);
+        }
+        // drop what can no longer be needed
+        while self.mf.len() > 16 && (self.mf_base as f64 + 4.0) < self.t_next {
+            self.mf.pop_front();
+            self.mf_base += 1;
+        }
+    }
+
+    /// One T/2 sample.
+    fn half_sample(&mut self, v: C32, ev: &mut Vec<RxEvent>, bits: &mut Vec<bool>) {
+        self.eq_in.push_back(v);
+        if self.eq_in.len() > EQ_TAPS {
+            self.eq_in.pop_front();
+        }
+        if !self.on_symbol {
+            self.mid = v;
+            self.on_symbol = true;
+            return;
+        }
+        self.on_symbol = false;
+        // Gardner timing error on the symbols either side of the half-way sample
+        let e = ((v - self.prev_sym) * self.mid.conj()).re;
+        // (frozen without a signal: on near-silence the error is noise and the clock would wander)
+        let k = match self.stage {
+            Stage::Acquire if !self.loud => 0.0,
+            Stage::Acquire => 0.1,
+            Stage::Train => 0.03,
+            Stage::Data => 0.005,
+        };
+        self.t_next -= (k * e.clamp(-1.0, 1.0) * self.half) as f64;
+        self.prev_sym = v;
+        if self.eq_in.len() < EQ_TAPS {
+            return;
+        }
+        self.symbol(ev, bits);
+    }
+
+    fn equalize(&self) -> C32 {
+        let mut y = C32::default();
+        // w[0] multiplies the newest sample
+        for (wi, u) in self.w.iter().zip(self.eq_in.iter().rev()) {
+            y += *wi * *u;
+        }
+        y
+    }
+
+    fn adapt(&mut self, err_rot: C32, mu: f32) {
+        let err = err_rot * C32::from_angle(self.phase);
+        let energy: f32 = self.eq_in.iter().map(|u| u.norm_sqr()).sum::<f32>() + 1e-3;
+        let step = mu / energy;
+        for (wi, u) in self.w.iter_mut().zip(self.eq_in.iter().rev()) {
+            *wi += (err * u.conj()).scale(step);
+        }
+    }
+
+    fn symbol(&mut self, ev: &mut Vec<RxEvent>, bits: &mut Vec<bool>) {
+        let y = self.equalize();
+        let z = y * C32::from_angle(-self.phase);
+        #[cfg(test)]
+        {
+            let unit = 2.0 * PI / 8.0;
+            let resid = z.arg() - (z.arg() / unit).round() * unit;
+            self.trace
+                .push((self.stage as u8, z.norm_sqr().sqrt(), resid.to_degrees()));
+        }
+        match self.stage {
+            Stage::Acquire => self.acquire(z, ev),
+            Stage::Train => self.train_symbol(z, ev),
+            Stage::Data => self.data_symbol(z, bits),
+        }
+    }
+
+    /// Segment 2: count the ±135° turns, lock the carrier with A at 180° after `LOCK_PAIRS`,
+    /// then wait for the first 0° point after a B: that is the first point of Segment 3.
+    fn acquire(&mut self, z: C32, ev: &mut Vec<RxEvent>) {
+        let alt = self.loud && alternates(z, self.raw_prev);
+        if self.locked {
+            if alt {
+                self.last_a = !self.last_a;
+            } else if self.loud && !self.last_a && z.arg().abs() < PI / 4.0 {
+                // after a B, a point at 0° (C, not A): Segment 3 starts with this symbol
+                self.stage = Stage::Train;
+                self.prbs = TrainingPrbs::default();
+                self.left = SEGMENT_3;
+                self.raw_prev = z;
+                ev.push(RxEvent::Training);
+                self.train_symbol(z, ev);
+                return;
+            } else {
+                self.locked = false;
+                self.run = 0;
+            }
+        } else if alt {
+            self.run += 1;
+            if self.run >= LOCK_PAIRS {
+                // the last symbol: B if it turned by +135°, else A
+                let rot = (z * self.raw_prev.conj()).arg();
+                let a = if rot > 0.0 { self.raw_prev } else { z };
+                let delta = wrap(a.arg() - PI);
+                self.phase = wrap(self.phase + delta);
+                self.locked = true;
+                self.last_a = rot < 0.0;
+                self.run = 0;
+                self.raw_prev = z * C32::from_angle(-delta);
+                return;
+            }
+        } else {
+            self.run = 0;
+        }
+        self.raw_prev = z;
+    }
+
+    /// Segment 3: the known C / D points (Appendix I) train the equalizer and the carrier.
+    fn train_symbol(&mut self, z: C32, ev: &mut Vec<RxEvent>) {
+        let [_, _, c, d] = figure4(self.rate);
+        let known = if self.prbs.next_bit() { d } else { c };
+        self.track(z, complex(known), 0.05);
+        self.left -= 1;
+        if self.left == 0 {
+            self.stage = Stage::Data;
+            self.ref_phase = phase_of(known);
+            ev.push(RxEvent::Trained);
+        }
+    }
+
+    /// Segment 4 and the data: the nearest point, the phase change from the last decision,
+    /// Table 1 back to Q2 Q3 Q4 and Q1 from the amplitude (9600 only).
+    fn data_symbol(&mut self, z: C32, bits: &mut Vec<bool>) {
+        let (p, q1) = nearest(self.rate, z);
+        let change = (p + 8 - self.ref_phase) % 8;
+        self.track(z, complex(point(p, q1)), 0.01);
+        self.ref_phase = p;
+        if self.rate == Rate::B9600 {
+            bits.push(self.scrambler.descramble(q1));
+        }
+        let q234 = CHANGE_BITS[usize::from(change)];
+        for i in (0..3).rev() {
+            bits.push(self.scrambler.descramble((q234 >> i) & 1 != 0));
+        }
+    }
+
+    /// Carrier loop and equalizer update towards the point `d`.
+    fn track(&mut self, z: C32, d: C32, mu: f32) {
+        let err_phase = (z * d.conj()).arg();
+        self.phase = wrap(self.phase + self.pll.update(err_phase));
+        self.adapt(d - z, mu);
+    }
+}
+
 // ------------------------------------------------------------------------- test transmitter
 
 /// The V.29 test transmitter, for the tests of this crate and of others (feature `testtx`).
@@ -203,8 +641,6 @@ pub mod testtx {
     const LEAD: usize = 400;
     /// Scrambled ones after the data (symbols).
     const TAIL_SYMBOLS: usize = 8;
-    /// Roll-off of the root-raised-cosine pulse.
-    const ALPHA: f32 = 0.25;
 
     /// A V.29 transmitter: turn-on sequence, then scrambled data.
     pub struct Tx {
@@ -278,7 +714,7 @@ pub mod testtx {
                     if k < 0 || k as usize >= syms.len() {
                         continue;
                     }
-                    s += syms[k as usize].scale(rrc((ts - k as f64) as f32, ALPHA));
+                    s += syms[k as usize].scale(rrc((ts - k as f64) as f32, ROLL_OFF));
                 }
                 let w =
                     2.0 * std::f64::consts::PI * f64::from(CARRIER_HZ + self.carrier_offset_hz) * t;
@@ -560,6 +996,115 @@ mod tests {
                 p1700 > 1000.0 * p3700,
                 "{rate:?}: 1700 {p1700} 3700 {p3700}"
             );
+        }
+    }
+
+    fn receive(rx: &mut V29Rx, audio: &[i16]) -> (Vec<RxEvent>, Vec<bool>) {
+        let mut ev = Vec::new();
+        let mut bits = Vec::new();
+        for chunk in audio.chunks(160) {
+            for e in rx.feed(chunk) {
+                match e {
+                    RxEvent::Bits(b) => bits.extend(b),
+                    other => ev.push(other),
+                }
+            }
+        }
+        (ev, bits)
+    }
+
+    /// The data errors of a transmission (the data starts after the 48 ones of Segment 4).
+    fn errors(rate: Rate, level: f32, offset: f32, clock: f64, seed: u32) -> (usize, usize) {
+        let data = prbs(9600, seed);
+        let tx = Tx {
+            rate,
+            level_dbm0: level,
+            carrier_offset_hz: offset,
+            clock,
+        };
+        let audio = tx.modulate(&data);
+        let mut rx = V29Rx::new(rate);
+        let (ev, bits) = receive(&mut rx, &audio);
+        if !ev.contains(&RxEvent::Training) || !ev.contains(&RxEvent::Trained) {
+            return (data.len(), data.len());
+        }
+        let head = SEGMENT_4 * rate.bits_per_symbol();
+        let got = bits.get(head..head + data.len()).unwrap_or(&[]);
+        let errs = got.iter().zip(&data).filter(|(a, b)| a != b).count() + (data.len() - got.len());
+        (errs, data.len())
+    }
+
+    #[test]
+    fn clean_signals_at_both_speeds() {
+        for rate in [Rate::B9600, Rate::B7200] {
+            for seed in 1..=3 {
+                let data = prbs(9600, seed);
+                let tx = Tx {
+                    rate,
+                    level_dbm0: -10.0,
+                    carrier_offset_hz: 0.0,
+                    clock: 1.0,
+                };
+                let audio = tx.modulate(&data);
+                let mut rx = V29Rx::new(rate);
+                let (ev, bits) = receive(&mut rx, &audio);
+                assert_eq!(
+                    ev,
+                    vec![RxEvent::Training, RxEvent::Trained, RxEvent::CarrierLost],
+                    "{rate:?} seed {seed}"
+                );
+                let head = SEGMENT_4 * rate.bits_per_symbol();
+                assert!(bits[..head].iter().all(|&b| b), "{rate:?}: segment 4 ones");
+                let got = &bits[head..(head + data.len()).min(bits.len())];
+                let errs = got.iter().zip(&data).filter(|(a, b)| a != b).count()
+                    + (data.len() - got.len());
+                assert_eq!(errs, 0, "{rate:?} seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn silence_and_noise_do_not_train() {
+        for rate in [Rate::B9600, Rate::B7200] {
+            let mut rx = V29Rx::new(rate);
+            let (ev, bits) = receive(&mut rx, &vec![0i16; 16000]);
+            assert!(ev.is_empty() && bits.is_empty(), "{rate:?} silence: {ev:?}");
+            // white noise at -50 dBm0 (uniform, so the amplitude a has a² / 3 = mean square)
+            let a = (3.0 * crate::level::mean_square(-50.0)).sqrt();
+            let mut x = 0x9E37_79B9u32;
+            let noise: Vec<i16> = (0..16000)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 17;
+                    x ^= x << 5;
+                    let u = x as f32 / u32::MAX as f32 * 2.0 - 1.0;
+                    (u * a) as i16
+                })
+                .collect();
+            assert!((dbm0(block_mean_square(&noise)) + 50.0).abs() < 0.5);
+            let mut rx = V29Rx::new(rate);
+            let (ev, _) = receive(&mut rx, &noise);
+            assert!(!ev.contains(&RxEvent::Training), "{rate:?} noise: {ev:?}");
+        }
+    }
+
+    /// Step 2b (robustness): prints the data errors at −43 dBm0, ±7 Hz and ±100 ppm.
+    #[test]
+    #[ignore = "robustness report, prints only"]
+    fn robustness_report() {
+        let cases = [
+            (-10.0, 0.0, 1.0),
+            (-43.0, 0.0, 1.0),
+            (-10.0, 7.0, 1.0),
+            (-10.0, -7.0, 1.0),
+            (-10.0, 0.0, 1.0001),
+            (-10.0, 0.0, 0.9999),
+        ];
+        for rate in [Rate::B9600, Rate::B7200] {
+            for (level, offset, clock) in cases {
+                let (e, n) = errors(rate, level, offset, clock, 1);
+                eprintln!("{rate:?} {level} dBm0 {offset} Hz {clock}: {e} / {n} bit errors");
+            }
         }
     }
 }
