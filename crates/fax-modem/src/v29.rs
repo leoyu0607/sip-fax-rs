@@ -230,10 +230,26 @@ const EQ_TAPS: usize = 15;
 /// The tap that starts at 1. The input alternates on-symbol and half-way samples with the newest
 /// (index 0) on a symbol, so the centre must be an even index or it would pass the transitions.
 const EQ_CENTRE: usize = 6;
-/// Alternations in a row that lock the carrier on Segment 2 (A and B are 135° apart).
+/// Alternations (net of the misses) that lock the carrier on Segment 2 (A and B are 135° apart).
 const LOCK_PAIRS: u32 = 16;
 /// Samples per presence block (5 ms).
 const BLOCK: usize = 40;
+
+/// Carrier loop gains in the data (decision directed): slower than in training.
+const DATA_KP: f32 = 0.02;
+const DATA_KI: f32 = 0.0005;
+/// Gardner timing loop gain, Segment 2 only (a strong, regular signal).
+const TIMING_K_ACQUIRE: f32 = 0.1;
+/// From Segment 3 on, the timing follows the equalizer: its tap centroid is pulled back to
+/// `EQ_CENTRE`. Gardner's detector is weak at a roll-off of 0.25 and noisy on 16 points; left to
+/// it, a clock offset was absorbed by the equalizer alone, which cost about 10 dB of MER at
+/// 100 ppm (35 → 25.6 dB on a clean signal). The loop is proportional only: the centroid lags the
+/// equalizer's adaptation, and an integral term made it oscillate (M5d review sweep).
+const CENTROID_KP: f32 = 0.02;
+/// Equalizer step in the data. Large enough for the equalizer to follow what is left of a
+/// 100 ppm clock: at 20 dB SNR the MER is within 0.8 dB of the noise floor at ±100 ppm with
+/// 0.05, and 1.2 to 3 dB worse with 0.01 (M5d review sweep).
+const DATA_MU: f32 = 0.05;
 
 /// Table 1 inverted: the Q2 Q3 Q4 bits of a phase change in steps of 45°.
 const CHANGE_BITS: [u8; 8] = [0b001, 0b000, 0b010, 0b011, 0b111, 0b110, 0b100, 0b101];
@@ -308,6 +324,12 @@ pub struct V29Rx {
     w: Vec<C32>,
     phase: f32,
     pll: Loop2,
+    /// The symbol timing: the Gardner error in Segment 2, then the equalizer's tap centroid (the
+    /// integral follows a clock offset).
+    timing: Loop2,
+    /// The squared decision error of every data symbol (for the MER in the tests).
+    #[cfg(test)]
+    pub(crate) evm: Vec<f32>,
     /// The previous symbol of Segment 2, in the current carrier frame.
     raw_prev: C32,
     /// Alternations in a row (before the lock).
@@ -360,6 +382,9 @@ impl V29Rx {
             w,
             phase: 0.0,
             pll: Loop2::new(0.08, 0.002),
+            timing: Loop2::new(TIMING_K_ACQUIRE, 0.0),
+            #[cfg(test)]
+            evm: Vec::new(),
             raw_prev: C32::default(),
             run: 0,
             locked: false,
@@ -390,11 +415,15 @@ impl V29Rx {
     fn reset(&mut self) {
         let rate = self.rate;
         #[cfg(test)]
-        let trace = std::mem::take(&mut self.trace);
+        let (trace, evm) = (
+            std::mem::take(&mut self.trace),
+            std::mem::take(&mut self.evm),
+        );
         *self = Self::new(rate);
         #[cfg(test)]
         {
             self.trace = trace;
+            self.evm = evm;
         }
     }
 
@@ -502,13 +531,11 @@ impl V29Rx {
         // Gardner timing error on the symbols either side of the half-way sample
         let e = ((v - self.prev_sym) * self.mid.conj()).re;
         // (frozen without a signal: on near-silence the error is noise and the clock would wander)
-        let k = match self.stage {
-            Stage::Acquire if !self.loud => 0.0,
-            Stage::Acquire => 0.1,
-            Stage::Train => 0.03,
-            Stage::Data => 0.005,
-        };
-        self.t_next -= (k * e.clamp(-1.0, 1.0) * self.half) as f64;
+        if self.stage == Stage::Acquire && self.loud {
+            let e = e.clamp(-1.0, 1.0);
+            let c = self.timing.update(e);
+            self.t_next -= (c * self.half) as f64;
+        }
         self.prev_sym = v;
         if self.eq_in.len() < EQ_TAPS {
             return;
@@ -549,35 +576,45 @@ impl V29Rx {
             Stage::Train => self.train_symbol(z, ev),
             Stage::Data => self.data_symbol(z, bits),
         }
+        if self.stage != Stage::Acquire {
+            self.recentre();
+        }
     }
 
-    /// Segment 2: count the ±135° turns, lock the carrier with A at 180° after `LOCK_PAIRS`,
-    /// then wait for the first 0° point after a B: that is the first point of Segment 3.
+    /// Moves the sampling instant so that the equalizer's energy stays centred on `EQ_CENTRE`
+    /// (in T/2 steps; `w[0]` is the newest sample, so a centroid above the centre means the
+    /// sampling is early).
+    fn recentre(&mut self) {
+        let (mut sum, mut moment) = (0.0f32, 0.0f32);
+        for (i, wi) in self.w.iter().enumerate() {
+            let e = wi.norm_sqr();
+            sum += e;
+            moment += i as f32 * e;
+        }
+        if sum <= 0.0 {
+            return;
+        }
+        let off = moment / sum - EQ_CENTRE as f32;
+        let c = self.timing.update(off);
+        self.t_next += f64::from(c * self.half);
+    }
+
+    /// Segment 2: count the ±135° turns (a leaky count, so that one noisy turn does not restart
+    /// it). After `LOCK_PAIRS`, lock the carrier with A at 180°, then track it on the known A and B
+    /// points. Segment 3 starts with the first point nearer to C than to A after a B.
     fn acquire(&mut self, z: C32, ev: &mut Vec<RxEvent>) {
-        let alt = self.loud && alternates(z, self.raw_prev);
-        if self.locked {
-            if alt {
-                self.last_a = !self.last_a;
-            } else if self.loud && !self.last_a && z.arg().abs() < PI / 4.0 {
-                // after a B, a point at 0° (C, not A): Segment 3 starts with this symbol
-                self.stage = Stage::Train;
-                self.prbs = TrainingPrbs::default();
-                self.left = SEGMENT_3;
-                self.raw_prev = z;
-                ev.push(RxEvent::Training);
-                self.train_symbol(z, ev);
-                return;
+        let [a, b, c, _] = figure4(self.rate);
+        if !self.locked {
+            if self.loud && alternates(z, self.raw_prev) {
+                self.run += 1;
             } else {
-                self.locked = false;
-                self.run = 0;
+                self.run = self.run.saturating_sub(1);
             }
-        } else if alt {
-            self.run += 1;
             if self.run >= LOCK_PAIRS {
                 // the last symbol: B if it turned by +135°, else A
                 let rot = (z * self.raw_prev.conj()).arg();
-                let a = if rot > 0.0 { self.raw_prev } else { z };
-                let delta = wrap(a.arg() - PI);
+                let a_z = if rot > 0.0 { self.raw_prev } else { z };
+                let delta = wrap(a_z.arg() - PI);
                 self.phase = wrap(self.phase + delta);
                 self.locked = true;
                 self.last_a = rot < 0.0;
@@ -585,9 +622,30 @@ impl V29Rx {
                 self.raw_prev = z * C32::from_angle(-delta);
                 return;
             }
-        } else {
-            self.run = 0;
+            self.raw_prev = z;
+            return;
         }
+        if !self.loud {
+            self.locked = false;
+            self.run = 0;
+            self.raw_prev = z;
+            return;
+        }
+        if !self.last_a && (z - complex(c)).norm_sqr() < (z - complex(a)).norm_sqr() {
+            // a point at 0° after a B: Segment 3 starts with this symbol (its PRBS output 0 is C)
+            self.stage = Stage::Train;
+            self.prbs = TrainingPrbs::default();
+            self.left = SEGMENT_3;
+            self.timing = Loop2::new(CENTROID_KP, 0.0);
+            ev.push(RxEvent::Training);
+            self.train_symbol(z, ev);
+            return;
+        }
+        // the next point is known (A after a B, else B): it tracks the carrier and trains the
+        // equalizer for the rest of Segment 2
+        let known = if self.last_a { b } else { a };
+        self.track(z, complex(known), 0.05);
+        self.last_a = !self.last_a;
         self.raw_prev = z;
     }
 
@@ -600,6 +658,10 @@ impl V29Rx {
         if self.left == 0 {
             self.stage = Stage::Data;
             self.ref_phase = phase_of(known);
+            // the carrier is known now: a slower loop keeps the noise of the decisions out
+            self.pll.kp = DATA_KP;
+            self.pll.ki = DATA_KI;
+
             ev.push(RxEvent::Trained);
         }
     }
@@ -608,8 +670,12 @@ impl V29Rx {
     /// Table 1 back to Q2 Q3 Q4 and Q1 from the amplitude (9600 only).
     fn data_symbol(&mut self, z: C32, bits: &mut Vec<bool>) {
         let (p, q1) = nearest(self.rate, z);
+        #[cfg(test)]
+        {
+            self.evm.push((z - complex(point(p, q1))).norm_sqr());
+        }
         let change = (p + 8 - self.ref_phase) % 8;
-        self.track(z, complex(point(p, q1)), 0.01);
+        self.track(z, complex(point(p, q1)), DATA_MU);
         self.ref_phase = p;
         if self.rate == Rate::B9600 {
             bits.push(self.scrambler.descramble(q1));
@@ -1013,8 +1079,35 @@ mod tests {
         (ev, bits)
     }
 
+    /// Adds white Gaussian noise (Box–Muller on a fixed-seed xorshift) at `snr_db` below the
+    /// signal of `level` dBm0.
+    fn add_awgn(audio: &mut [i16], level: f32, snr_db: f32, seed: u32) {
+        let sigma = (crate::level::mean_square(level) / 10f32.powf(snr_db / 10.0)).sqrt();
+        let mut x = seed | 1;
+        let mut uniform = move || {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            (f64::from(x) + 1.0) / (f64::from(u32::MAX) + 2.0)
+        };
+        for s in audio.iter_mut() {
+            let (u1, u2) = (uniform(), uniform());
+            let g = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+            *s = (f64::from(*s) + f64::from(sigma) * g)
+                .round()
+                .clamp(-32768.0, 32767.0) as i16;
+        }
+    }
+
     /// The data errors of a transmission (the data starts after the 48 ones of Segment 4).
-    fn errors(rate: Rate, level: f32, offset: f32, clock: f64, seed: u32) -> (usize, usize) {
+    fn errors(
+        rate: Rate,
+        level: f32,
+        offset: f32,
+        clock: f64,
+        snr_db: Option<f32>,
+        seed: u32,
+    ) -> (usize, usize) {
         let data = prbs(9600, seed);
         let tx = Tx {
             rate,
@@ -1022,7 +1115,10 @@ mod tests {
             carrier_offset_hz: offset,
             clock,
         };
-        let audio = tx.modulate(&data);
+        let mut audio = tx.modulate(&data);
+        if let Some(snr) = snr_db {
+            add_awgn(&mut audio, level, snr, seed.wrapping_mul(7919) + 1);
+        }
         let mut rx = V29Rx::new(rate);
         let (ev, bits) = receive(&mut rx, &audio);
         if !ev.contains(&RxEvent::Training) || !ev.contains(&RxEvent::Trained) {
@@ -1088,23 +1184,173 @@ mod tests {
         }
     }
 
-    /// Step 2b (robustness): prints the data errors at −43 dBm0, ±7 Hz and ±100 ppm.
+    /// Time of `feed` on 10 s of 9600 bit/s audio (release build, prints only).
     #[test]
-    #[ignore = "robustness report, prints only"]
-    fn robustness_report() {
-        let cases = [
-            (-10.0, 0.0, 1.0),
-            (-43.0, 0.0, 1.0),
-            (-10.0, 7.0, 1.0),
-            (-10.0, -7.0, 1.0),
-            (-10.0, 0.0, 1.0001),
-            (-10.0, 0.0, 0.9999),
-        ];
+    #[ignore = "timing report, prints only"]
+    fn feed_speed_report() {
+        let tx = Tx {
+            rate: Rate::B9600,
+            level_dbm0: -15.0,
+            carrier_offset_hz: 0.0,
+            clock: 1.0,
+        };
+        let audio = tx.modulate(&prbs(96_000, 1));
+        let audio: Vec<i16> = audio.iter().cycle().take(80_000).copied().collect();
+        let start = std::time::Instant::now();
+        let mut rx = V29Rx::new(Rate::B9600);
+        let _ = receive(&mut rx, &audio);
+        eprintln!("feed 10 s of 9600 audio: {:?}", start.elapsed());
+    }
+
+    /// Zero errors on 9600 data bits, seeds 1 to 3, at both speeds.
+    fn check_clean(level: f32, offset: f32, clock: f64, snr_db: Option<f32>) {
         for rate in [Rate::B9600, Rate::B7200] {
-            for (level, offset, clock) in cases {
-                let (e, n) = errors(rate, level, offset, clock, 1);
-                eprintln!("{rate:?} {level} dBm0 {offset} Hz {clock}: {e} / {n} bit errors");
+            for seed in 1..=3 {
+                let (errs, n) = errors(rate, level, offset, clock, snr_db, seed);
+                assert_eq!(
+                    errs, 0,
+                    "{rate:?} {level} dBm0 {offset} Hz {clock} {snr_db:?} seed {seed} ({n} bits)"
+                );
             }
         }
+    }
+
+    #[test]
+    fn robustness_level_minus_43() {
+        check_clean(-43.0, 0.0, 1.0, None);
+    }
+
+    #[test]
+    fn robustness_carrier_offset_plus_and_minus_7_hz() {
+        check_clean(-15.0, 7.0, 1.0, None);
+        check_clean(-15.0, -7.0, 1.0, None);
+    }
+
+    #[test]
+    fn robustness_clock_plus_and_minus_100_ppm() {
+        check_clean(-15.0, 0.0, 1.0001, None);
+        check_clean(-15.0, 0.0, 0.9999, None);
+    }
+
+    #[test]
+    fn robustness_awgn() {
+        for (rate, snr) in [(Rate::B9600, 20.0), (Rate::B7200, 17.0)] {
+            for seed in 1..=3 {
+                let (errs, n) = errors(rate, -15.0, 0.0, 1.0, Some(snr), seed);
+                assert_eq!(errs, 0, "{rate:?} {snr} dB seed {seed} ({n} bits)");
+            }
+        }
+    }
+
+    /// Test plan B04: ±100 ppm and ±7 Hz, each and together, with the noise of B03 (9600 at
+    /// 20 dB, 7200 at 17 dB). The MER must stay within 1.5 dB of the noise-only case: the
+    /// in-band SNR is 2.2 dB above the wideband one (the matched filter passes 2400 of 4000 Hz).
+    #[test]
+    fn robustness_offset_and_clock_under_noise() {
+        for (rate, snr) in [(Rate::B9600, 20.0), (Rate::B7200, 17.0)] {
+            let floor = snr + 10.0 * (4000.0f32 / 2400.0).log10();
+            for (offset, clock) in [
+                (0.0, 1.0001),
+                (0.0, 0.9999),
+                (7.0, 1.0),
+                (-7.0, 1.0),
+                (7.0, 1.0001),
+                (-7.0, 0.9999),
+            ] {
+                for seed in 1..=3 {
+                    let (errs, mer) = errors_and_mer(rate, offset, clock, snr, seed);
+                    let what = format!("{rate:?} {offset} Hz {clock} {snr} dB seed {seed}");
+                    assert_eq!(errs, 0, "{what}");
+                    assert!(
+                        mer > floor - 1.5,
+                        "{what}: MER {mer:.2} dB, floor {floor:.2}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Bit errors and MER (dB, Segment 4 and the data) at −15 dBm0 with noise.
+    fn errors_and_mer(rate: Rate, offset: f32, clock: f64, snr: f32, seed: u32) -> (usize, f32) {
+        let data = prbs(9600, seed);
+        let tx = Tx {
+            rate,
+            level_dbm0: -15.0,
+            carrier_offset_hz: offset,
+            clock,
+        };
+        let mut audio = tx.modulate(&data);
+        add_awgn(&mut audio, -15.0, snr, seed.wrapping_mul(7919) + 1);
+        let mut rx = V29Rx::new(rate);
+        let (_, bits) = receive(&mut rx, &audio);
+        let head = SEGMENT_4 * rate.bits_per_symbol();
+        let got = bits.get(head..head + data.len()).unwrap_or(&[]);
+        let errs = got.iter().zip(&data).filter(|(a, b)| a != b).count() + data.len() - got.len();
+        (errs, mer_of(&rx, rate, data.len()))
+    }
+
+    /// The loop integrator (the frequency estimate, radians per symbol) when Segment 4 starts,
+    /// for ±7 Hz (prints only).
+    #[test]
+    #[ignore = "integrator report, prints only"]
+    fn integrator_at_training_end() {
+        for rate in [Rate::B9600, Rate::B7200] {
+            for offset in [7.0f32, -7.0] {
+                let data = prbs(9600, 1);
+                let tx = Tx {
+                    rate,
+                    level_dbm0: -15.0,
+                    carrier_offset_hz: offset,
+                    clock: 1.0,
+                };
+                let audio = tx.modulate(&data);
+                let mut rx = V29Rx::new(rate);
+                let mut trained = None;
+                for chunk in audio.chunks(160) {
+                    let _ = rx.feed(chunk);
+                    if rx.is_trained() && trained.is_none() {
+                        trained = Some(rx.pll.integ);
+                    }
+                }
+                eprintln!(
+                    "{rate:?} {offset:+} Hz: integrator at Segment 4 {trained:?} rad/symbol \
+                     (expected {:.4})",
+                    2.0 * std::f32::consts::PI * offset / 2400.0
+                );
+            }
+        }
+    }
+
+    /// The timing integrator at the last Data symbol for ±100 ppm (clean; prints only).
+    #[test]
+    #[ignore = "timing integrator report, prints only"]
+    fn timing_integrator_report() {
+        for clock in [1.0001f64, 0.9999] {
+            let tx = Tx {
+                rate: Rate::B9600,
+                level_dbm0: -15.0,
+                carrier_offset_hz: 0.0,
+                clock,
+            };
+            let audio = tx.modulate(&prbs(9600, 1));
+            let mut rx = V29Rx::new(Rate::B9600);
+            let mut last = None;
+            for chunk in audio.chunks(160) {
+                let _ = rx.feed(chunk);
+                if rx.stage == Stage::Data {
+                    last = Some(rx.timing.integ);
+                }
+            }
+            eprintln!(
+                "clock {clock}: integrator at the end of the data {last:?} (samples per symbol: x half)"
+            );
+        }
+    }
+
+    /// MER (dB) over Segment 4 and the data symbols only (not the tail or the noise after it).
+    fn mer_of(rx: &V29Rx, rate: Rate, data_bits: usize) -> f32 {
+        let n = (SEGMENT_4 + data_bits.div_ceil(rate.bits_per_symbol())).min(rx.evm.len());
+        let mse = rx.evm[..n].iter().sum::<f32>() / n as f32;
+        10.0 * (constellation_power(rate) / mse).log10()
     }
 }
