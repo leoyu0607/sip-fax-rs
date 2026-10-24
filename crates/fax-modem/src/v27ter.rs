@@ -146,14 +146,14 @@ fn bits_of(rate: Rate, steps: usize, out: &mut Vec<bool>) {
 
 // ---------------------------------------------------------------------------------- receiver
 
-/// What the receiver reports.
+/// What the high speed receivers (V.27ter, V.29) report. Both use the same events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RxEvent {
-    /// Segment 3 (the 180° reversals) was recognised: a training is on.
+    /// The training (the carrier's phase reversals of the turn-on) was recognised.
     Training,
-    /// Segment 5 started: the equalizer is trained, data follows.
+    /// The equalizer is trained; data follows.
     Trained,
-    /// Descrambled bits (from the start of Segment 5), first in time first.
+    /// Descrambled bits (from the start of the data), first in time first.
     Bits(Vec<bool>),
     /// The carrier went away.
     CarrierLost,

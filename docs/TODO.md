@@ -228,7 +228,12 @@
   - 下一步：④ M5c 測試交 Sonnet（A01–A09、M01，需在 `tools/fax-sim` 補 SpanDSP `v27ter_tx` FFI）。
   - M5a 測試已由 Sonnet 完成並合進 `m5`（2026-10-23）；**待 Opus 審核** `docs/test-reports/M5a.md`（§4 的 N04「判定延遲」解讀、§5 列出的未修小問題）。
 - [ ] [Sonnet] M5c 測試 A01–A09、M01，報告 `docs/test-reports/M5c.md`
-- [ ] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29
+- [x] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29（2026-10-24，分支 `m5d-v29`；開發試行 Haiku 實作、Opus 審核，2b 的強健性由 Opus 接手）
+  - 規格：ITU-T V.29（1988 Blue Book）由 Opus 讀過（含 Figure 4 的 A／B／C／D 點、Appendix I 的輸出取 x⁻⁷ 才符合 §8.2 的 CDCDCDC 開頭），清潔室實作。只做 9600／7200（DCS 沒有 V.29 4800）。
+  - `crates/fax-modem/src/v29.rs`：Table 1／2 的星座、擾碼器 1 + x⁻¹⁸ + x⁻²³、Segment 3 產生器、測試用發送端（feature `testtx`）；收端：Segment 2 交替鎖定後以已知 A／B 追載波，Segment 3 以已知 C／D 訓練等化器，之後以等化器係數重心帶時脈（Gardner 只在 Segment 2；α = 0.25 時 Gardner 太弱，100 ppm 時乾淨訊號的 MER 從 35 掉到 25.6 dB），資料段等化器步階 0.05。
+  - 測試：乾淨訊號、−43 dBm0、靜音／雜訊不誤判、B03（9600 SNR 20 dB、7200 SNR 17 dB）、B04（±7 Hz、±100 ppm 單項與組合加雜訊，兩種速率，3 個 seed，0 錯誤且 MER 在頻帶內 SNR 的 1.5 dB 內）；fax-modem 涵蓋率 92.9%。
+  - `fax-in::audioengine`：DCS 選 V.29 9600／7200 時建 `V29Rx`（`HighSpeed` enum）；`AudioConfig::default()` 的 DIS 只宣告 V.27ter＋V.29（ADR-061，t30 自己的預設不變，T.38 仍用 V.17）；TCF 全 0 → CFR、亂數 → FTT（兩種速率）、DIS 不含 V.17 的測試。
+  - 試行心得：Haiku 做表格、發送端、串接很穩；強健性除錯花了約 30 萬 token 仍沒找到原因，Opus 改用 MER 當連續指標後才定位到時脈。
 - [ ] [Sonnet] M5d 測試 B01–B10、M02–M08，報告 `docs/test-reports/M5d.md`
 - [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
 - [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`

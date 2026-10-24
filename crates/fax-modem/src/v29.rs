@@ -1,6 +1,6 @@
 //! ITU-T V.29 building blocks: 9600 and 7200 bit/s, amplitude and phase modulation on a 1700 Hz
-//! carrier at 2400 baud. This file has the transmit side only (the signal space, the scrambler,
-//! the training sequence and a test transmitter); the receiver follows.
+//! carrier at 2400 baud. This file has the signal space, the scrambler, the training sequence,
+//! a test transmitter and the receiver ([`V29Rx`]).
 //!
 //! From the recommendation (§ 2.2, Tables 1 and 2, Figure 4, § 8 with Table 5, § 9, Appendices I
 //! and II):
@@ -202,18 +202,8 @@ pub(crate) fn figure4(rate: Rate) -> [(i8, i8); 4] {
 
 // ----------------------------------------------------------------------------------- receiver
 
-/// What the receiver reports.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RxEvent {
-    /// Segment 3 started (its first point is C, after the A B alternation): the training is on.
-    Training,
-    /// Segment 3 ended: Segment 4 starts, the equalizer and the carrier are trained.
-    Trained,
-    /// Descrambled bits (from the start of Segment 4), first in time first.
-    Bits(Vec<bool>),
-    /// The carrier went away.
-    CarrierLost,
-}
+/// The receiver reports the same events as the V.27ter receiver (see [`crate::v27ter::RxEvent`]).
+pub use crate::v27ter::RxEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage {
