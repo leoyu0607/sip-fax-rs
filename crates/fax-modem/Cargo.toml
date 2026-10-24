@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# The V.27ter test transmitter (`v27ter::testtx`), for the tests of other crates.
+testtx = []
+
 [dependencies]
 
 [dev-dependencies]

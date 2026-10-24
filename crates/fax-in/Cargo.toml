@@ -28,3 +28,4 @@ serde_path_to_error = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
+fax-modem = { path = "../fax-modem", features = ["testtx"] }

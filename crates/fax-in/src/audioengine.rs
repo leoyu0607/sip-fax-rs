@@ -33,14 +33,18 @@
 //!
 //! # High speed
 //!
-//! The TCF and the image arrive on V.27ter or V.29 (M5c, M5d). Until those receivers exist, a
-//! DCS is noted in the log and the training is not heard: T.30 times out.
+//! The TCF and the image arrive on V.27ter or V.29. A good DCS selects the modem: V.27ter 4800
+//! or 2400 starts the V.27ter receiver, whose output (training, octets, carrier lost) goes to
+//! T.30 as image data; the receiver listens whether or not the V.21 channel is busy. V.29 is
+//! not received yet (M5d): a DCS for it is logged and the training is not heard, so T.30 times
+//! out.
 
 use std::collections::VecDeque;
 
 use fax_modem::hdlc::{self, HdlcEvent, HdlcRx};
 use fax_modem::tone::{CngDetector, Presence, PresenceDetector, ToneGenerator};
 use fax_modem::v21::{V21Rx, V21Tx};
+use fax_modem::v27ter::{Rate, RxEvent, V27terRx};
 use t30::{Action, Event, RxSignal, Timer};
 
 use crate::t38engine::ReceivedPage;
@@ -108,6 +112,11 @@ pub struct AudioEngine {
     cng: CngDetector,
     v21: V21Rx,
     hdlc: HdlcRx,
+    /// The high speed receiver of the modem the last DCS selected (V.27ter), if any.
+    hs: Option<V27terRx>,
+    /// Octet being packed from the high speed bits, and how many of its bits are in.
+    hs_octet: u8,
+    hs_bits: u8,
     /// The peer's signal is on (presence detector).
     peer_on: bool,
     /// Sample at which the peer's last signal ended.
@@ -146,6 +155,9 @@ impl AudioEngine {
             cng: CngDetector::new(),
             v21: V21Rx::new(),
             hdlc: HdlcRx::new(),
+            hs: None,
+            hs_octet: 0,
+            hs_bits: 0,
             peer_on: false,
             peer_off_at: 0,
             deaf_until: 0,
@@ -254,6 +266,11 @@ impl AudioEngine {
             self.note("CNG heard".into());
             self.feed(Event::Signal(RxSignal::Cng));
         }
+        // Before the presence loop: a signal end in this chunk (NoSignal) ends the TCF or the
+        // image in T.30, so the octets of the chunk must reach T.30 first. A receiver made by a
+        // DCS below starts on the next chunk, which is in time: the TCF follows the DCS after
+        // at least 75 ms.
+        self.listen_high_speed(rx);
         for p in self.presence.feed(rx) {
             match p {
                 Presence::On(_) => {
@@ -270,34 +287,98 @@ impl AudioEngine {
                 }
             }
         }
-        if !self.peer_on {
-            return;
-        }
-        for bit in self.v21.feed(rx) {
-            match self.hdlc.bit(bit) {
-                Some(HdlcEvent::Preamble) => self.feed(Event::Signal(RxSignal::V21Preamble)),
-                Some(HdlcEvent::Frame { data, fcs_ok }) => {
-                    let frame = reverse_octets(&data);
-                    if fcs_ok {
-                        self.note_dcs(&frame);
+        if self.peer_on {
+            for bit in self.v21.feed(rx) {
+                match self.hdlc.bit(bit) {
+                    Some(HdlcEvent::Preamble) => self.feed(Event::Signal(RxSignal::V21Preamble)),
+                    Some(HdlcEvent::Frame { data, fcs_ok }) => {
+                        let frame = reverse_octets(&data);
+                        let is_dcs =
+                            fcs_ok && frame.len() >= 3 && frame[2] & 0xFE == t30::fcf::DCS & 0xFE;
+                        // the peer trains with what its DCS says, whatever T.30 decided
+                        let fif = is_dcs.then(|| frame[3..].to_vec());
+                        self.feed(Event::Frame {
+                            data: frame,
+                            fcs_ok,
+                        });
+                        if let Some(fif) = fif {
+                            self.select_high_speed(&fif);
+                        }
                     }
-                    self.feed(Event::Frame {
-                        data: frame,
-                        fcs_ok,
-                    });
+                    Some(HdlcEvent::Abort) | None => {}
                 }
-                Some(HdlcEvent::Abort) | None => {}
             }
         }
     }
 
-    /// A DCS says which modem the TCF and the image will use.
-    fn note_dcs(&mut self, frame: &[u8]) {
-        if frame.len() >= 3 && frame[2] & 0xFE == t30::fcf::DCS & 0xFE {
-            self.note(
-                "DCS received: high speed reception (V.27ter / V.29) arrives in M5c / M5d".into(),
-            );
+    /// The modem of a good DCS (its information field) gets its receiver: V.27ter 4800 or 2400.
+    /// Other modems leave none; a reserved rate is logged.
+    fn select_high_speed(&mut self, fif: &[u8]) {
+        self.hs = None;
+        self.hs_octet = 0;
+        self.hs_bits = 0;
+        let (modem, rate) = match t30::caps::parse_rate(fif) {
+            Ok(v) => v,
+            Err(e) => {
+                self.note(format!("DCS rate not usable ({e}): no high speed receiver"));
+                return;
+            }
+        };
+        match (modem, rate) {
+            (t30::Modem::V27ter, 4800) => {
+                self.hs = Some(V27terRx::new(Rate::B4800));
+                self.note("V.27ter 4800 receiver ready".into());
+            }
+            (t30::Modem::V27ter, 2400) => {
+                self.hs = Some(V27terRx::new(Rate::B2400));
+                self.note("V.27ter 2400 receiver ready".into());
+            }
+            (modem, rate) => self.note(format!(
+                "DCS selects {modem:?} {rate} bit/s: not received yet (V.29 arrives in M5d)"
+            )),
         }
+    }
+
+    /// Feeds `rx` to the high speed receiver, if any. Not gated by the V.21 presence: the
+    /// receiver has its own.
+    fn listen_high_speed(&mut self, rx: &[i16]) {
+        let events = match self.hs.as_mut() {
+            Some(hs) => hs.feed(rx),
+            None => return,
+        };
+        for ev in events {
+            match ev {
+                RxEvent::Training => self.feed(Event::Signal(RxSignal::Training)),
+                RxEvent::Trained => self.note("V.27ter: trained, image data follows".into()),
+                RxEvent::Bits(bits) => {
+                    let octets = self.pack_octets(&bits);
+                    if !octets.is_empty() {
+                        self.feed(Event::ImageData(octets));
+                    }
+                }
+                RxEvent::CarrierLost => {
+                    // a part octet at the end of the carrier is not data
+                    self.hs_octet = 0;
+                    self.hs_bits = 0;
+                    self.feed(Event::DataEnd);
+                }
+            }
+        }
+    }
+
+    /// Packs bits (first received = most significant) into octets, carrying the part octet on.
+    fn pack_octets(&mut self, bits: &[bool]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(bits.len() / 8);
+        for &b in bits {
+            self.hs_octet = (self.hs_octet << 1) | u8::from(b);
+            self.hs_bits += 1;
+            if self.hs_bits == 8 {
+                out.push(self.hs_octet);
+                self.hs_octet = 0;
+                self.hs_bits = 0;
+            }
+        }
+        out
     }
 
     // ----------------------------------------------------------------------------- transmit
@@ -438,6 +519,7 @@ impl AudioEngine {
 mod tests {
     use super::*;
     use fax_modem::hdlc::HdlcEvent;
+    use fax_modem::v27ter::testtx::Tx;
 
     /// Runs the engine for `ms` with `input` (silence when it runs out); returns what it sent.
     fn run(e: &mut AudioEngine, input: &[i16], ms: u64) -> Vec<i16> {
@@ -501,8 +583,122 @@ mod tests {
         peer.extend(tx.modulate(&hdlc::encode_burst(&wire, 38, 2)));
         let _ = run(&mut e, &peer, 3_000);
         assert!(
-            e.drain_log().iter().any(|l| l.contains("DCS received")),
+            e.drain_log().iter().any(|l| l.contains("DCS selects")),
             "the DCS reached T.30"
+        );
+    }
+
+    /// The DCS information field for V.27ter 4800 bit/s: bit 12 set (T.30 Table 2).
+    fn dcs_fif_v27ter_4800() -> Vec<u8> {
+        let fif = vec![0x00, 0x10, 0x00];
+        assert_eq!(
+            t30::caps::parse_rate(&fif).unwrap(),
+            (t30::caps::Modem::V27ter, 4800)
+        );
+        fif
+    }
+
+    /// The peer's frames as one V.21 burst, then 3 s of silence.
+    fn send_v21(e: &mut AudioEngine, frames: &[Vec<u8>]) {
+        let wire: Vec<Vec<u8>> = frames.iter().map(|f| reverse_octets(f)).collect();
+        let mut v21 = V21Tx::new(-15.0);
+        let mut peer = vec![0i16; 800];
+        peer.extend(v21.modulate(&hdlc::encode_burst(&wire, 38, 2)));
+        let _ = run(e, &peer, 3_000);
+    }
+
+    #[test]
+    fn the_last_dcs_selects_the_receiver_from_its_own_fif() {
+        let mut e = AudioEngine::new(AudioConfig::default());
+        e.start();
+        let _ = run(&mut e, &[], 6_000);
+        let dcs = |fif: &[u8]| {
+            let mut f = vec![0xFF, 0xC8, t30::fcf::DCS];
+            f.extend_from_slice(fif);
+            f
+        };
+        let fif_2400 = vec![0x00, 0x00, 0x00];
+        assert_eq!(
+            t30::caps::parse_rate(&fif_2400).unwrap(),
+            (t30::caps::Modem::V27ter, 2400)
+        );
+        let tsi = vec![0xFF, 0xC0, t30::fcf::TSI, b' ', b' ', b'1'];
+        send_v21(&mut e, &[tsi, dcs(&dcs_fif_v27ter_4800())]);
+        send_v21(&mut e, &[dcs(&fif_2400)]);
+        let log = e.drain_log();
+        let at = |s: &str| log.iter().position(|l| l == s);
+        assert!(
+            matches!((at("V.27ter 4800 receiver ready"), at("V.27ter 2400 receiver ready")),
+                (Some(a), Some(b)) if a < b),
+            "{log:#?}"
+        );
+    }
+
+    /// A call up to and through the TCF: the answer, the peer's TSI and a V.27ter 4800 DCS, then
+    /// `tcf` on V.27ter 4800 and silence. Returns the frames the engine sent after the TCF and
+    /// the log.
+    fn tcf_call(tcf: &[bool]) -> (Vec<Vec<u8>>, Vec<String>) {
+        let mut e = AudioEngine::new(AudioConfig::default());
+        e.start();
+        let _ = run(&mut e, &[], 6_000);
+        let tsi = vec![0xFF, 0xC0, t30::fcf::TSI, b' ', b' ', b'1'];
+        let mut dcs = vec![0xFF, 0xC8, t30::fcf::DCS];
+        dcs.extend(dcs_fif_v27ter_4800());
+        let wire: Vec<Vec<u8>> = [tsi, dcs].iter().map(|f| reverse_octets(f)).collect();
+        let mut v21 = V21Tx::new(-15.0);
+        let mut peer = vec![0i16; 800];
+        peer.extend(v21.modulate(&hdlc::encode_burst(&wire, 38, 2)));
+        let _ = run(&mut e, &peer, 3_000);
+        let mut log = e.drain_log();
+        let tx = Tx {
+            rate: Rate::B4800,
+            level_dbm0: -15.0,
+            long: true,
+            carrier_offset_hz: 0.0,
+            clock: 1.0,
+        };
+        let input = tx.modulate(tcf);
+        // whole 20 ms blocks, and 4 s of silence after the signal for our answer
+        let blocks = input.len() / 160 + 1 + 200;
+        let out = run(&mut e, &input, blocks as u64 * 20);
+        log.extend(e.drain_log());
+        (frames_in(&out), log)
+    }
+
+    #[test]
+    fn a_v27ter_tcf_of_zeros_is_answered_with_cfr() {
+        let tcf = vec![false; 7_200]; // 1.5 s at 4800 bit/s
+        let (frames, log) = tcf_call(&tcf);
+        let tcf_line = log.iter().find(|l| l.starts_with("TCF:")).cloned();
+        assert!(
+            log.iter().any(|l| l == "V.27ter 4800 receiver ready"),
+            "{log:#?}"
+        );
+        let fcfs: Vec<u8> = frames.iter().map(|f| f[2]).collect();
+        assert!(
+            fcfs.contains(&t30::fcf::CFR),
+            "no CFR ({tcf_line:?}); frames {fcfs:02x?}"
+        );
+    }
+
+    #[test]
+    fn a_v27ter_tcf_of_random_bits_is_answered_with_ftt() {
+        // a fixed pseudo-random sequence (xorshift64): about half of the bits are ones
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        let tcf: Vec<bool> = (0..7_200)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x & 1 != 0
+            })
+            .collect();
+        let (frames, log) = tcf_call(&tcf);
+        let tcf_line = log.iter().find(|l| l.starts_with("TCF:")).cloned();
+        let fcfs: Vec<u8> = frames.iter().map(|f| f[2]).collect();
+        assert!(
+            fcfs.contains(&t30::fcf::FTT) && !fcfs.contains(&t30::fcf::CFR),
+            "expected FTT ({tcf_line:?}); frames {fcfs:02x?}"
         );
     }
 }

@@ -519,20 +519,25 @@ fn is_odd_step(rel: f32) -> bool {
 
 // ---------------------------------------------------------------------- test-only transmitter
 
-/// A V.27 ter transmitter for the receiver's own tests (the independent counterpart is
-/// SpanDSP's `v27ter_tx`, in `tools/fax-sim`).
-#[cfg(test)]
-pub(crate) mod testtx {
+/// A V.27 ter transmitter for the tests: the receiver's own, and those of other crates through
+/// the `testtx` feature. The independent counterpart is SpanDSP's `v27ter_tx`, in `tools/fax-sim`.
+#[cfg(any(test, feature = "testtx"))]
+pub mod testtx {
     use super::*;
     use crate::dsp::rrc;
 
     /// Segment 4 / 5 register: "0011110", right-hand-most (newest) first.
     pub(crate) const TRAIN_REGISTER: u32 = 0b0111100;
 
-    pub(crate) struct Tx {
+    /// A V.27 ter transmitter: turn-on sequence, then scrambled data.
+    pub struct Tx {
+        /// The speed.
         pub rate: Rate,
+        /// Level of the signal (dBm0).
         pub level_dbm0: f32,
+        /// Long turn-on (50 + 1074 symbols) instead of the short one (14 + 58).
         pub long: bool,
+        /// Offset of the carrier from 1800 Hz (Hz).
         pub carrier_offset_hz: f32,
         /// Sample rate of the sender relative to 8000 Hz (1.0001 = +100 ppm).
         pub clock: f64,
@@ -540,7 +545,7 @@ pub(crate) mod testtx {
 
     impl Tx {
         /// The phase changes (in 45° / 90° steps) of the turn-on sequence and of `data`.
-        pub(crate) fn changes(&self, data: &[bool]) -> Vec<usize> {
+        pub fn changes(&self, data: &[bool]) -> Vec<usize> {
             let steps = self.rate.steps();
             let half_turn = steps / 2;
             let mut out = Vec::new();
@@ -570,7 +575,8 @@ pub(crate) mod testtx {
         }
 
         /// The line signal of `data`, with silence before and after.
-        pub(crate) fn modulate(&self, data: &[bool]) -> Vec<i16> {
+        /// The line signal of `data` (after the turn-on sequence), with silence before and after.
+        pub fn modulate(&self, data: &[bool]) -> Vec<i16> {
             let steps = self.rate.steps();
             let mut k = 0usize;
             let mut syms = Vec::new();
