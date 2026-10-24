@@ -48,18 +48,12 @@ impl ControlServer {
                 Err(_) => std::fs::remove_file(path)?,
             }
         }
-        // the socket is created with the mode 0777 minus the umask: close the window in which
-        // another user could connect before the chmod
-        let old = rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o177));
-        let bound = std::os::unix::net::UnixListener::bind(path);
-        rustix::process::umask(old);
-        let std_listener = bound.map_err(|e| {
+        let std_listener = bind_private(path).map_err(|e| {
             io::Error::new(
                 e.kind(),
                 format!("cannot create the control socket {}: {e}", path.display()),
             )
         })?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         std_listener.set_nonblocking(true)?;
         let listener = UnixListener::from_std(std_listener)?;
         let (stop, stop_rx) = watch::channel(false);
@@ -77,6 +71,33 @@ impl ControlServer {
         let _ = self.task.await;
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+/// Binds `path` with mode 0600 and no window in which another user could connect. The socket is
+/// created with the mode 0777 minus the umask, so it is bound inside a fresh directory of mode
+/// 0700, set to 0600 there and renamed into place. (Changing the umask instead would change it
+/// for the whole process: directories other threads create meanwhile would lose their x bits.)
+fn bind_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::fs::DirBuilderExt;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let private = parent.join(format!(".{name}.{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&private);
+    std::fs::DirBuilder::new().mode(0o700).create(&private)?;
+    let result = (|| {
+        // the umask may have taken bits from the directory too; chmod is not subject to it
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700))?;
+        let tmp = private.join("s");
+        let listener = std::os::unix::net::UnixListener::bind(&tmp)?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::rename(&tmp, path)?;
+        Ok(listener)
+    })();
+    let _ = std::fs::remove_dir_all(&private);
+    result
 }
 
 async fn accept_loop(listener: UnixListener, hub: Arc<Hub>, mut stop: watch::Receiver<bool>) {
@@ -195,6 +216,20 @@ mod tests {
             .prefix("sf")
             .tempdir_in("/tmp")
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn m11_the_bind_leaves_only_the_socket_in_its_directory() {
+        // the private directory the socket is bound in is gone afterwards
+        let d = short_dir();
+        let p = d.path().join("c.sock");
+        let srv = ControlServer::bind(&p, hub()).unwrap();
+        let names: Vec<String> = std::fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["c.sock".to_string()]);
+        srv.shutdown().await;
     }
 
     #[tokio::test]
