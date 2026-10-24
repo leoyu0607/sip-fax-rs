@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net",
 
 [dev-dependencies]
 interop = { path = "../interop" }
-fax-modem = { path = "../../crates/fax-modem" }
+fax-modem = { path = "../../crates/fax-modem", features = ["testtx"] }
 serde_json = "1"
 store = { path = "../../crates/store" }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

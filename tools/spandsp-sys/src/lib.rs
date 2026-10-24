@@ -206,3 +206,31 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn modem_connect_tones_rx_get(s: *mut modem_connect_tones_rx_state_t) -> c_int;
 }
+
+// ---------------------------------------------------------------------------------------------
+// V.27ter transmitter (M5c tests A01-A07, M01 uses `fax_state_t`). The independent source of
+// V.27ter signals for our receiver.
+
+opaque!(v27ter_tx_state_t);
+
+/// async.h: `SIG_STATUS_END_OF_DATA`, returned by a `get_bit` callback when the data is over.
+pub const SIG_STATUS_END_OF_DATA: c_int = -7;
+
+/// `int (*)(void *user_data)` (`span_get_bit_func_t`): the next bit (0 or 1) or a `SIG_STATUS_*`
+/// code (negative).
+pub type span_get_bit_func_t = Option<unsafe extern "C" fn(user_data: *mut c_void) -> c_int>;
+
+unsafe extern "C" {
+    pub fn v27ter_tx_init(
+        s: *mut v27ter_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v27ter_tx_state_t;
+    pub fn v27ter_tx_free(s: *mut v27ter_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v27ter_tx_power(s: *mut v27ter_tx_state_t, power: f32);
+    /// Generates up to `len` samples; returns how many (0 once the transmission is over).
+    pub fn v27ter_tx(s: *mut v27ter_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+}

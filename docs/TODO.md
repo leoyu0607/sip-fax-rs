@@ -227,7 +227,7 @@
   - 2026-10-24 ③ 完成（Haiku 實作、Opus 審核退回一次）：`fax-in::audioengine` 依 DCS 本身的 FIF（`t30::caps::parse_rate`，不用 `t30.dcs()`：T.30 忽略的 DCS 不會更新它）建 `V27terRx`（4800／2400；其他速率記 log）；`Training`→`RxSignal::Training`、`Bits`→octet（第一個收到的位元是 MSB）→`ImageData`、`CarrierLost`→`DataEnd`；高速收端在能量偵測之前處理，避免同一個 20 ms 的 NoSignal 先結束 TCF／頁面而漏掉資料。fax-modem 新增只給測試用的 feature `testtx`（`v27ter::testtx::Tx`，fax-in 的 dev-dependency 開啟，不進正式執行檔）。測試：TCF 全 0 → CFR（901 octets，7188／7208 bit 為 0）、亂數 → FTT、第二個 DCS 換成 2400 收端。待觀察（M5e）：V.21 的能量偵測在 V.27ter 訊號期間也是 On，V.21 收端可能解出雜訊幀（FCS 擋下，測試中沒有出現）。
   - 下一步：④ M5c 測試交 Sonnet（A01–A09、M01，需在 `tools/fax-sim` 補 SpanDSP `v27ter_tx` FFI）。
   - M5a 測試已由 Sonnet 完成並合進 `m5`（2026-10-23）；**待 Opus 審核** `docs/test-reports/M5a.md`（§4 的 N04「判定延遲」解讀、§5 列出的未修小問題）。
-- [ ] [Sonnet] M5c 測試 A01–A09、M01，報告 `docs/test-reports/M5c.md`
+- [x] [Sonnet] M5c 測試 A01–A07、A09、M01，報告 `docs/test-reports/M5c.md`（2026-10-24；待 Opus 審核）：SpanDSP `v27ter_tx` 當送端，A01–A07 在 `tools/fax-sim/tests/a_v27ter_spandsp.rs`，M01 在 `m01_audio_engine_spandsp.rs`，A09 在 `crates/fax-modem/tests/m5c_a09.rs`（1 小時白雜訊 `#[ignore]`，指令見報告）；找到並修了 4 個產品問題（擾碼器 guard 回授、雜訊假 Training、Segment 4 載波迴路、DCS 的 X 位元，ADR-062）；A03 在計畫的 SNR 達標，A04／A05 在計畫的 SNR 達不到 1e-5（見報告 §4）
 - [ ] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29
 - [ ] [Sonnet] M5d 測試 B01–B10、M02–M08，報告 `docs/test-reports/M5d.md`
 - [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式

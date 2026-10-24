@@ -9,3 +9,8 @@ version = "0.4.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
+
+# The V.27ter receiver tests push millions of samples through the DSP: optimise those crates even
+# in the test profile (the rest of the workspace is unchanged).
+[profile.dev.package.fax-modem]
+opt-level = 3

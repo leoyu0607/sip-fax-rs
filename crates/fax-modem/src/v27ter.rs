@@ -85,36 +85,41 @@ impl Scrambler {
         Self { reg, count: 0 }
     }
 
-    /// The guard: 33 positions in a row equal to the bit 8, 9 or 12 before invert the next bit.
-    fn guard(&mut self, line_bit: u32) -> bool {
-        if self.count >= 33 {
+    /// Takes one position: `fire` says whether the guard inverted this bit, `y` is the bit
+    /// before the guard, `line` the bit on the line. Feedback is the bit on the line (what a
+    /// self-synchronising scrambler shifts in); the repeat counter looks at `y`.
+    fn step(&mut self, fire: bool, y: u32, line: u32) {
+        if fire {
             self.count = 0;
-            return true;
-        }
-        let r = self.reg;
-        let same = |k: u32| ((r >> (k - 1)) & 1) == line_bit;
-        if same(8) || same(9) || same(12) {
-            self.count += 1;
         } else {
-            self.count = 0;
+            let r = self.reg;
+            let same = |k: u32| ((r >> (k - 1)) & 1) == y;
+            if same(8) || same(9) || same(12) {
+                self.count += 1;
+            } else {
+                self.count = 0;
+            }
         }
-        false
+        self.reg = (self.reg << 1) | line;
     }
 
     /// Scrambles one data bit into the line bit.
     pub fn scramble(&mut self, bit: bool) -> bool {
         let y = u32::from(bit) ^ ((self.reg >> 5) & 1) ^ ((self.reg >> 6) & 1);
-        let line = if self.guard(y) { y ^ 1 } else { y };
-        self.reg = (self.reg << 1) | y;
+        // the guard: 33 positions in a row equal to the bit 8, 9 or 12 before invert the next bit
+        let fire = self.count >= 33;
+        let line = y ^ u32::from(fire);
+        self.step(fire, y, line);
         line != 0
     }
 
     /// Descrambles one line bit into the data bit.
     pub fn descramble(&mut self, line: bool) -> bool {
         let r = u32::from(line);
-        let y = if self.guard(r) { r ^ 1 } else { r };
+        let fire = self.count >= 33;
+        let y = r ^ u32::from(fire);
         let bit = y ^ ((self.reg >> 5) & 1) ^ ((self.reg >> 6) & 1);
-        self.reg = (self.reg << 1) | y;
+        self.step(fire, y, r);
         bit != 0
     }
 }
@@ -176,10 +181,19 @@ const EQ_TAPS: usize = 15;
 /// (index 0) on a symbol, so the centre must be an even index or it would pass the transitions.
 const EQ_CENTRE: usize = 6;
 /// Reversals in a row that make Segment 3.
-const REVERSALS: u32 = 8;
+const REVERSALS: u32 = 10;
 /// Training symbols before Segment 5 may start (Segment 4: 58 or 1074 symbols, plus what is
 /// left of Segment 3 after the lock).
 const MIN_TRAIN: u32 = 50;
+/// Integral gain of the carrier loop in Segment 4 (fast, to pull in a frequency offset before
+/// Segment 5: its 45° steps tolerate only 22.5° of phase error) and in the data.
+const TRAIN_KI: f32 = 0.006;
+const DATA_KI: f32 = 0.002;
+/// Off-axis symbols tolerated in the first `MIN_TRAIN` symbols of a training.
+const MAX_OFF_AXIS: u32 = 8;
+/// Share of the input power that the matched filter must pass for a Segment 3 (a clean signal
+/// passes about 2.0 in these units, white noise less, a tone out of band almost nothing).
+const MIN_IN_BAND: f32 = 0.25;
 /// Samples per presence block (5 ms).
 const BLOCK: usize = 40;
 
@@ -207,6 +221,10 @@ pub struct V27terRx {
     mid: C32,
     gain: f32,
     power: f32,
+    /// Energy that left the matched filter in the current presence block.
+    mf_energy: f32,
+    /// The last block had a share of at least `MIN_IN_BAND` of its input power in the filter's band.
+    in_band: bool,
     // equalizer and carrier
     eq_in: VecDeque<C32>,
     w: Vec<C32>,
@@ -218,6 +236,8 @@ pub struct V27terRx {
     reversals: u32,
     /// Symbols trained on so far (Segment 4 lasts at least 58).
     trained: u32,
+    /// Off-axis symbols among them.
+    off_axis: u32,
     raw_prev: C32,
     scrambler: Scrambler,
     // presence
@@ -254,14 +274,17 @@ impl V27terRx {
             mid: C32::default(),
             gain: 1.0,
             power: 0.0,
+            mf_energy: 0.0,
+            in_band: false,
             eq_in: VecDeque::new(),
             w,
             phase: 0.0,
-            pll: Loop2::new(0.08, 0.002),
+            pll: Loop2::new(0.08, DATA_KI),
             last_decision: C32::new(1.0, 0.0),
             stage: Stage::Acquire,
             reversals: 0,
             trained: 0,
+            off_axis: 0,
             raw_prev: C32::default(),
             scrambler: Scrambler::default(),
             block: Vec::with_capacity(BLOCK),
@@ -317,7 +340,10 @@ impl V27terRx {
         if self.block.len() < BLOCK {
             return;
         }
-        let level = dbm0(block_mean_square(&self.block));
+        let in_ms = block_mean_square(&self.block);
+        let level = dbm0(in_ms);
+        self.in_band = self.mf_energy >= MIN_IN_BAND * in_ms * BLOCK as f32;
+        self.mf_energy = 0.0;
         self.block.clear();
         self.loud = level >= OFF_DBM0;
         if self.stage != Stage::Acquire {
@@ -353,10 +379,12 @@ impl V27terRx {
         }
         // input level → about unit symbols (slow; frozen once trained)
         let p = m.norm_sqr();
+        self.mf_energy += p;
         if self.stage != Stage::Data {
             // fast attack (a signal starting), slow release
             let a = if p > self.power { 0.2 } else { 0.005 };
             self.power += a * (p - self.power);
+
             if self.power > 0.0 {
                 self.gain = 1.0 / self.power.sqrt();
             }
@@ -448,8 +476,17 @@ impl V27terRx {
             Stage::Acquire => {
                 // Segment 3: 180° from one symbol to the next
                 let d = z * self.raw_prev.conj();
-                let reversal =
-                    self.loud && d.re < -0.25 * (z.norm_sqr() + self.raw_prev.norm_sqr());
+                // (Noise makes 8 reversals in a row about once in 4 s, so the two symbols must also
+                // have about the same size, as in Segment 3: a false Training takes the receiver
+                // out of the hunt until the noise goes away.)
+                let (a, b) = (z.norm_sqr(), self.raw_prev.norm_sqr());
+                // And the signal must be in the band of the matched filter: the AGC makes whatever
+                // leaks through (a DC offset, a tone out of band) look like a full signal.
+                let reversal = self.loud
+                    && self.in_band
+                    && d.re < -0.35 * (a + b)
+                    && a < 2.0 * b
+                    && b < 2.0 * a;
                 self.reversals = if reversal { self.reversals + 1 } else { 0 };
                 self.raw_prev = z;
                 if self.reversals >= REVERSALS {
@@ -464,7 +501,18 @@ impl V27terRx {
                 let rel = (z * self.last_decision.conj()).arg();
                 let off_axis = rel.abs() > PI / 3.0 && rel.abs() < 2.0 * PI / 3.0;
                 let off_axis = off_axis || (self.rate == Rate::B4800 && is_odd_step(rel));
-                // Segment 4 has at least 58 symbols: before that an off-axis symbol is noise
+                // Segment 4 has at least 58 symbols: before that an off-axis symbol is noise, but
+                // not many of them: a training that is mostly off-axis was noise
+                if off_axis && self.trained < MIN_TRAIN {
+                    self.off_axis += 1;
+                    if self.off_axis > MAX_OFF_AXIS {
+                        self.stage = Stage::Acquire;
+                        self.reversals = 0;
+                        self.off_axis = 0;
+                        self.trained = 0;
+                        return;
+                    }
+                }
                 if off_axis && self.trained >= MIN_TRAIN {
                     self.stage = Stage::Data;
                     ev.push(RxEvent::Trained);
@@ -476,6 +524,7 @@ impl V27terRx {
                 } else {
                     -self.last_decision
                 };
+                self.pll.ki = TRAIN_KI;
                 self.track(z, d, 0.05);
                 self.last_decision = d;
                 self.trained += 1;
@@ -494,6 +543,7 @@ impl V27terRx {
         let change = (k + steps - prev) % steps;
         #[cfg(test)]
         self.changes.push(change);
+        self.pll.ki = DATA_KI;
         self.track(z, d, 0.01);
         self.last_decision = d;
         let mut line = Vec::with_capacity(3);
@@ -853,6 +903,109 @@ mod tests {
                 let (e, _) = errors(rate, -15.0, false, 0.0, clock, 9);
                 assert_eq!(e, 0, "{rate:?} clock {clock}");
             }
+        }
+    }
+
+    #[test]
+    fn the_scrambler_feeds_back_the_line_bit_and_the_guard_inverts_after_33() {
+        // Data that scrambles to a line sequence of period 8 for a long stretch: the guard (33
+        // positions equal to the bit 8 before) fires, and the descrambler finds the data again.
+        let mut tx = Scrambler::with_register(TRAIN_REGISTER);
+        // choose the data so that the bit before the guard (y) is the pattern 10110010 repeated
+        let pattern = [1u32, 0, 1, 1, 0, 0, 1, 0];
+        let mut data = Vec::new();
+        let mut line = Vec::new();
+        let mut probe = Scrambler::with_register(TRAIN_REGISTER);
+        for i in 0..300 {
+            let y = pattern[i % 8];
+            // data bit that gives y with the register of `probe`
+            let bit = (y ^ ((probe.reg >> 5) & 1) ^ ((probe.reg >> 6) & 1)) != 0;
+            data.push(bit);
+            line.push(probe.scramble(bit));
+        }
+        let fired = line
+            .iter()
+            .enumerate()
+            .filter(|(i, l)| (**l as u32) != pattern[i % 8])
+            .count();
+        assert!(
+            fired >= 3,
+            "the guard fired {fired} times in 300 bits of a period 8 pattern"
+        );
+        let scrambled: Vec<bool> = data.iter().map(|&b| tx.scramble(b)).collect();
+        assert_eq!(scrambled, line);
+        let mut rx = Scrambler::with_register(TRAIN_REGISTER);
+        let back: Vec<bool> = line.iter().map(|&l| rx.descramble(l)).collect();
+        assert_eq!(back, data);
+    }
+
+    /// Noise at `level` dBm0 (fixed-seed Gaussian), `n` samples.
+    fn noise(level: f32, n: usize, seed: u64) -> Vec<i16> {
+        let mut x = seed | 1;
+        let mut uni = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            ((x >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let sd = f64::from(crate::level::mean_square(level)).sqrt();
+        (0..n)
+            .map(|_| {
+                let g = (-2.0 * uni().ln()).sqrt() * (2.0 * std::f64::consts::PI * uni()).cos();
+                (sd * g).round() as i16
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_false_training_in_noise_is_given_up_and_the_real_signal_is_received() {
+        for rate in [Rate::B2400, Rate::B4800] {
+            // a tone at 1800 Hz + half the symbol rate is a Segment 3 for the receiver; noise
+            // follows it, then the real transmission (and noise all the time under it)
+            let f = 1800.0 + rate.baud() / 2.0;
+            let tone: Vec<i16> = (0..160)
+                .map(|i| {
+                    (crate::level::sine_amplitude(-20.0) * (2.0 * PI * f * i as f32 / 8000.0).sin())
+                        as i16
+                })
+                .collect();
+            let tx = Tx {
+                rate,
+                level_dbm0: -20.0,
+                long: true,
+                carrier_offset_hz: 0.0,
+                clock: 1.0,
+            };
+            let data = prbs(4000, 7);
+            let mut audio = tone;
+            audio.extend(noise(-30.0, 8000, 5));
+            let start = audio.len();
+            let sig = tx.modulate(&data);
+            let n = noise(-45.0, sig.len(), 6);
+            audio.extend(sig.iter().zip(&n).map(|(a, b)| a.saturating_add(*b)));
+            audio.extend(noise(-45.0, 800, 7));
+            let mut rx = V27terRx::new(rate);
+            let (ev, bits) = receive(&mut rx, &audio);
+            let trainings = ev.iter().filter(|e| **e == RxEvent::Training).count();
+            assert!(
+                trainings >= 2,
+                "{rate:?}: the tone is a training too: {ev:?}"
+            );
+            let at = find(&bits, &data)
+                .unwrap_or_else(|| panic!("{rate:?}: data not found (signal starts at {start})"));
+            assert_eq!(&bits[at..at + data.len()], &data[..], "{rate:?}");
+        }
+    }
+
+    #[test]
+    fn a_tone_out_of_the_band_of_the_matched_filter_is_not_a_training() {
+        // DC after a step, and a low tone: the AGC would make them look like a signal
+        for rate in [Rate::B2400, Rate::B4800] {
+            let mut audio = vec![4570i16; 32];
+            audio.extend(vec![-65i16; 4000]);
+            let mut rx = V27terRx::new(rate);
+            let (ev, bits) = receive(&mut rx, &audio);
+            assert!(ev.is_empty() && bits.is_empty(), "{rate:?}: {ev:?}");
         }
     }
 }

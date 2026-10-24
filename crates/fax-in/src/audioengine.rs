@@ -293,8 +293,8 @@ impl AudioEngine {
                     Some(HdlcEvent::Preamble) => self.feed(Event::Signal(RxSignal::V21Preamble)),
                     Some(HdlcEvent::Frame { data, fcs_ok }) => {
                         let frame = reverse_octets(&data);
-                        let is_dcs =
-                            fcs_ok && frame.len() >= 3 && frame[2] & 0xFE == t30::fcf::DCS & 0xFE;
+                        // (the X bit, the first bit sent, is the most significant in T.30 notation)
+                        let is_dcs = fcs_ok && frame.len() >= 3 && frame[2] & 0x7F == t30::fcf::DCS;
                         // the peer trains with what its DCS says, whatever T.30 decided
                         let fif = is_dcs.then(|| frame[3..].to_vec());
                         self.feed(Event::Frame {
@@ -630,6 +630,24 @@ mod tests {
         assert!(
             matches!((at("V.27ter 4800 receiver ready"), at("V.27ter 2400 receiver ready")),
                 (Some(a), Some(b)) if a < b),
+            "{log:#?}"
+        );
+    }
+
+    #[test]
+    fn a_dcs_of_a_calling_terminal_carries_the_x_bit_and_still_selects_the_receiver() {
+        // A calling terminal sets X (the first bit sent) in the FCF after it has seen a DIS:
+        // `FF C8 C1 ...`. SpanDSP does; M5c test M01 found the receiver missing it.
+        let mut e = AudioEngine::new(AudioConfig::default());
+        e.start();
+        let _ = run(&mut e, &[], 6_000);
+        let tsi = vec![0xFF, 0xC0, t30::fcf::TSI | 0x80, b' ', b' ', b'1'];
+        let mut dcs = vec![0xFF, 0xC8, t30::fcf::DCS | 0x80];
+        dcs.extend(dcs_fif_v27ter_4800());
+        send_v21(&mut e, &[tsi, dcs]);
+        let log = e.drain_log();
+        assert!(
+            log.iter().any(|l| l == "V.27ter 4800 receiver ready"),
             "{log:#?}"
         );
     }
