@@ -25,7 +25,7 @@
 use crate::SAMPLE_RATE;
 use crate::dsp::{C32, Loop2, cubic, rrc_taps, wrap};
 use crate::level::{block_mean_square, dbm0};
-use crate::tone::{OFF_DBM0, ON_DBM0};
+use crate::tone::OFF_DBM0;
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
@@ -222,7 +222,8 @@ pub struct V27terRx {
     scrambler: Scrambler,
     // presence
     block: Vec<i16>,
-    /// The last 5 ms block was above the turn-on threshold.
+    /// The last 5 ms block was at or above the turn-off threshold: a signal is present. (Not the
+    /// turn-on threshold: a signal at -43 dBm0 has its Segment 3 blocks just below it.)
     loud: bool,
     quiet: u32,
     #[cfg(test)]
@@ -318,7 +319,7 @@ impl V27terRx {
         }
         let level = dbm0(block_mean_square(&self.block));
         self.block.clear();
-        self.loud = level >= ON_DBM0;
+        self.loud = level >= OFF_DBM0;
         if self.stage != Stage::Acquire {
             self.quiet = if level < OFF_DBM0 { self.quiet + 1 } else { 0 };
             if self.quiet >= 2 {
@@ -833,10 +834,7 @@ mod tests {
         }
     }
 
-    // M5c work in progress (docs/TODO.md M5c handoff): fails at -43 dBm0 with 9600 bits of
-    // seed 3, while the clean cases and a 100-bit run at -43 dBm0 pass.
     #[test]
-    #[ignore = "M5c in progress, see docs/TODO.md"]
     fn quiet_offset_and_drifting_signals() {
         for rate in [Rate::B4800, Rate::B2400] {
             let (e, _) = errors(rate, -43.0, false, 0.0, 1.0, 3);
