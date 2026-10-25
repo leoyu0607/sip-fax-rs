@@ -236,6 +236,16 @@ const TIMING_K_ACQUIRE: f32 = 0.1;
 /// 100 ppm (35 → 25.6 dB on a clean signal). The loop is proportional only: the centroid lags the
 /// equalizer's adaptation, and an integral term made it oscillate (M5d review sweep).
 const CENTROID_KP: f32 = 0.02;
+/// The last symbols of Segment 3 that judge whether the training was a training: their squared
+/// error against the known C / D points, relative to the power of those points, must stay below
+/// `FIT_LIMIT` (0.25 is a MER of 6 dB; a real signal is 15 dB or better at the lowest SNR the
+/// speed works at, noise fitted to a training sequence is about 0 dB). A training that does not
+/// fit was noise (or a tone of the Segment 2 frequencies) and is given up, without a `Training`
+/// event (that is reported together with `Trained`, at the end of Segment 3): without this check
+/// the receiver took it for data, and in noise louder than the turn-off threshold it never
+/// returned to the search for a Segment 2.
+const FIT_SYMBOLS: usize = 128;
+const FIT_LIMIT: f32 = 0.25;
 /// Equalizer step in the data. Large enough for the equalizer to follow what is left of a
 /// 100 ppm clock: at 20 dB SNR the MER is within 0.8 dB of the noise floor at ±100 ppm with
 /// 0.05, and 1.2 to 3 dB worse with 0.01 (M5d review sweep).
@@ -333,6 +343,9 @@ pub struct V29Rx {
     prbs: TrainingPrbs,
     /// Symbols of Segment 3 still to come.
     left: usize,
+    /// Squared error and power of the last `FIT_SYMBOLS` symbols of Segment 3.
+    fit_err: f32,
+    fit_pow: f32,
     /// The absolute phase step of the last decided point (the reference of the next change).
     ref_phase: u8,
     scrambler: Scrambler,
@@ -382,6 +395,8 @@ impl V29Rx {
             stage: Stage::Acquire,
             prbs: TrainingPrbs::default(),
             left: 0,
+            fit_err: 0.0,
+            fit_pow: 0.0,
             ref_phase: 0,
             scrambler: Scrambler::default(),
             block: Vec::with_capacity(BLOCK),
@@ -627,7 +642,9 @@ impl V29Rx {
             self.prbs = TrainingPrbs::default();
             self.left = SEGMENT_3;
             self.timing = Loop2::new(CENTROID_KP, 0.0);
-            ev.push(RxEvent::Training);
+            self.fit_err = 0.0;
+            self.fit_pow = 0.0;
+            // (`Training` is reported when the end of Segment 3 has shown that it was one)
             self.train_symbol(z, ev);
             return;
         }
@@ -643,15 +660,25 @@ impl V29Rx {
     fn train_symbol(&mut self, z: C32, ev: &mut Vec<RxEvent>) {
         let [_, _, c, d] = figure4(self.rate);
         let known = if self.prbs.next_bit() { d } else { c };
+        if self.left <= FIT_SYMBOLS {
+            self.fit_err += (z - complex(known)).norm_sqr();
+            self.fit_pow += complex(known).norm_sqr();
+        }
         self.track(z, complex(known), 0.05);
         self.left -= 1;
         if self.left == 0 {
+            if self.fit_err > FIT_LIMIT * self.fit_pow {
+                // it was not a training: start the search again
+                self.reset();
+                return;
+            }
             self.stage = Stage::Data;
             self.ref_phase = phase_of(known);
             // the carrier is known now: a slower loop keeps the noise of the decisions out
             self.pll.kp = DATA_KP;
             self.pll.ki = DATA_KI;
 
+            ev.push(RxEvent::Training);
             ev.push(RxEvent::Trained);
         }
     }
@@ -1171,6 +1198,48 @@ mod tests {
             let mut rx = V29Rx::new(rate);
             let (ev, _) = receive(&mut rx, &noise);
             assert!(!ev.contains(&RxEvent::Training), "{rate:?} noise: {ev:?}");
+        }
+    }
+
+    /// A tone that looks like Segment 2 (800 or 2600 Hz turn by 135 degrees a symbol) starts a
+    /// training; it does not fit the C / D points of Segment 3, so it is given up before
+    /// `Training` and `Trained` are reported, and no garbage bits follow. Before the fit check
+    /// the receiver went on to the data state and, in noise above the turn-off threshold, never
+    /// left it (M5d B09: one false training in an hour of white noise at -43 dBm0, 9600 bit/s).
+    /// The real transmission after it is received.
+    #[test]
+    fn a_tone_that_looks_like_segment_2_is_given_up_and_the_real_signal_is_received() {
+        for rate in [Rate::B9600, Rate::B7200] {
+            for hz in [800.0f32, 2600.0] {
+                let tone: Vec<i16> = (0..24_000)
+                    .map(|i| {
+                        (crate::level::sine_amplitude(-20.0)
+                            * (2.0 * PI * hz * i as f32 / 8000.0).sin())
+                            as i16
+                    })
+                    .collect();
+                let mut rx = V29Rx::new(rate);
+                let (ev, bits) = receive(&mut rx, &tone);
+                assert!(
+                    ev.is_empty() && bits.is_empty(),
+                    "{rate:?} {hz}: {ev:?}, {} bits",
+                    bits.len()
+                );
+                // the same receiver now gets a real transmission (after a pause)
+                let data = prbs(4000, 11);
+                let tx = Tx {
+                    rate,
+                    level_dbm0: -20.0,
+                    carrier_offset_hz: 0.0,
+                    clock: 1.0,
+                };
+                let mut audio = vec![0i16; 4000];
+                audio.extend(tx.modulate(&data));
+                let (ev, bits) = receive(&mut rx, &audio);
+                assert!(ev.contains(&RxEvent::Trained), "{rate:?} {hz}: {ev:?}");
+                let off = 48 * rate.bits_per_symbol();
+                assert_eq!(&bits[off..off + data.len()], &data[..], "{rate:?} {hz}");
+            }
         }
     }
 

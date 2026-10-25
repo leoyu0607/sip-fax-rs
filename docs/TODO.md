@@ -229,7 +229,7 @@
   - M5a 測試已由 Sonnet 完成並合進 `m5`（2026-10-23）；**待 Opus 審核** `docs/test-reports/M5a.md`（§4 的 N04「判定延遲」解讀、§5 列出的未修小問題）。
 - [x] [Sonnet] M5c 測試 A01–A07、A09、M01，報告 `docs/test-reports/M5c.md`（2026-10-24；Opus 審核通過，A04／A05 未達 10⁻⁵，見報告 §9）：SpanDSP `v27ter_tx` 當送端，A01–A07 在 `tools/fax-sim/tests/a_v27ter_spandsp.rs`，M01 在 `m01_audio_engine_spandsp.rs`，A09 在 `crates/fax-modem/tests/m5c_a09.rs`（1 小時白雜訊 `#[ignore]`，指令見報告）；找到並修了 4 個產品問題（擾碼器 guard 回授、雜訊假 Training、Segment 4 載波迴路、DCS 的 X 位元，ADR-062）；A03 在計畫的 SNR 達標，A04／A05 在計畫的 SNR 達不到 1e-5（見報告 §4）
 - [ ] [Any] V.27ter 收端套用 M5d 的時脈做法（等化器係數重心帶時脈、資料段步階加大，以 MER 驗證），之後以原門檻重測 A04／A05（4800、SNR 15 dB、±100 ppm 與 G.711 量化，BER ≤ 10⁻⁵；目前 2–4×10⁻⁵），測試斷言改回計畫門檻（M5c 審核）
-- [ ] [Any] M5e 設計待辦（M5c 報告 §5）：① 訊號結束改看相對下降或符號品質（目前用絕對 −48 dBm0，線路雜訊較高時等不到 TCF／頁面結束；M04 也會碰到）；③ 1100 Hz CNG 會符合 V.27ter Segment 3（收端若在 DCS 前建立就要處理）；④ 20 ms 封包缺口讓 `CarrierLost` 截斷頁面而不是壞行（影響 M05）
+- [ ] [Any] M5e 設計待辦（M5c 報告 §5）：① 訊號結束改看相對下降或符號品質（目前用絕對 −48 dBm0，線路雜訊較高時等不到 TCF／頁面結束；M04 也會碰到）；③ 1100 Hz CNG 會符合 V.27ter Segment 3（收端若在 DCS 前建立就要處理）；④ 20 ms 封包缺口讓 `CarrierLost` 截斷頁面而不是壞行（影響 M05，`m05_a_lost_packet_in_the_middle_of_a_page_plan` 修好後拿掉 `#[ignore]`）；⑤ 音訊 session 必須讓 `t30.ecm` 為 false（音訊路徑沒有 ECM，`[trunks.fax] ecm` 預設開，M5d M07）；⑥ DCS 指定我方沒有的數據機（例如 V.17）時立刻回 FTT 或重送 DIS（目前等 T2，M5d B10）；⑦ 9600 TCF 的 1 只剩約 1.9% 餘裕（收端輸出了 Segment 4 的擾碼 1），傾向收端不輸出 Segment 4 的位元（M5d §5 ②）
 - [x] [Any] `apps/sip-faxd` 的 Permission denied 偶發（`delivery_service::r05`、`service::control::m07`／`m10`、`k07`）：根因是 `ControlServer::bind` 為了讓 socket 一建立就是 0600，暫時把**整個行程**的 umask 設成 0o177，同時間其他執行緒建立的目錄變成 0600（沒有 x），裡面就建不了檔案。正式環境啟動時也可能發生。2026-10-24 改為在 0700 的私有目錄裡 bind、chmod 0600 後 rename 到位，不再動 umask（`service/control.rs::bind_private`，新增 m11）；`sip-faxd` 測試連跑 5 次 106 個全過
 - [x] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29（2026-10-24，分支 `m5d-v29`；開發試行 Haiku 實作、Opus 審核，2b 的強健性由 Opus 接手）
   - 規格：ITU-T V.29（1988 Blue Book）由 Opus 讀過（含 Figure 4 的 A／B／C／D 點、Appendix I 的輸出取 x⁻⁷ 才符合 §8.2 的 CDCDCDC 開頭），清潔室實作。只做 9600／7200（DCS 沒有 V.29 4800）。
@@ -237,7 +237,8 @@
   - 測試：乾淨訊號、−43 dBm0、靜音／雜訊不誤判、B03（9600 SNR 20 dB、7200 SNR 17 dB）、B04（±7 Hz、±100 ppm 單項與組合加雜訊，兩種速率，3 個 seed，0 錯誤且 MER 在頻帶內 SNR 的 1.5 dB 內）；fax-modem 涵蓋率 92.9%。
   - `fax-in::audioengine`：DCS 選 V.29 9600／7200 時建 `V29Rx`（`HighSpeed` enum）；`AudioConfig::default()` 的 DIS 只宣告 V.27ter＋V.29（ADR-061，t30 自己的預設不變，T.38 仍用 V.17）；TCF 全 0 → CFR、亂數 → FTT（兩種速率）、DIS 不含 V.17 的測試。
   - 試行心得：Haiku 做表格、發送端、串接很穩；強健性除錯花了約 30 萬 token 仍沒找到原因，Opus 改用 MER 當連續指標後才定位到時脈。
-- [ ] [Sonnet] M5d 測試 B01–B10、M02–M08，報告 `docs/test-reports/M5d.md`
+- [x] [Sonnet] M5d 測試 B01–B07、B09、B10、M02–M08，報告 `docs/test-reports/M5d.md`（2026-10-25；Opus 審核通過，見報告 §9）：SpanDSP `v29_tx`／`v17_tx` 當送端，B 在 `tools/fax-sim/tests/b_v29_spandsp.rs`，M 在 `m5d_audio_engine_spandsp.rs`，B09 在 `crates/fax-modem/tests/m5d_b09.rs`；修了 1 個產品問題（Segment 3 擬合檢查，ADR-063）；B03 7200 長頁、M04 固定 SNR、M05 未達成，M07 不可測（音訊路徑沒有 ECM）
+- [ ] [Any] V.29 7200 在 SNR 17–19 dB 的長傳送（> 30 秒）會失去資料（M5d B03，等化器係數漂移）：資料段等化器的長時間穩定性（洩漏配合增益補償，或偏離時回 training），以逐秒 MER 驗證，之後拿掉 `b03_a_long_7200_page_at_the_plan_snr_unmet` 的 `#[ignore]`
 - [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
 - [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`
 - [ ] [Opus] 審核 M5a–M5e 測試報告

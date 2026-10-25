@@ -234,3 +234,43 @@ unsafe extern "C" {
     /// Generates up to `len` samples; returns how many (0 once the transmission is over).
     pub fn v27ter_tx(s: *mut v27ter_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
 }
+
+// ---------------------------------------------------------------------------------------------
+// V.29 and V.17 transmitters (M5d tests B01-B07; B10 sends V.17 at a V.29 receiver). Same shape
+// as `v27ter_tx`. Signatures from `v29tx.h` / `v17tx.h`.
+
+opaque!(v29_tx_state_t, v17_tx_state_t);
+
+unsafe extern "C" {
+    pub fn v29_tx_init(
+        s: *mut v29_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v29_tx_state_t;
+    pub fn v29_tx_free(s: *mut v29_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v29_tx_power(s: *mut v29_tx_state_t, power: f32);
+    /// Generates up to `len` samples; returns how many (0 once the transmission is over).
+    pub fn v29_tx(s: *mut v29_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+
+    pub fn v17_tx_init(
+        s: *mut v17_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v17_tx_state_t;
+    /// Restart with the long (`short_train` false) or the short training sequence.
+    pub fn v17_tx_restart(
+        s: *mut v17_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        short_train: bool,
+    ) -> c_int;
+    pub fn v17_tx_free(s: *mut v17_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v17_tx_power(s: *mut v17_tx_state_t, power: f32);
+    pub fn v17_tx(s: *mut v17_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+}
