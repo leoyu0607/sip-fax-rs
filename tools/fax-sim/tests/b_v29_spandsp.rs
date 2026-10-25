@@ -660,17 +660,20 @@ fn b03_a_long_7200_page_at_22_db_is_error_free() {
     }
 }
 
-/// Recorded: at 17 dB and at 19 dB the 7200 receiver is error free for about 30 s and then loses
-/// the data for good (about 50 % errors from there on, no recovery). The first error time is
-/// printed. The only assertion is that the receiver does not re-train (no second `Training`).
+/// The plan's requirement at the 7200 SNR of the other cases, over a whole 47 s page, and 2 dB
+/// above it. Until the timing moved from the equalizer's tap centroid to a Gardner loop with an
+/// integral (ADR-065), the receiver lost the data for good after 30 to 37 s at 17 dB in every
+/// seed (docs/test-reports/M5d.md section 4).
 #[test]
-fn b03_a_long_7200_page_at_low_snr_is_recorded() {
+fn b03_a_long_7200_page_at_the_plan_snr() {
     for snr in [17.0, 19.0] {
         for seed in SEEDS {
             let (e, first, r) = long_7200(snr, seed);
-            eprintln!(
-                "B03 long 7200 SNR {snr} seed {seed:#x}: {e} errors in 340000 bits, first at {:?} s",
-                first.map(|f| f as f64 / 7200.0)
+            assert_eq!(
+                (e, first),
+                (0, None),
+                "SNR {snr} seed {seed:#x}: {}",
+                describe(&r)
             );
             assert_eq!(
                 r.got.training.len(),
@@ -678,17 +681,6 @@ fn b03_a_long_7200_page_at_low_snr_is_recorded() {
                 "SNR {snr} seed {seed:#x}: Training"
             );
         }
-    }
-}
-
-/// The plan's requirement at the 7200 SNR of the other cases, over a whole 47 s page. It is NOT
-/// met (docs/test-reports/M5d.md section 4), hence `#[ignore]`.
-#[test]
-#[ignore = "unmet: the 7200 receiver loses the data after about 30 s at 17 dB (docs/test-reports/M5d.md)"]
-fn b03_a_long_7200_page_at_the_plan_snr_unmet() {
-    for seed in SEEDS {
-        let (e, first, r) = long_7200(17.0, seed);
-        assert_eq!((e, first), (0, None), "seed {seed:#x}: {}", describe(&r));
     }
 }
 

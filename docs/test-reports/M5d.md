@@ -143,3 +143,4 @@ cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only
 - §4 ②（V.17 的 DCS）、③（固定 SNR）、④（M05）、⑥（音訊路徑沒有 ECM，M5e 必須讓音訊 session 的 `t30.ecm` 為 false）列入 M5e 設計待辦。⑤（CED 中的 DCS）是半雙工的後果，接受。
 - §5 ②（9600 TCF 只剩約 1.9% 餘裕）：列入 M5e 待辦，傾向收端不輸出 Segment 4 的位元。
 - 涵蓋率：fax-modem 94.06%、fax-in 92.23%，符合門檻。ci-local exit 0。
+- **後續（2026-10-25，Opus）**：§4 ① 已修（ADR-065）。根因是重心時脈與等化器互相牽動，造成時脈漂移；資料段改用 Gardner 二階迴路後，`b03_a_long_7200_page_at_the_plan_snr` 在 SNR 17／19 dB × 3 seed 都是 0 錯，`#[ignore]` 已拿掉，B03 改記為達成。

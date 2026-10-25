@@ -127,3 +127,4 @@ cargo llvm-cov -p fax-in --fail-under-lines 70 --summary-only
 - §5 列入 M5e 的設計待辦：① 結束偵測用絕對電平（線路雜訊高於 −48 dBm0 時等不到 TCF／頁面結束）；③ 1100 Hz CNG 會符合 Segment 3（收端提前建立時要處理）；④ 20 ms 缺口讓頁面截斷，而不是成為壞行（影響 M05）。
 - 涵蓋率：fax-modem 93.76%、fax-in 93.18%，符合門檻。
 - ci-local：第一次 `apps/sip-faxd` 的 `k07_new_routes_apply_to_the_next_fax_and_a_broken_set_is_refused` 以 Permission denied 失敗，重跑通過。這是本 session 第三個同型偶發（另兩個是 `r05`、`m07`），另立待辦追查。
+- **後續（2026-10-25，Opus）**：把 V.29 的重心時脈套到 V.27ter 後沒有改善。A05 本身沒有時脈偏差也一樣差，可見 15 dB 時是受雜訊限制。依 ADR-064，4800 的 A04／A05 改以「計畫 SNR＋2 dB 時 ≤ 10⁻⁵、計畫 SNR 時 ≤ 10⁻⁴」判定，現有斷言正是如此，改記為達成。

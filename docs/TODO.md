@@ -239,7 +239,7 @@
   - `fax-in::audioengine`：DCS 選 V.29 9600／7200 時建 `V29Rx`（`HighSpeed` enum）；`AudioConfig::default()` 的 DIS 只宣告 V.27ter＋V.29（ADR-061，t30 自己的預設不變，T.38 仍用 V.17）；TCF 全 0 → CFR、亂數 → FTT（兩種速率）、DIS 不含 V.17 的測試。
   - 試行心得：Haiku 做表格、發送端、串接很穩；強健性除錯花了約 30 萬 token 仍沒找到原因，Opus 改用 MER 當連續指標後才定位到時脈。
 - [x] [Sonnet] M5d 測試 B01–B07、B09、B10、M02–M08，報告 `docs/test-reports/M5d.md`（2026-10-25；Opus 審核通過，見報告 §9）：SpanDSP `v29_tx`／`v17_tx` 當送端，B 在 `tools/fax-sim/tests/b_v29_spandsp.rs`，M 在 `m5d_audio_engine_spandsp.rs`，B09 在 `crates/fax-modem/tests/m5d_b09.rs`；修了 1 個產品問題（Segment 3 擬合檢查，ADR-063）；B03 7200 長頁、M04 固定 SNR、M05 未達成，M07 不可測（音訊路徑沒有 ECM）
-- [ ] [Any] V.29 7200 在 SNR 17–19 dB 的長傳送（> 30 秒）會失去資料（M5d B03，等化器係數漂移）：資料段等化器的長時間穩定性（洩漏配合增益補償，或偏離時回 training），以逐秒 MER 驗證，之後拿掉 `b03_a_long_7200_page_at_the_plan_snr_unmet` 的 `#[ignore]`
+- [x] [Opus] V.29 7200 在 SNR 17–19 dB 的長傳送（> 30 秒）會失去資料（M5d B03）（2026-10-25，ADR-065）：根因是 Segment 3 之後用等化器係數重心帶時脈，時脈沒有時脈偏差也會慢慢走（30 秒約 1 個 T/2），等化器把 tap 往兩側攤開來吸收，重心一直停在中心，最後崩潰；關掉重心時脈後 tap 就穩定。改為 Segment 3 時脈保持不動，Segment 4 起用 Gardner 二階迴路（kp 0.005、ki 1e-5，可用範圍 kp 0.002–0.01、ki 2e-6–1e-5）。洩漏（往 0 或往訓練後的係數）都試過，無效。SpanDSP 的 B03 長頁在 17／19 dB 拿掉 `#[ignore]` 後通過，B04 與單元測試全部通過，新增單元測試 `a_long_7200_transmission_at_17_db_stays_locked`
 - [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
 - [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`
 - [ ] [Opus] 審核 M5a–M5e 測試報告

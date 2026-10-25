@@ -228,14 +228,16 @@ const BLOCK: usize = 40;
 /// Carrier loop gains in the data (decision directed): slower than in training.
 const DATA_KP: f32 = 0.02;
 const DATA_KI: f32 = 0.0005;
-/// Gardner timing loop gain, Segment 2 only (a strong, regular signal).
+/// Gardner timing loop gain in Segment 2 (a strong, regular signal).
 const TIMING_K_ACQUIRE: f32 = 0.1;
-/// From Segment 3 on, the timing follows the equalizer: its tap centroid is pulled back to
-/// `EQ_CENTRE`. Gardner's detector is weak at a roll-off of 0.25 and noisy on 16 points; left to
-/// it, a clock offset was absorbed by the equalizer alone, which cost about 10 dB of MER at
-/// 100 ppm (35 → 25.6 dB on a clean signal). The loop is proportional only: the centroid lags the
-/// equalizer's adaptation, and an integral term made it oscillate (M5d review sweep).
-const CENTROID_KP: f32 = 0.02;
+/// Gardner timing loop gains in Segment 4 and the data; the timing is held through Segment 3.
+/// The integral follows a clock offset (100 ppm is 2·10⁻⁴ of a half symbol per symbol), so the
+/// equalizer is not left to absorb it. Timing from the equalizer's tap centroid instead made a
+/// slow walk of the timing that the equalizer took up by spreading its taps around a centroid
+/// that stayed put, until it fell apart after 30 to 40 s of 7200 at 17 dB (M5d B03). Working
+/// range measured: kp 0.002–0.01, ki 2·10⁻⁶–10⁻⁵ (B03 47 s pages and B04 both pass).
+const DATA_TIMING_KP: f32 = 0.005;
+const DATA_TIMING_KI: f32 = 1e-5;
 /// The last symbols of Segment 3 that judge whether the training was a training: their squared
 /// error against the known C / D points, relative to the power of those points, must stay below
 /// `FIT_LIMIT` (0.25 is a MER of 6 dB; a real signal is 15 dB or better at the lowest SNR the
@@ -246,9 +248,9 @@ const CENTROID_KP: f32 = 0.02;
 /// returned to the search for a Segment 2.
 const FIT_SYMBOLS: usize = 128;
 const FIT_LIMIT: f32 = 0.25;
-/// Equalizer step in the data. Large enough for the equalizer to follow what is left of a
-/// 100 ppm clock: at 20 dB SNR the MER is within 0.8 dB of the noise floor at ±100 ppm with
-/// 0.05, and 1.2 to 3 dB worse with 0.01 (M5d review sweep).
+/// Equalizer step in the data. Large enough for the equalizer to follow what the timing loop
+/// leaves of a 100 ppm clock (with 0.01 the MER was 1.2 to 3 dB worse at 20 dB SNR, M5d review
+/// sweep).
 const DATA_MU: f32 = 0.05;
 
 /// Table 1 inverted: the Q2 Q3 Q4 bits of a phase change in steps of 45°.
@@ -324,8 +326,8 @@ pub struct V29Rx {
     w: Vec<C32>,
     phase: f32,
     pll: Loop2,
-    /// The symbol timing: the Gardner error in Segment 2, then the equalizer's tap centroid (the
-    /// integral follows a clock offset).
+    /// The symbol timing on the Gardner error: Segment 2, then (other gains) Segment 4 and the
+    /// data.
     timing: Loop2,
     /// The squared decision error of every data symbol (for the MER in the tests).
     #[cfg(test)]
@@ -536,7 +538,12 @@ impl V29Rx {
         // Gardner timing error on the symbols either side of the half-way sample
         let e = ((v - self.prev_sym) * self.mid.conj()).re;
         // (frozen without a signal: on near-silence the error is noise and the clock would wander)
-        if self.stage == Stage::Acquire && self.loud {
+        let track = match self.stage {
+            Stage::Acquire => self.loud,
+            Stage::Train => false,
+            Stage::Data => true,
+        };
+        if track {
             let e = e.clamp(-1.0, 1.0);
             let c = self.timing.update(e);
             self.t_next -= (c * self.half) as f64;
@@ -581,27 +588,6 @@ impl V29Rx {
             Stage::Train => self.train_symbol(z, ev),
             Stage::Data => self.data_symbol(z, bits),
         }
-        if self.stage != Stage::Acquire {
-            self.recentre();
-        }
-    }
-
-    /// Moves the sampling instant so that the equalizer's energy stays centred on `EQ_CENTRE`
-    /// (in T/2 steps; `w[0]` is the newest sample, so a centroid above the centre means the
-    /// sampling is early).
-    fn recentre(&mut self) {
-        let (mut sum, mut moment) = (0.0f32, 0.0f32);
-        for (i, wi) in self.w.iter().enumerate() {
-            let e = wi.norm_sqr();
-            sum += e;
-            moment += i as f32 * e;
-        }
-        if sum <= 0.0 {
-            return;
-        }
-        let off = moment / sum - EQ_CENTRE as f32;
-        let c = self.timing.update(off);
-        self.t_next += f64::from(c * self.half);
     }
 
     /// Segment 2: count the ±135° turns (a leaky count, so that one noisy turn does not restart
@@ -641,7 +627,6 @@ impl V29Rx {
             self.stage = Stage::Train;
             self.prbs = TrainingPrbs::default();
             self.left = SEGMENT_3;
-            self.timing = Loop2::new(CENTROID_KP, 0.0);
             self.fit_err = 0.0;
             self.fit_pow = 0.0;
             // (`Training` is reported when the end of Segment 3 has shown that it was one)
@@ -677,6 +662,7 @@ impl V29Rx {
             // the carrier is known now: a slower loop keeps the noise of the decisions out
             self.pll.kp = DATA_KP;
             self.pll.ki = DATA_KI;
+            self.timing = Loop2::new(DATA_TIMING_KP, DATA_TIMING_KI);
 
             ev.push(RxEvent::Training);
             ev.push(RxEvent::Trained);
@@ -1346,6 +1332,35 @@ mod tests {
         let got = bits.get(head..head + data.len()).unwrap_or(&[]);
         let errs = got.iter().zip(&data).filter(|(a, b)| a != b).count() + data.len() - got.len();
         (errs, mer_of(&rx, rate, data.len()))
+    }
+
+    /// Test plan B03 over a whole page: 340 000 bits of 7200 (47 s) at 17 dB SNR, also with
+    /// +100 ppm and +7 Hz. With the timing taken from the equalizer's tap centroid the timing
+    /// walked, the taps spread and the data was lost after 30 to 40 s in every seed (M5d B03).
+    #[test]
+    fn a_long_7200_transmission_at_17_db_stays_locked() {
+        for (offset, clock, seed) in [(0.0, 1.0, 1), (7.0, 1.0001, 2)] {
+            let rate = Rate::B7200;
+            let data = prbs(340_000, seed);
+            let tx = Tx {
+                rate,
+                level_dbm0: -15.0,
+                carrier_offset_hz: offset,
+                clock,
+            };
+            let mut audio = tx.modulate(&data);
+            add_awgn(&mut audio, -15.0, 17.0, seed.wrapping_mul(7919) + 1);
+            let mut rx = V29Rx::new(rate);
+            let (_, bits) = receive(&mut rx, &audio);
+            let head = SEGMENT_4 * rate.bits_per_symbol();
+            let got = bits.get(head..head + data.len()).unwrap_or(&[]);
+            assert_eq!(got.len(), data.len(), "{offset} Hz {clock}");
+            let errs = got.iter().zip(&data).filter(|(a, b)| a != b).count();
+            assert_eq!(errs, 0, "{offset} Hz {clock} seed {seed}");
+            let mer = mer_of(&rx, rate, data.len());
+            let floor = 17.0 + 10.0 * (4000.0f32 / 2400.0).log10();
+            assert!(mer > floor - 1.5, "{offset} Hz {clock}: MER {mer:.2} dB");
+        }
     }
 
     /// The loop integrator (the frequency estimate, radians per symbol) when Segment 4 starts,
