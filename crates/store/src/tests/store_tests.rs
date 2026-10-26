@@ -352,16 +352,19 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     for stmt in &stmts {
         env.store.raw().execute(stmt, &[]).await.unwrap();
     }
-    // 0003 added its columns but the run died before recording the version: the next run
-    // meets "Duplicate column name" and counts it as done
+    // 0003 and 0004 ran but the run died before recording their versions: the next run meets
+    // "Duplicate column name" (0003) and "Duplicate key name" (0004's index) and counts them as
+    // done; 0004's table and view are made again harmlessly
     env.store
         .raw()
-        .execute("DELETE FROM schema_migrations WHERE version = 3", &[])
+        .execute("DELETE FROM schema_migrations WHERE version >= 3", &[])
         .await
         .unwrap();
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
+    assert_eq!((rep.from, rep.to, rep.applied), (2, 4, vec![3, 4]));
     count_rows(env, "SELECT COUNT(modem) + COUNT(media) FROM faxes").await;
+    count_rows(env, "SELECT COUNT(*) FROM api_keys").await;
+    count_rows(env, "SELECT COUNT(has_pdf) FROM fax_records").await;
 }
 
 // ---------------------------------------------------------------- S02
