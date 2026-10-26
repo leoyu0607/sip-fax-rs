@@ -14,13 +14,13 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use store::{
-    Cursor, DeliveryAttempt, DeliveryStatus, FaxRecord, FaxStatus, ListFilter, PageRequest,
-    PngKind, PreviewError,
+    ChangeCursor, ChangesFrom, Cursor, DeliveryAttempt, DeliveryStatus, FaxRecord, FaxStatus,
+    ListFilter, PageRequest, PngKind, PreviewError,
 };
 
 use crate::error::ApiError;
 use crate::extract::ApiJson;
-use crate::session::Session;
+use crate::session::{Caller, Session};
 use crate::state::AppState;
 
 /// The largest page size of the list.
@@ -31,6 +31,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/faxes", get(list))
         .route("/faxes/counts", get(counts))
+        .route("/faxes/changes", get(changes))
         .route("/faxes/{id}", get(show))
         .route("/faxes/{id}/read", put(set_read))
         .route("/faxes/{id}/note", put(set_note))
@@ -205,7 +206,7 @@ fn list_query(q: &HashMap<String, String>) -> Result<(ListFilter, PageRequest), 
 
 async fn list(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     s.need(Capability::ViewFaxes)?;
@@ -222,12 +223,83 @@ async fn list(
     })))
 }
 
+/// How long a change must be in the past before the change feed hands it out: a write still in
+/// flight may carry an earlier `updated_at` than one already committed (ADR-070).
+pub const CHANGES_SETTLE_MS: i64 = 2_000;
+/// Page size of the change feed when the request gives none.
+pub const CHANGES_DEFAULT_LIMIT: u32 = 100;
+
+/// `GET /faxes/changes[?after=CURSOR | ?since=RFC 3339][&limit=1..200]` (M6a, ADR-070): the
+/// faxes that are new or changed, oldest change first. `next` is always given: the caller
+/// passes it as `after` the next time and so sees every change once (a fax that changes again
+/// comes again).
+async fn changes(
+    State(st): State<AppState>,
+    s: Caller,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    s.need(Capability::ViewFaxes)?;
+    if let Some(k) = q
+        .keys()
+        .find(|k| !["after", "since", "limit"].contains(&k.as_str()))
+    {
+        return Err(ApiError::bad_request(format!("unknown parameter {k:?}")));
+    }
+    let after = match opt_text(&q, "after") {
+        None => None,
+        Some(c) => Some(
+            c.parse::<ChangeCursor>()
+                .map_err(|_| ApiError::bad_request("the cursor is not valid"))?,
+        ),
+    };
+    let since = opt_time(&q, "since")?;
+    let from = match (after, since) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::bad_request("give after or since, not both"));
+        }
+        (Some(c), None) => ChangesFrom::After(c),
+        (None, Some(t)) => ChangesFrom::Since(t),
+        (None, None) => ChangesFrom::Start,
+    };
+    let limit = match opt_text(&q, "limit") {
+        None => CHANGES_DEFAULT_LIMIT,
+        Some(l) => match l.parse::<u32>() {
+            Ok(n) if (1..=MAX_LIMIT).contains(&n) => n,
+            _ => return Err(ApiError::bad_request("limit must be 1 to 200")),
+        },
+    };
+    let until = st.clock.now() - chrono::Duration::milliseconds(CHANGES_SETTLE_MS);
+    let items = st
+        .store()
+        .await?
+        .changes(from, until, limit)
+        .await
+        .map_err(store_error)?;
+    let next = match (items.last(), from) {
+        (Some(r), _) => ChangeCursor::of(r),
+        (None, ChangesFrom::After(c)) => c,
+        // `after` this position is the same as `since` that time (ids start at 1)
+        (None, ChangesFrom::Since(t)) => ChangeCursor {
+            updated_ms: t.timestamp_millis(),
+            id: 0,
+        },
+        (None, ChangesFrom::Start) => ChangeCursor {
+            updated_ms: 0,
+            id: 0,
+        },
+    };
+    Ok(Json(json!({
+        "items": items.iter().map(fax_json).collect::<Vec<_>>(),
+        "next": next.to_string(),
+    })))
+}
+
 /// `GET /faxes/counts[?since=RFC 3339]`: the number of unread faxes (the badge next to "Faxes"
 /// in the menu); with `since`, also the faxes since then (the status page sends the viewer's
 /// midnight); for whoever may see deliveries, the deliveries that failed or were given up.
 async fn counts(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     Query(q): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     s.need(Capability::ViewFaxes)?;
@@ -240,7 +312,7 @@ async fn counts(
     if let Some(t) = since {
         v["since"] = json!(store.count_since(t).await.map_err(store_error)?);
     }
-    if s.0.require(Capability::ViewDeliveries).is_ok() {
+    if s.can(Capability::ViewDeliveries) {
         v["deliveries"] = json!({
             "failed": store.count_deliveries(DeliveryStatus::Failed).await.map_err(store_error)?,
             "giving_up": store.count_deliveries(DeliveryStatus::GivingUp).await.map_err(store_error)?,
@@ -253,14 +325,14 @@ async fn counts(
 
 async fn show(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     UrlPath(id): UrlPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     s.need(Capability::ViewFaxes)?;
     let id = fax_id(&id)?;
     let r = record(&st, id).await?;
     let mut v = fax_json(&r);
-    if s.0.require(Capability::ViewDeliveries).is_ok() {
+    if s.can(Capability::ViewDeliveries) {
         let d = st
             .store()
             .await?
@@ -280,7 +352,7 @@ struct ReadBody {
 
 async fn set_read(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     UrlPath(id): UrlPath<String>,
     ApiJson(b): ApiJson<ReadBody>,
 ) -> Result<Json<Value>, ApiError> {
@@ -289,7 +361,7 @@ async fn set_read(
     let r = st
         .store()
         .await?
-        .set_read(id, b.read, s.username())
+        .set_read(id, b.read, &s.actor())
         .await
         .map_err(store_error)?;
     st.events.publish(
@@ -309,7 +381,7 @@ struct NoteBody {
 
 async fn set_note(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     UrlPath(id): UrlPath<String>,
     ApiJson(b): ApiJson<NoteBody>,
 ) -> Result<Json<Value>, ApiError> {
@@ -317,7 +389,7 @@ async fn set_note(
     let id = fax_id(&id)?;
     let store = st.store().await?;
     match store
-        .set_note(id, &b.text, s.username(), b.expected_updated_at)
+        .set_note(id, &b.text, &s.actor(), b.expected_updated_at)
         .await
     {
         Ok(r) => {
@@ -401,7 +473,7 @@ fn not_modified(headers: &HeaderMap, tag: &str) -> bool {
 
 async fn page_png(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     UrlPath((id, page)): UrlPath<(String, String)>,
     Query(q): Query<PngQuery>,
     headers: HeaderMap,
@@ -514,7 +586,7 @@ pub fn content_disposition(name: &str) -> String {
 
 async fn download(
     State(st): State<AppState>,
-    s: Session,
+    s: Caller,
     UrlPath((id, file)): UrlPath<(String, String)>,
 ) -> Result<Response, ApiError> {
     s.need(Capability::ViewFaxes)?;

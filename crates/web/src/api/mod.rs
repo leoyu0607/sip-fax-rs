@@ -1,5 +1,6 @@
 //! `/api/v1` (spec 3).
 
+pub mod apikeys;
 pub mod auth;
 pub mod config;
 pub mod events;
@@ -20,4 +21,5 @@ pub fn routes() -> Router<AppState> {
         .merge(users::routes())
         .merge(system::routes())
         .merge(events::routes())
+        .merge(apikeys::routes())
 }

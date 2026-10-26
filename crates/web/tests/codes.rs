@@ -17,6 +17,7 @@ const ERROR_CODES: &[&str] = &[
     "invalid_credentials",       // 401
     "session_expired",           // 401
     "account_disabled",          // 401
+    "invalid_api_key",           // 401 (API key, M6a)
     "csrf",                      // 403
     "forbidden",                 // 403
     "origin",                    // 403 (WebSocket)
@@ -28,6 +29,8 @@ const ERROR_CODES: &[&str] = &[
     "conflict",                  // 409
     "username_taken",            // 409
     "last_admin",                // 409
+    "name_taken",                // 409 (API key)
+    "already_revoked",           // 409 (API key)
     "purged",                    // 410
     "too_large",                 // 413
     "unsupported_media_type",    // 415
@@ -37,6 +40,8 @@ const ERROR_CODES: &[&str] = &[
     "bad_username",              // 422
     "bad_role",                  // 422
     "bad_locale",                // 422
+    "bad_name",                  // 422 (API key)
+    "bad_expiry",                // 422 (API key)
     "password_too_short",        // 422
     "password_too_long",         // 422
     "password_same_as_username", // 422

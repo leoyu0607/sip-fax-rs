@@ -1,9 +1,13 @@
 //! The session of a request (spec 2.3): the `sipfax_session` cookie, the CSRF rule for requests
-//! that change something, the forced password change, and the capability a route needs.
+//! that change something, the forced password change, and the capability a route needs; and
+//! [`Caller`], a session or an API key (M6a, ADR-070), which only the fax routes take.
 
 use std::net::SocketAddr;
 
-use accounts::{AuthService, Authenticated, COOKIE_NAME, CSRF_HEADER, Capability, SessionError};
+use accounts::{
+    ApiKeyAuth, ApiKeyError, AuthService, Authenticated, COOKIE_NAME, CSRF_HEADER, Capability,
+    SessionError,
+};
 use axum::extract::connect_info::ConnectInfo;
 use axum::extract::{FromRef, FromRequestParts, OriginalUri};
 use axum::http::request::Parts;
@@ -164,5 +168,106 @@ where
             ));
         }
         Ok(Session(a))
+    }
+}
+
+/// Who makes a request to a fax route: a browser session, or another system with an API key
+/// (`Authorization: Bearer sfx_...`). A request with an `Authorization` header is judged by the
+/// key alone, so a key never borrows the rights of a session cookie sent along.
+#[derive(Debug, Clone)]
+pub enum Caller {
+    /// A browser session.
+    Session(Session),
+    /// An API key.
+    Key(ApiKeyAuth),
+}
+
+impl Caller {
+    /// Whether the caller may do `cap`.
+    pub fn can(&self, cap: Capability) -> bool {
+        match self {
+            Caller::Session(s) => s.0.require(cap).is_ok(),
+            Caller::Key(k) => k.allows(cap),
+        }
+    }
+
+    /// Refuses with 403 `forbidden` when the caller may not do `cap`.
+    ///
+    /// # Errors
+    /// [`ApiError`] 403.
+    pub fn need(&self, cap: Capability) -> Result<(), ApiError> {
+        match self {
+            Caller::Session(s) => s.need(cap),
+            Caller::Key(k) if k.allows(cap) => Ok(()),
+            Caller::Key(_) => Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "the API key does not have the scope for this",
+            )),
+        }
+    }
+
+    /// How a change is recorded: the account name, or `api:<key name>`.
+    pub fn actor(&self) -> String {
+        match self {
+            Caller::Session(s) => s.username().to_string(),
+            Caller::Key(k) => k.actor(),
+        }
+    }
+}
+
+/// The key of an `Authorization` header: `None` without the header, `Some(Err)` for anything
+/// that is not `Bearer <token>` (the scheme in any case, RFC 6750).
+pub fn bearer_key(headers: &HeaderMap) -> Option<Result<String, ApiError>> {
+    let v = headers.get(header::AUTHORIZATION)?;
+    let key = v
+        .to_str()
+        .ok()
+        .map(str::trim)
+        .and_then(|v| v.split_once(' '))
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
+        .map(|(_, key)| key.trim().to_string())
+        .filter(|k| !k.is_empty());
+    Some(key.ok_or_else(|| api_key_error(&ApiKeyError::Invalid)))
+}
+
+/// The fixed API error of a key that is not accepted (401, or 503 when the database is down).
+pub fn api_key_error(e: &ApiKeyError) -> ApiError {
+    match e {
+        ApiKeyError::Invalid => ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid_api_key",
+            "the API key is not valid",
+        ),
+        ApiKeyError::Unavailable(_) => ApiError::unavailable(),
+    }
+}
+
+impl<S> FromRequestParts<S> for Caller
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Caller, ApiError> {
+        let Some(key) = bearer_key(&parts.headers) else {
+            return Session::from_request_parts(parts, state)
+                .await
+                .map(Caller::Session);
+        };
+        let key = key?;
+        let st = AppState::from_ref(state);
+        let ip = client_ip(parts);
+        let k = st
+            .auth
+            .authenticate_api_key(&key, Some(&ip))
+            .await
+            .map_err(|e| api_key_error(&e))?;
+        // no CSRF check: a key is not sent by a browser on its own; a change is JSON all the same
+        if changes_state(&parts.method) {
+            require_json(&parts.headers)?;
+        }
+        Ok(Caller::Key(k))
     }
 }
