@@ -666,10 +666,11 @@ fn n04_the_threshold_is_minus_43_dbm0_and_the_end_minus_48() {
 
 #[test]
 fn n04_hysteresis_a_signal_that_fades_between_43_and_48_stays_present() {
-    // 0.5 s at -30, then 1 s at -45 (between the two thresholds), then 0.5 s at -50 (below), then
-    // silence: one start, one end, at the transition to -50
+    // 0.5 s at -38, then 1 s at -45 (between the two thresholds), then 0.5 s at -50 (below), then
+    // silence: one start, one end, at the transition to -50. (The first level is within 10 dB of
+    // -45: a deeper drop is an end of its own since M5e, ADR-066.)
     let mut sig = vec![0.0f64; 800];
-    sig.extend(sine(1650.0, -30.0, 500, 0.0));
+    sig.extend(sine(1650.0, -38.0, 500, 0.0));
     sig.extend(sine(1650.0, -45.0, 1000, 0.0));
     let end_at = sig.len() as i64;
     sig.extend(sine(1650.0, -50.0, 500, 0.0));

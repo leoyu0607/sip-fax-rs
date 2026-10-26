@@ -36,8 +36,24 @@
 //! The TCF and the image arrive on V.27ter or V.29. A good DCS selects the modem: V.27ter 4800
 //! or 2400, or V.29 9600 or 7200, starts that receiver, whose output (training, octets, carrier
 //! lost) goes to T.30 as image data; the receiver listens whether or not the V.21 channel is
-//! busy. Any other modem (V.17, V.33) is logged and not received, so T.30 times out. The DIS
-//! offers V.27ter and V.29 only (ADR-061).
+//! busy. The DIS offers V.27ter and V.29 only (ADR-061); a DCS for another modem (V.17, V.33:
+//! some senders try it anyway) has no receiver, and the end of the TCF that follows it is
+//! reported to T.30 as a TCF without data, so that T.30 answers FTT at once and the sender
+//! steps down (M5e ⑥). V.29 starts its bits with the 48 symbols of scrambled ones of Segment 4;
+//! they are not passed on, so a TCF is judged on what the sender sent as TCF (M5e ⑦).
+//!
+//! # ECM
+//!
+//! The audio path has no error correction mode: [`AudioEngine::new`] turns `ecm` and `mmr` off
+//! in the T.30 settings, whatever the trunk says (M5e ⑤).
+//!
+//! # Lost packets
+//!
+//! [`AudioEngine::process_lost`] stands for a block that never arrived. Up to
+//! `max_lost_skip_ms` of consecutive lost audio the receivers are simply not fed, so they carry
+//! on afterwards with their timing and carrier intact (20 ms is a whole number of symbols and
+//! carrier cycles of every modem here): the image gets a few bad lines instead of ending at the
+//! gap (M5e ④). Longer outages are fed as silence, so the end of a signal is still heard.
 
 use std::collections::VecDeque;
 
@@ -74,6 +90,8 @@ pub struct AudioConfig {
     pub echo_guard_ms: u32,
     /// Diagnostic lines kept for [`AudioEngine::drain_log`].
     pub max_log_lines: usize,
+    /// Consecutive lost audio skipped over; beyond it lost audio is taken as silence.
+    pub max_lost_skip_ms: u32,
 }
 
 impl Default for AudioConfig {
@@ -96,6 +114,7 @@ impl Default for AudioConfig {
             peer_signal_wait_ms: 500,
             echo_guard_ms: 75,
             max_log_lines: 512,
+            max_lost_skip_ms: 60,
         }
     }
 }
@@ -106,6 +125,17 @@ struct Held {
     frames: Vec<Vec<u8>>,
     /// Sample after which it goes regardless.
     deadline: u64,
+}
+
+/// Where the TCF of a DCS without a receiver is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Foreign {
+    /// The V.21 burst of the DCS is still on.
+    DcsBurst,
+    /// The DCS burst has ended: the next signal is the TCF.
+    BeforeTcf,
+    /// The TCF is on.
+    Tcf,
 }
 
 /// The high speed receiver of the modem the last DCS selected.
@@ -149,6 +179,12 @@ pub struct AudioEngine {
     /// Octet being packed from the high speed bits, and how many of its bits are in.
     hs_octet: u8,
     hs_bits: u8,
+    /// Bits still to drop at the start of a transmission (V.29 Segment 4).
+    hs_skip: usize,
+    /// The last DCS selected a modem without a receiver: where its TCF is.
+    foreign: Option<Foreign>,
+    /// Samples of consecutive lost audio skipped so far.
+    lost_run: u64,
     /// The peer's signal is on (presence detector).
     peer_on: bool,
     /// Sample at which the peer's last signal ended.
@@ -178,7 +214,10 @@ fn reverse_octets(frame: &[u8]) -> Vec<u8> {
 
 impl AudioEngine {
     /// An engine; nothing happens until [`AudioEngine::start`].
-    pub fn new(cfg: AudioConfig) -> Self {
+    pub fn new(mut cfg: AudioConfig) -> Self {
+        // no ECM on the audio path (M5e ⑤); MMR is only valid with ECM
+        cfg.t30.ecm = false;
+        cfg.t30.mmr = false;
         Self {
             t30: t30::Receiver::new(cfg.t30.clone()),
             now: 0,
@@ -190,6 +229,9 @@ impl AudioEngine {
             hs: None,
             hs_octet: 0,
             hs_bits: 0,
+            hs_skip: 0,
+            foreign: None,
+            lost_run: 0,
             peer_on: false,
             peer_off_at: 0,
             deaf_until: 0,
@@ -222,6 +264,24 @@ impl AudioEngine {
     /// Handles `rx` (just received) and fills `tx` (to send over the same time). The two are
     /// normally the same length (one RTP packet); the clock advances by `rx.len()`.
     pub fn process(&mut self, rx: &[i16], tx: &mut [i16]) {
+        self.lost_run = 0;
+        self.step(Some(rx), rx.len(), tx);
+    }
+
+    /// Like [`AudioEngine::process`] for `n` samples that never arrived (a lost RTP packet):
+    /// the receivers skip them, up to `max_lost_skip_ms` in a row; beyond that they hear
+    /// silence.
+    pub fn process_lost(&mut self, n: usize, tx: &mut [i16]) {
+        let limit = u64::from(self.cfg.max_lost_skip_ms) * PER_MS;
+        self.lost_run += n as u64;
+        if self.lost_run <= limit {
+            self.step(None, n, tx);
+        } else {
+            self.step(Some(&vec![0i16; n]), n, tx);
+        }
+    }
+
+    fn step(&mut self, rx: Option<&[i16]>, n: usize, tx: &mut [i16]) {
         // what we send now: queued audio, then silence
         let start = self.now;
         for o in tx.iter_mut() {
@@ -235,7 +295,7 @@ impl AudioEngine {
                 .deaf_until
                 .max(start + tx.len() as u64 + self.queue.len() as u64 + guard);
         }
-        self.now += rx.len() as u64;
+        self.now += n as u64;
         // bursts that have now left completely
         while let Some(&end) = self.burst_ends.front() {
             if end > self.now {
@@ -244,12 +304,14 @@ impl AudioEngine {
             self.burst_ends.pop_front();
             self.feed(Event::TxComplete);
         }
-        if self.now > self.deaf_until && start < self.deaf_until {
-            // our echo is over: the receivers start fresh on what follows
-            let skip = (self.deaf_until - start) as usize;
-            self.listen(&rx[skip.min(rx.len())..]);
-        } else if start >= self.deaf_until {
-            self.listen(rx);
+        if let Some(rx) = rx {
+            if self.now > self.deaf_until && start < self.deaf_until {
+                // our echo is over: the receivers start fresh on what follows
+                let skip = (self.deaf_until - start) as usize;
+                self.listen(&rx[skip.min(rx.len())..]);
+            } else if start >= self.deaf_until {
+                self.listen(rx);
+            }
         }
         self.run_timers();
         self.release_held_if_due();
@@ -309,11 +371,24 @@ impl AudioEngine {
                     self.peer_on = true;
                     self.v21 = V21Rx::new();
                     self.hdlc.reset();
+                    if self.foreign == Some(Foreign::BeforeTcf) {
+                        self.foreign = Some(Foreign::Tcf);
+                    }
                 }
                 Presence::Off(pos) => {
                     self.peer_on = false;
                     self.peer_off_at = pos;
                     self.hdlc.reset();
+                    match self.foreign {
+                        Some(Foreign::DcsBurst) => self.foreign = Some(Foreign::BeforeTcf),
+                        Some(Foreign::Tcf) => {
+                            // a TCF without a receiver: no data, so FTT
+                            self.foreign = None;
+                            self.note("the TCF of a modem without a receiver ended: FTT".into());
+                            self.feed(Event::DataEnd);
+                        }
+                        _ => {}
+                    }
                     self.feed(Event::Signal(RxSignal::NoSignal));
                     self.release_held();
                 }
@@ -349,6 +424,7 @@ impl AudioEngine {
         self.hs = None;
         self.hs_octet = 0;
         self.hs_bits = 0;
+        self.foreign = None;
         let (modem, rate) = match t30::caps::parse_rate(fif) {
             Ok(v) => v,
             Err(e) => {
@@ -373,9 +449,17 @@ impl AudioEngine {
                 self.hs = Some(HighSpeed::V29(V29Rx::new(v29::Rate::B7200)));
                 self.note("V.29 7200 receiver ready".into());
             }
-            (modem, rate) => self.note(format!(
-                "DCS selects {modem:?} {rate} bit/s: not received (this receiver has V.27ter and V.29 only)"
-            )),
+            (modem, rate) => {
+                self.note(format!(
+                    "DCS selects {modem:?} {rate} bit/s: not received (this receiver has V.27ter and V.29 only)"
+                ));
+                // (the DCS was just decoded, so its V.21 burst is normally still on)
+                self.foreign = Some(if self.peer_on {
+                    Foreign::DcsBurst
+                } else {
+                    Foreign::BeforeTcf
+                });
+            }
         }
     }
 
@@ -390,9 +474,20 @@ impl AudioEngine {
         for ev in events {
             match ev {
                 RxEvent::Training => self.feed(Event::Signal(RxSignal::Training)),
-                RxEvent::Trained => self.note(format!("{name}: trained, image data follows")),
+                RxEvent::Trained => {
+                    self.note(format!("{name}: trained, image data follows"));
+                    self.hs_octet = 0;
+                    self.hs_bits = 0;
+                    // V.29 hands out the scrambled ones of Segment 4 as its first bits
+                    self.hs_skip = match &self.hs {
+                        Some(HighSpeed::V29(r)) => v29::SEGMENT_4 * r.rate().bits_per_symbol(),
+                        _ => 0,
+                    };
+                }
                 RxEvent::Bits(bits) => {
-                    let octets = self.pack_octets(&bits);
+                    let skip = self.hs_skip.min(bits.len());
+                    self.hs_skip -= skip;
+                    let octets = self.pack_octets(&bits[skip..]);
                     if !octets.is_empty() {
                         self.feed(Event::ImageData(octets));
                     }
@@ -877,6 +972,159 @@ mod tests {
             fcfs.contains(&t30::fcf::CFR),
             "no CFR ({tcf_line:?}); frames {fcfs:02x?}"
         );
+    }
+
+    /// M5e ⑤: the trunk may offer ECM, the audio path does not.
+    #[test]
+    fn the_dis_never_offers_ecm_or_mmr() {
+        let mut cfg = AudioConfig::default();
+        cfg.t30.ecm = true;
+        cfg.t30.mmr = true;
+        let mut e = AudioEngine::new(cfg);
+        e.start();
+        let out = run(&mut e, &[], 6_000);
+        let frames = frames_in(&out[1600 + 24_000..]);
+        let dis = frames
+            .iter()
+            .find(|f| f[2] == t30::fcf::DIS)
+            .unwrap_or_else(|| panic!("no DIS in {frames:02x?}"));
+        let dis = t30::Dis::parse(&dis[3..]);
+        assert!(!dis.ecm && !dis.mmr, "DIS: {dis:?}");
+    }
+
+    /// M5e ⑥: a DCS for V.17 (not offered) and its TCF: FTT right after the TCF, not after T2.
+    #[test]
+    fn a_tcf_on_a_modem_without_a_receiver_is_answered_with_ftt_at_once() {
+        let mut e = AudioEngine::new(AudioConfig::default());
+        e.start();
+        let _ = run(&mut e, &[], 6_000);
+        let tsi = vec![0xFF, 0xC0, t30::fcf::TSI, b' ', b' ', b'1'];
+        // V.17 14400
+        let fif = vec![0x00, 0x46, 0x00];
+        assert_eq!(
+            t30::caps::parse_rate(&fif).unwrap(),
+            (t30::caps::Modem::V17, 14400)
+        );
+        let mut dcs = vec![0xFF, 0xC8, t30::fcf::DCS];
+        dcs.extend(fif);
+        let wire: Vec<Vec<u8>> = [tsi, dcs].iter().map(|f| reverse_octets(f)).collect();
+        let mut v21 = V21Tx::new(-15.0);
+        let mut peer = vec![0i16; 800];
+        peer.extend(v21.modulate(&hdlc::encode_burst(&wire, 38, 2)));
+        // 75 ms, then 1.5 s of "V.17" (any signal: there is no receiver for it)
+        peer.extend(vec![0i16; 600]);
+        let tcf_end = peer.len();
+        peer.extend(
+            V29Tx {
+                rate: v29::Rate::B9600,
+                level_dbm0: -15.0,
+                carrier_offset_hz: 0.0,
+                clock: 1.0,
+            }
+            .modulate(&vec![false; 14_400]),
+        );
+        let tcf_end = tcf_end + (peer.len() - tcf_end);
+        let out = run(&mut e, &peer, (tcf_end as u64 / 8) + 3_000);
+        let log = e.drain_log();
+        // the FTT starts (preamble) within 1 s of the end of the TCF (T2 is 6 s)
+        let window = &out[tcf_end..tcf_end + 8 * 2_500];
+        let fcfs: Vec<u8> = frames_in(window).iter().map(|f| f[2]).collect();
+        assert!(fcfs.contains(&t30::fcf::FTT), "{fcfs:02x?} {log:#?}");
+        let first_sound = window.iter().position(|&s| s != 0).unwrap_or(usize::MAX);
+        assert!(
+            first_sound < 8 * 1_000,
+            "FTT {} ms after the TCF",
+            first_sound / 8
+        );
+    }
+
+    /// M5e ⑦: the scrambled ones of V.29 Segment 4 are not counted in the TCF.
+    #[test]
+    fn a_v29_tcf_starts_after_segment_4() {
+        let (_, log) = v29_tcf(9_600, &vec![false; 14_400]);
+        let line = log
+            .iter()
+            .find(|l| l.starts_with("TCF:"))
+            .unwrap_or_else(|| panic!("{log:#?}"));
+        // "TCF: n octets (need m), z of t bits zero": the ones left are the end of the
+        // carrier (the test transmitter's tail of 8 symbols and the 10 ms it takes to hear the
+        // end, about 72 bits); Segment 4 alone would add 192
+        let nums: Vec<u64> = line
+            .split(|c: char| !c.is_ascii_digit())
+            .filter_map(|w| w.parse().ok())
+            .collect();
+        let (zero, total) = (nums[2], nums[3]);
+        assert!(total - zero <= 100, "{line}");
+    }
+
+    /// M5e ④: a 20 ms packet lost in the middle of a TCF of zeros: the receiver keeps going and
+    /// the TCF is still good (before, the gap ended the carrier and the TCF was too short).
+    #[test]
+    fn a_lost_packet_in_the_middle_of_a_tcf_does_not_end_it() {
+        for rate in [9_600u32, 7_200] {
+            let modem = if rate == 9600 {
+                v29::Rate::B9600
+            } else {
+                v29::Rate::B7200
+            };
+            let mut e = AudioEngine::new(AudioConfig::default());
+            e.start();
+            let _ = run(&mut e, &[], 6_000);
+            let tsi = vec![0xFF, 0xC0, t30::fcf::TSI, b' ', b' ', b'1'];
+            let mut dcs = vec![0xFF, 0xC8, t30::fcf::DCS];
+            dcs.extend(dcs_fif_v29(rate));
+            send_v21(&mut e, &[tsi, dcs]);
+            let input = v29_sender(modem)(&vec![false; rate as usize * 3 / 2]);
+            let mut out = Vec::new();
+            let blocks = input.len() / 160 + 1 + 200;
+            // a block about 0.9 s into the TCF is lost
+            let lost = (8 * 900 + 400 + 8 * 300) / 160;
+            for b in 0..blocks {
+                let mut rx = [0i16; 160];
+                let from = (b * 160).min(input.len());
+                let n = input.len().saturating_sub(from).min(160);
+                rx[..n].copy_from_slice(&input[from..from + n]);
+                let mut tx = [0i16; 160];
+                if b == lost {
+                    e.process_lost(160, &mut tx);
+                } else {
+                    e.process(&rx, &mut tx);
+                }
+                out.extend_from_slice(&tx);
+            }
+            let fcfs: Vec<u8> = frames_in(&out).iter().map(|f| f[2]).collect();
+            let log = e.drain_log();
+            assert!(
+                fcfs.contains(&t30::fcf::CFR),
+                "{rate}: {fcfs:02x?} {:?}",
+                log.iter().find(|l| l.starts_with("TCF:"))
+            );
+        }
+    }
+
+    /// M5e ④: an outage longer than `max_lost_skip_ms` is silence, so the signal ends.
+    #[test]
+    fn a_long_outage_counts_as_silence() {
+        let mut e = AudioEngine::new(AudioConfig::default());
+        e.start();
+        let _ = run(&mut e, &[], 6_000);
+        let mut v21 = V21Tx::new(-15.0);
+        let flags = v21.modulate(&hdlc::encode_burst(&[], 38, 0));
+        let _ = run(
+            &mut e,
+            &flags[..flags.len() / 160 * 160],
+            flags.len() as u64 / 8,
+        );
+        assert!(e.peer_on, "the flags are heard");
+        let mut tx = [0i16; 160];
+        for _ in 0..3 {
+            e.process_lost(160, &mut tx);
+        }
+        assert!(e.peer_on, "60 ms lost: skipped");
+        for _ in 0..2 {
+            e.process_lost(160, &mut tx);
+        }
+        assert!(!e.peer_on, "100 ms lost: silence, the signal has ended");
     }
 
     #[test]

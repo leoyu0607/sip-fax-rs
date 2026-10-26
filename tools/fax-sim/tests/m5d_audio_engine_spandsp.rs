@@ -88,7 +88,8 @@ struct Outcome {
     engine_tx: Vec<i16>,
 }
 
-type Up<'a> = &'a mut dyn FnMut(&AudioEngine, u64, &mut [i16]);
+/// Returns `true` when the block is lost (the engine is told so, M5e ④).
+type Up<'a> = &'a mut dyn FnMut(&AudioEngine, u64, &mut [i16]) -> bool;
 type Down<'a> = &'a mut dyn FnMut(u64, &mut [i16]);
 
 /// One call; `up` sees SpanDSP's audio on its way to the engine (and the engine), `down` the
@@ -118,9 +119,13 @@ fn call_with(o: &Opts, up: Up, down: Down) -> Outcome {
     while sim_ms < 900_000 && !(engine.is_done() && caller.completion_code().is_some()) {
         let mut from_caller = [0i16; 160];
         caller.tx(&mut from_caller);
-        up(&engine, sim_ms, &mut from_caller);
+        let lost = up(&engine, sim_ms, &mut from_caller);
         let mut from_engine = [0i16; 160];
-        engine.process(&from_caller, &mut from_engine);
+        if lost {
+            engine.process_lost(from_caller.len(), &mut from_engine);
+        } else {
+            engine.process(&from_caller, &mut from_engine);
+        }
         engine_tx.extend_from_slice(&from_engine);
         down(sim_ms, &mut from_engine);
         caller.rx(&mut from_engine);
@@ -138,7 +143,7 @@ fn call_with(o: &Opts, up: Up, down: Down) -> Outcome {
 }
 
 fn call(o: &Opts) -> Outcome {
-    call_with(o, &mut |_, _, _| {}, &mut |_, _| {})
+    call_with(o, &mut |_, _, _| false, &mut |_, _| {})
 }
 
 // ------------------------------------------------------------------------------- assertions
@@ -279,6 +284,7 @@ fn m02_v29_with_line_noise_in_three_seeds() {
                         .round()
                         .clamp(-32768.0, 32767.0) as i16;
                 }
+                false
             },
             &mut |_, _| {},
         );
@@ -323,13 +329,13 @@ fn tcf_burst(
     from_ms: u64,
     to_ms: u64,
     seed: u64,
-) -> impl FnMut(&AudioEngine, u64, &mut [i16]) {
+) -> impl FnMut(&AudioEngine, u64, &mut [i16]) -> bool {
     let mut noise = Noise(SplitMix64::new(seed));
     let mut entered: Option<u64> = None;
     let mut done = false;
     move |e, t, a| {
         if done {
-            return;
+            return false;
         }
         if entered.is_none() && e.state() == t30::State::RxTcf {
             entered = Some(t);
@@ -346,6 +352,7 @@ fn tcf_burst(
                 done = true;
             }
         }
+        false
     }
 }
 
@@ -389,6 +396,7 @@ fn m04_constant_noise_that_fails_9600_is_recorded() {
                         .round()
                         .clamp(-32768.0, 32767.0) as i16;
                 }
+                false
             },
             &mut |_, _| {},
         );
@@ -435,7 +443,9 @@ fn lost_packet_in_page_two() -> (Outcome, Vec<PageSpec>, u64) {
             if entered == 2 && rx && dropped_at.is_none() && t >= t_in + 600 {
                 a.fill(0);
                 dropped_at = Some(t);
+                return true;
             }
+            false
         },
         &mut |_, _| {},
     );
@@ -580,7 +590,7 @@ fn m06_a_lost_mcf_is_repeated_not_taken_for_a_new_page() {
     // the EOP of the last page)
     for (k, name) in [(0usize, "after the first MPS"), (2, "after the last EOP")] {
         let lost = mcf[k].clone();
-        let o = call_with(&opts, &mut |_, _, _| {}, &mut |t, a| {
+        let o = call_with(&opts, &mut |_, _, _| false, &mut |t, a| {
             let from = (t / 20) as usize * 160;
             for (i, s) in a.iter_mut().enumerate() {
                 if lost.contains(&(from + i)) {
@@ -621,32 +631,17 @@ fn m07_a_caller_with_ecm_gets_a_non_ecm_call_because_our_dis_has_no_ecm() {
     assert!(!o.result.as_ref().unwrap().ecm, "the call used ECM");
 }
 
-/// ECM on the audio path is not implemented: `AudioEngine` hands the octets of the high speed
-/// receiver to T.30 as image data, and an ECM call carries HDLC frames in them. With ECM
-/// enabled in the engine's T.30 configuration, the call must not "succeed" with garbage; recorded.
+/// ECM on the audio path is not implemented, so `AudioEngine` turns it off whatever the
+/// configuration says (M5e ⑤): a trunk with `ecm = true` still receives over G.711, without ECM.
 #[test]
-fn m07_ecm_on_the_audio_path_is_not_supported_recorded() {
+fn m07_ecm_enabled_for_the_engine_is_turned_off_on_the_audio_path() {
     let specs = vec![PageSpec::fine(300)];
     let mut opts = Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29);
     opts.ecm_caller = true;
     opts.ecm_engine = true;
     let o = call(&opts);
-    let r = o.result.as_ref();
-    eprintln!(
-        "M07 ECM on both sides: engine done {} ({} ms); ours {:?}; pages {}; SpanDSP {:?}; log tail {:#?}",
-        o.engine_done,
-        o.sim_ms,
-        r.map(|r| (r.code, r.ecm, r.pages)),
-        o.pages.len(),
-        o.caller_code,
-        &o.log[o.log.len().saturating_sub(10)..]
-    );
-    assert!(o.engine_done, "the call must end");
-    // anything the engine delivered as a page must be the right page (no garbage accepted)
-    for (i, p) in o.pages.iter().enumerate() {
-        assert_page_exact(&o, i, &specs[i.min(specs.len() - 1)]);
-        let _ = p;
-    }
+    assert_received(&o, &specs, t30::Modem::V29, &[9600]);
+    assert!(!o.result.as_ref().unwrap().ecm, "the call used ECM");
 }
 
 // ===========================================================================================
@@ -659,7 +654,7 @@ fn m08_the_caller_sends_cng_all_through_our_ced_and_dis_and_does_not_hear_them()
     let specs = vec![PageSpec::fine(300)];
     let o = call_with(
         &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
-        &mut |_, _, _| {},
+        &mut |_, _, _| false,
         &mut |t, a| {
             if t < 7_000 {
                 a.fill(0);

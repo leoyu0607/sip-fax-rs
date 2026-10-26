@@ -12,6 +12,54 @@ pub const CED_HZ: f32 = 2100.0;
 pub const ON_DBM0: f32 = -43.0;
 /// Below this a present signal has ended (5 dB of hysteresis).
 pub const OFF_DBM0: f32 = -48.0;
+/// A present signal has also ended when it drops this far below its own level: on a line whose
+/// noise is above [`OFF_DBM0`] the absolute threshold is never reached (M5c report §5 ①).
+pub const END_DROP_DB: f32 = 10.0;
+/// A new signal must also be this far above the noise heard before it.
+pub const START_RISE_DB: f32 = 10.0;
+
+/// The turn-off threshold of a signal whose level is `signal_dbm0`: [`OFF_DBM0`], or
+/// [`END_DROP_DB`] below the signal when that is higher.
+pub fn off_threshold(signal_dbm0: f32) -> f32 {
+    OFF_DBM0.max(signal_dbm0 - END_DROP_DB)
+}
+
+/// The level of a signal as it goes on, in dB: an average over about 50 ms that a block
+/// already below the turn-off threshold does not pull down.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SignalLevel {
+    level: Option<f32>,
+}
+
+impl SignalLevel {
+    /// Forgets the signal.
+    pub fn reset(&mut self) {
+        self.level = None;
+    }
+
+    /// The level so far (`None` before the first block).
+    pub fn get(&self) -> Option<f32> {
+        self.level
+    }
+
+    /// The turn-off threshold now.
+    pub fn off_threshold(&self) -> f32 {
+        self.level.map_or(OFF_DBM0, off_threshold)
+    }
+
+    /// Takes in the level of one block; returns whether the block is below the turn-off
+    /// threshold (and then leaves the average alone).
+    pub fn is_quiet(&mut self, block_dbm0: f32) -> bool {
+        if block_dbm0 < self.off_threshold() {
+            return true;
+        }
+        self.level = Some(match self.level {
+            None => block_dbm0,
+            Some(l) => l + 0.1 * (block_dbm0 - l),
+        });
+        false
+    }
+}
 
 // ------------------------------------------------------------------------------------------ CNG
 
@@ -157,7 +205,8 @@ pub enum Presence {
     Off(u64),
 }
 
-/// Tells when a signal starts (≥ −43 dBm0 for 15 ms) and ends (< −48 dBm0 for 10 ms); the
+/// Tells when a signal starts (≥ −43 dBm0, and [`START_RISE_DB`] above the noise heard before,
+/// for 15 ms) and ends (< −48 dBm0, or [`END_DROP_DB`] below its own level, for 10 ms); the
 /// positions are those of the first block of the run, so within 5 ms of the truth.
 #[derive(Debug, Clone, Default)]
 pub struct PresenceDetector {
@@ -166,6 +215,12 @@ pub struct PresenceDetector {
     on: bool,
     run: u32,
     run_start: u64,
+    /// The level of the signal while it is on.
+    signal: SignalLevel,
+    /// The noise while no signal is on (dBm0): follows a drop at once, a rise slowly.
+    floor: Option<f32>,
+    /// The level of the first block of the current run.
+    run_level: f32,
 }
 
 impl PresenceDetector {
@@ -192,9 +247,19 @@ impl PresenceDetector {
             let level = dbm0(block_mean_square(&self.block));
             self.block.clear();
             let flips = if self.on {
-                level < OFF_DBM0
+                self.signal.is_quiet(level)
             } else {
-                level >= ON_DBM0
+                // the first block only tells the noise (a signal already on then is missed
+                // until it ends)
+                let floor = self.floor.unwrap_or(level);
+                let loud = level >= ON_DBM0 && level >= floor + START_RISE_DB;
+                if !loud {
+                    self.floor = Some(match self.floor {
+                        Some(f) if level > f => f + 0.02 * (level - f),
+                        _ => level,
+                    });
+                }
+                loud
             };
             if !flips {
                 self.run = 0;
@@ -202,6 +267,7 @@ impl PresenceDetector {
             }
             if self.run == 0 {
                 self.run_start = start;
+                self.run_level = level;
             }
             self.run += 1;
             let needed = if self.on { OFF_BLOCKS } else { ON_BLOCKS };
@@ -209,8 +275,12 @@ impl PresenceDetector {
                 self.on = !self.on;
                 self.run = 0;
                 out.push(if self.on {
+                    self.signal.reset();
+                    self.signal.is_quiet(level);
                     Presence::On(self.run_start)
                 } else {
+                    // what is left is the line's noise
+                    self.floor = Some(self.run_level);
                     Presence::Off(self.run_start)
                 });
             }
@@ -271,5 +341,47 @@ mod tests {
         let mut click = vec![0i16; 400];
         click[100..140].copy_from_slice(&sine(1650.0, -10.0, 5));
         assert!(PresenceDetector::new().feed(&click).is_empty());
+    }
+
+    /// White noise at `dbm0` (xorshift, uniform: the level is what counts here).
+    fn noise(dbm0: f32, n: usize, seed: u64) -> Vec<i16> {
+        let mut x = seed | 1;
+        let a = crate::level::mean_square(dbm0).sqrt() * 3f32.sqrt();
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                ((x >> 11) as f32 / (1u64 << 53) as f32 * 2.0 - 1.0) * a
+            })
+            .map(|v| v as i16)
+            .collect()
+    }
+
+    #[test]
+    fn presence_hears_the_end_of_a_signal_on_a_line_noisier_than_the_off_threshold() {
+        for (seed, noise_dbm0) in [(1, -44.0), (2, -35.0), (3, -30.0)] {
+            let mut d = PresenceDetector::new();
+            let mut s = noise(noise_dbm0, 4000, seed);
+            let tone = sine(1650.0, -14.0, 500);
+            let n = noise(noise_dbm0, tone.len(), seed + 10);
+            s.extend(tone.iter().zip(&n).map(|(a, b)| a.saturating_add(*b)));
+            s.extend(noise(noise_dbm0, 8000, seed + 20)); // the signal ends at sample 8000
+            let ev = d.feed(&s);
+            assert_eq!(ev.len(), 2, "{noise_dbm0} dBm0 noise: {ev:?}");
+            match (ev[0], ev[1]) {
+                (Presence::On(on), Presence::Off(off)) => {
+                    assert!(on.abs_diff(4000) <= 40, "{noise_dbm0}: on at {on}");
+                    assert!(off.abs_diff(8000) <= 40, "{noise_dbm0}: off at {off}");
+                }
+                other => panic!("{noise_dbm0}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn steady_noise_above_the_on_threshold_is_not_a_signal() {
+        let mut d = PresenceDetector::new();
+        assert!(d.feed(&noise(-30.0, 16_000, 5)).is_empty());
     }
 }

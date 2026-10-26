@@ -25,7 +25,7 @@
 use crate::SAMPLE_RATE;
 use crate::dsp::{C32, Loop2, cubic, rrc_taps, wrap};
 use crate::level::{block_mean_square, dbm0};
-use crate::tone::OFF_DBM0;
+use crate::tone::{OFF_DBM0, SignalLevel};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
@@ -246,6 +246,8 @@ pub struct V27terRx {
     /// turn-on threshold: a signal at -43 dBm0 has its Segment 3 blocks just below it.)
     loud: bool,
     quiet: u32,
+    /// The level of the signal since the training was found, for the end of the carrier.
+    signal: SignalLevel,
     #[cfg(test)]
     pub(crate) trace: Vec<(u8, f32, f32)>,
     #[cfg(test)]
@@ -290,6 +292,7 @@ impl V27terRx {
             block: Vec::with_capacity(BLOCK),
             loud: false,
             quiet: 0,
+            signal: SignalLevel::default(),
             #[cfg(test)]
             trace: Vec::new(),
             #[cfg(test)]
@@ -347,7 +350,12 @@ impl V27terRx {
         self.block.clear();
         self.loud = level >= OFF_DBM0;
         if self.stage != Stage::Acquire {
-            self.quiet = if level < OFF_DBM0 { self.quiet + 1 } else { 0 };
+            // the end: below −48 dBm0, or 10 dB below the signal (a noisy line)
+            self.quiet = if self.signal.is_quiet(level) {
+                self.quiet + 1
+            } else {
+                0
+            };
             if self.quiet >= 2 {
                 if !bits.is_empty() {
                     ev.push(RxEvent::Bits(std::mem::take(bits)));
@@ -937,6 +945,36 @@ mod tests {
         let mut rx = Scrambler::with_register(TRAIN_REGISTER);
         let back: Vec<bool> = line.iter().map(|&l| rx.descramble(l)).collect();
         assert_eq!(back, data);
+    }
+
+    /// On a line whose noise is above −48 dBm0 the end of the carrier is still heard: the
+    /// signal drops 10 dB below its own level (M5e, ADR-066).
+    #[test]
+    fn the_carrier_end_is_heard_in_noise_above_the_off_threshold() {
+        for rate in [Rate::B4800, Rate::B2400] {
+            for seed in 1..=3u64 {
+                let tx = testtx::Tx {
+                    rate,
+                    level_dbm0: -14.0,
+                    long: false,
+                    carrier_offset_hz: 0.0,
+                    clock: 1.0,
+                };
+                let mut audio = tx.modulate(&prbs(4800, seed as u32));
+                audio.extend(vec![0i16; 4000]);
+                // noise everywhere at -34 dBm0: 20 dB below the signal, 14 dB above -48
+                let n = noise(-34.0, audio.len(), seed + 40);
+                for (a, b) in audio.iter_mut().zip(n) {
+                    *a = a.saturating_add(b);
+                }
+                let mut rx = V27terRx::new(rate);
+                let (ev, _) = receive(&mut rx, &audio);
+                assert!(
+                    ev.ends_with(&[RxEvent::CarrierLost]) && ev.contains(&RxEvent::Trained),
+                    "{rate:?} seed {seed}: {ev:?}"
+                );
+            }
+        }
     }
 
     /// Noise at `level` dBm0 (fixed-seed Gaussian), `n` samples.
