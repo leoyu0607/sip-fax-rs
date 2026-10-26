@@ -77,13 +77,14 @@ impl RtpPacket {
     }
 
     /// The datagram (no padding is added). At most 15 CSRCs are written; extension data is
-    /// padded with zeros to a multiple of 4 bytes.
+    /// padded with zeros to a multiple of 4 bytes and cut at 65 535 words (the length field).
     pub fn encode(&self) -> Vec<u8> {
         let cc = self.csrc.len().min(15);
         let ext_words = self
             .extension
             .as_ref()
-            .map_or(0, |e| e.data.len().div_ceil(4));
+            .map_or(0, |e| e.data.len().div_ceil(4))
+            .min(usize::from(u16::MAX));
         let mut buf =
             Vec::with_capacity(RTP_HEADER_SIZE + 4 * cc + 4 + 4 * ext_words + self.payload.len());
         let x = if self.extension.is_some() { 0x10 } else { 0 };
@@ -98,8 +99,9 @@ impl RtpPacket {
         if let Some(e) = &self.extension {
             buf.extend_from_slice(&e.profile.to_be_bytes());
             buf.extend_from_slice(&(ext_words as u16).to_be_bytes());
-            buf.extend_from_slice(&e.data);
-            buf.resize(buf.len() + (4 * ext_words - e.data.len()), 0);
+            let data = &e.data[..e.data.len().min(4 * ext_words)];
+            buf.extend_from_slice(data);
+            buf.resize(buf.len() + (4 * ext_words - data.len()), 0);
         }
         buf.extend_from_slice(&self.payload);
         buf
@@ -180,6 +182,18 @@ impl RtpPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_extension_longer_than_its_length_field_is_cut_not_corrupted() {
+        let mut pkt = RtpPacket::new(0, 1, 2, 3, vec![0x55; 4]);
+        pkt.extension = Some(Extension {
+            profile: 1,
+            data: vec![7; 4 * 65_536 + 3],
+        });
+        let p = RtpPacket::decode(&pkt.encode()).unwrap();
+        assert_eq!(p.extension.unwrap().data, vec![7; 4 * 65_535]);
+        assert_eq!(p.payload, vec![0x55; 4]);
+    }
 
     // Sipress' original test, kept (with the new constructor).
     #[test]

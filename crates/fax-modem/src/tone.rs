@@ -145,8 +145,8 @@ impl ToneGenerator {
             step: 2.0 * std::f32::consts::PI * freq / crate::SAMPLE_RATE as f32,
             phase: 0.0,
             amplitude: sine_amplitude(level_dbm0),
-            on: on_ms * crate::SAMPLE_RATE / 1000,
-            off: off_ms * crate::SAMPLE_RATE / 1000,
+            on: on_ms.saturating_mul(crate::SAMPLE_RATE / 1000),
+            off: off_ms.saturating_mul(crate::SAMPLE_RATE / 1000),
         }
     }
 
@@ -157,7 +157,7 @@ impl ToneGenerator {
 
     /// Samples still to come.
     pub fn remaining(&self) -> u32 {
-        self.on + self.off
+        self.on.saturating_add(self.off)
     }
 
     /// Fills `out` from the start; returns how many samples were written (less than `out.len()`
@@ -292,6 +292,18 @@ impl PresenceDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_very_long_tone_does_not_overflow() {
+        assert_eq!(
+            ToneGenerator::new(1100.0, -10.0, 600_000, 0).remaining(),
+            4_800_000
+        );
+        assert_eq!(
+            ToneGenerator::new(1100.0, -10.0, u32::MAX, 0).remaining(),
+            u32::MAX
+        );
+    }
 
     fn sine(freq: f32, dbm0: f32, ms: u32) -> Vec<i16> {
         let mut g = ToneGenerator::new(freq, dbm0, ms, 0);

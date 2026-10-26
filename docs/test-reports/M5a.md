@@ -4,7 +4,7 @@
 - 計畫：`docs/test-plans/M5.md` §0–§4；ADR-061
 - 分支：`m5`（本報告在其上的工作分支）
 - 範圍：G01–G04、J01–J05、J07、N01–N04。**G05（SDP 協商）與 J06（送端 20 ms pacing）延到 M5e**（程式還沒有實作）。
-- 狀態：（待審核）
+- 狀態：Opus 審核通過（2026-10-26，見 §9）
 
 ## 1. 環境
 
@@ -59,7 +59,7 @@ SpanDSP 的 `alaw_to_linear`、`ulaw_to_linear`、`linear_to_alaw`、`linear_to_
 | N03 | `tools/fax-sim/tests/n03_ced_spandsp.rs::n03_spandsp_detects_our_ced_at_every_level`、`n03_spandsp_detects_our_ced_with_noise_and_in_three_seeds`、`n03_the_same_receiver_also_takes_ced_given_as_ced_or_preamble` | **SpanDSP `modem_connect_tones_rx`**（`MODEM_CONNECT_TONES_ANS`）偵測我方 CED：−10 到 −30 dBm0；3 個 seed × (−10 dBm0／SNR 30)、(−20／25)、(−30／20) 的雜訊；以 `FAX_CED_OR_PREAMBLE` 模式也偵測得到；偵測發生在音持續期間，不早於起點 | 通過（Docker） |
 | N03 | `tools/fax-sim/tests/n03_ced_spandsp.rs::n03_spandsp_does_not_take_other_tones_for_ced_and_ours_is_not_a_cng`、`n03_our_cng_detector_and_spandsp_agree_on_a_cng_train` | 反向對照：SpanDSP 不把靜音、1100 Hz、1650 Hz 當 CED，也不把我方 CED 當 CNG，我方偵測器亦同；額外：同一串 CNG（−10／−20／−30 dBm0，4 個 burst）我方偵測 4 次、SpanDSP 的 CNG 偵測器也偵測得到（N01 的獨立對照，計畫沒有要求） | 通過（Docker） |
 | N04 | `m5a_n.rs::n04_start_and_end_are_found_within_10_ms_of_the_truth_at_every_level_above_the_threshold` | 3 個 seed × 電平 −10／−20／−30／−40／−42.5 dBm0 × 頻率 1650／1850／2100／1100 Hz，起訖樣本隨機：恰兩個事件（`On`、`Off`），位置與真實起訖的差在 ±40 個樣本（5 ms，一個區塊）以內，遠小於要求的 ±10 ms（見 §4 ⑤） | 通過 |
-| N04 | `m5a_n.rs::n04_the_events_are_returned_15_ms_and_10_ms_after_the_truth`、`n04_the_threshold_is_minus_43_dbm0_and_the_end_minus_48`、`n04_hysteresis_a_signal_that_fades_between_43_and_48_stays_present` | 事件實際回傳的時間（debounce）：`On` 約 15 ms 後、`Off` 約 10 ms 後；常數＝−43／−48；−44 dBm0 以下的 1 s 訊號不啟動、−42／−41 啟動；先 −30 再降到 −45（兩個門檻之間）時維持存在，降到 −50 才 `Off`（位置在降低處 ±10 ms）；一直停在 −45 的訊號不啟動 | 通過 |
+| N04 | `m5a_n.rs::n04_the_events_are_returned_15_ms_and_10_ms_after_the_truth`、`n04_the_threshold_is_minus_43_dbm0_and_the_end_minus_48`、`n04_hysteresis_a_signal_that_fades_between_43_and_48_stays_present` | 事件實際回傳的時間（debounce）：`On` 約 15 ms 後、`Off` 約 10 ms 後；常數＝−43／−48；−44 dBm0 以下的 1 s 訊號不啟動、−42／−41 啟動；先 −38 再降到 −45（兩個門檻之間）時維持存在，降到 −50 才 `Off`（位置在降低處 ±10 ms）（M5e 起：從 −30 降到 −45 是降 15 dB，依 ADR-066 本身就是訊號結束，所以起始電平改為 −38）；一直停在 −45 的訊號不啟動 | 通過 |
 | N04 | `m5a_n.rs::n04_clicks_up_to_5_ms_are_not_a_signal_but_15_ms_are`、`n04_several_bursts_a_noisy_line_and_chunked_feeding`、`n04_is_on_follows_the_events` | 5 ms（−10 dBm0）的突波在每種對齊下都不是訊號，20 ms 的是；3 個 seed：−60 dBm0 背景雜訊上 4 個隨機長度 burst，8 個事件的位置都在 ±80 個樣本以內，任意分塊（33、160、1000、8000）事件完全相同；`is_on` 與事件一致、恰好兩次邊緣 | 通過 |
 | N（性質） | `m5a_n.rs::n_proptest_any_input_never_panics_the_detectors_and_events_are_consistent` | proptest（3 個 seed × 300 組）：任意樣本（亂數、定值長串、全刻度極值）、任意分塊餵 `CngDetector` 與 `PresenceDetector`：不 panic；事件 On／Off 交替、位置不減且在輸入範圍內、`is_on` 與最後事件一致 | 通過 |
 | N（性質） | `m5a_n.rs::n_proptest_goertzel_and_level_functions_take_any_number`、`n_proptest_the_tone_generator_writes_exactly_its_length_for_any_frequency_and_level`、`n_proptest_a_loud_unpredictable_input_never_looks_like_cng` | proptest：`Goertzel`（任意 f32，含 NaN／無限大）、`dbm0`、`sine_amplitude`、`mean_square` 任意輸入不 panic；`ToneGenerator`（任意頻率與電平，0–400 ms／0–200 ms，任意分塊）寫出的樣本數恰為 `remaining()`，結束後 `fill` 回 0；10 分鐘的全範圍隨機樣本 CNG 誤判 0 次（3 個 seed） | 通過 |
@@ -132,6 +132,15 @@ cargo fmt --all --check
 
 **沒有執行**：`scripts/ci-local.sh` 與完整 `scripts/e2e-docker.sh`（依指示）、musl 建置、fuzz。Windows 上標 `#[cfg(unix)]` 的測試不執行（這次沒有新增這類測試）。
 
-## 9. Opus 審核
+## 9. Opus 審核（2026-10-26）
 
-（待審核）
+**結論：通過。**
+
+- **斷言品質**：逐檔檢查每個測試的斷言。斷言數為 0 的 J03、J07 案例都把檢查放在共用函式（`j03_case`、`check_drift`），內容是逐塊比對與樣本守恆，不是空斷言。G 系列以獨立寫成的 G.711 表公式與 SpanDSP 兩個來源對照；N 系列的訊號由測試自己以 `f64` 產生，不用被測的產生器。報告 §8 的 7 項變異驗證全部被抓到，可信。
+- **過度 mock**：沒有。全部是純計算，J 系列的虛擬時鐘與 fax-in 實際用法（M5e 的 `audiosession` 每 20 ms 先 push 再 pull）一致。
+- **三個產品修正**：都正確且必要，採納。jitter buffer 見底後永久 gap 是嚴重問題（任一次大抖動都會讓整通劣化），修正後的行為也被 M5e 的 E04（±30 ms 抖動）間接驗證。μ-law 以奇對稱為準、與 SpanDSP 相同，合理。
+- **§4 與計畫的差異**：全部接受。① J01 的延遲差一包是 push／pull 順序造成，報告兩種量法都有斷言。② 預設深度 60 ms 在 ±40 ms 抖動下不保證無損：已在 M5e 以 E04（±30 ms 全部收下）確認預設值夠用，不改。⑤ N04 以回報的位置衡量（±5 ms）符合計畫本意：音訊引擎與 T.38 對照用的是訊號起訖的位置，不是事件回傳的時刻；debounce 的 15 ms／10 ms 另有測試鎖住。⑥ 語音以合成替身代替，接受，有授權錄音檔時再補。
+- **§2 N04 的遲滯案例**：M5e 的 ADR-066（相對下降 10 dB 即為訊號結束）讓原本 −30→−45 的案例變成兩段訊號，測試已在 M5e 改為 −38 起始；本次把 §2 的描述同步更新。
+- **§5 觀察到的問題**：`ToneGenerator::new` 的樣本數乘法改為飽和（`remaining` 也是），`RtpPacket::encode` 的 extension 超過 65 535 個 word 時截斷資料而不是寫出長度不符的封包；兩者都在審核時修正並附單元測試。其餘（播放前 timestamp 跳躍丟一包、ptime 中途改變的重疊、`Pull(0)` 暫時超過 `max_depth`、CNG ±38 Hz 容許度、過量時一次丟到起始深度）影響小或不會發生，維持現狀。
+- **漏測**：計畫 §1 的 fuzz 目標 `rtp_decode`、`audio_rx`（`hdlc_deframe` 在 M5b）與 criterion 效能量測沒有做；fuzz 目標發版前補上，效能量測列為 M6 待辦。G05、J06 已在 M5e 完成。
+- **涵蓋率**：fax-modem 98.64%（≥ 85%）、sip-core 93.76%（≥ 85%）；CI 的 coverage job 持續把關。
