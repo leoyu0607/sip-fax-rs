@@ -168,10 +168,11 @@ async fn run_session(env: &T38SessionEnv, mut ctx: AudioContext) -> SessionOutco
                     started = true;
                     continue;
                 }
-                if *ctx.go.borrow_and_update() {
+                let reason = ctx.go.borrow_and_update().clone();
+                if let Some(reason) = reason {
                     started = true;
                     deadline = Some(Instant::now() + ctx.max_duration.unwrap_or(env.max_duration));
-                    log.line(&format!("answering the fax ({})", ctx.audio.reason.as_deref().unwrap_or("G.711")));
+                    log.line(&format!("answering the fax ({reason})"));
                     eng.start();
                 }
             }

@@ -555,3 +555,9 @@ M5c／M5d 測試報告 §5 留下的設計問題，在接上 RTP 之前於 `fax-
 - **何時 `go`**：`audio-only` 接通時；`auto`／`initiate` 在我方 T.38 re-INVITE 被拒（488／415／606、answer 沒有可用 `m=image`、2xx 沒有 SDP）時；`wait-peer` 在 `initiate_after_secs` 內沒等到對方的 T.38 re-INVITE 時（ADR-061 沒寫到 `wait-peer`，這裡定案：不然這種 trunk 遇到不發 re-INVITE 的對方就一定失敗；送出的 CED 也常是 gateway 切 T.38 的觸發）。`go` 之後對方發 T.38 re-INVITE 仍接受並由 T.38 接手。re-INVITE 逾時或 5xx 仍記為失敗。
 - **沒有音訊 session 的 factory**（`hold`、測試用的 factory）維持 M5 之前的行為：不另配 RTP 埠、`g711_passthrough_unsupported`。
 - **紀錄**：`CallResult.audio`（codec、RTP 埠、`reason`）、`FaxReport.media` 與 `rtp` 計數、`audio.log`；DB migration 0003 加 `faxes.modem`、`faxes.media`（MySQL 的 `ADD COLUMN` 不能重跑，寫成單一陳述式，重跑時的 1060「Duplicate column name」視為完成）。
+
+## ADR-068：`audio.log` 記錄 T.30 frame；G.711 遺失 0.5 % 的門檻（2026-10-26，M5e 測試與審核）
+- **`audio.log` 記錄每個 T.30 frame**：音訊引擎把每個收到（FCS 正確）與送出的 V.21 frame 記成一行 `V.21 rx|tx <名稱> <hex>`，與數據機切換、TCF 結果、T.30 結束的行一起進 `audio.log`（計畫 E06；G.711 的現場問題只能靠它還原交握，T.38 的 `udptl.log` 已有同等資訊）。每通約多 30 行；FCS 錯的 frame 仍只記長度。
+- **E04 門檻**：計畫要求 RTP 雙向遺失 0.5 % 加抖動時每通都收下，實測 3 個 seed 有 1–2 個失敗（遺失碰上交握或頁面 training，之後 T2 逾時）。同樣條件下 SpanDSP 對 SpanDSP 失敗 17/40、我方 7/40，所以這是沒有 ECM 的 G.711 的本質，不是收端缺陷。決定：E04 改為「沒有遺失時抖動 ±30 ms 全部收下；遺失 0.5 % 時每通都乾淨結束、收下的頁在壞行門檻內，且失敗率不高於 SpanDSP 對 SpanDSP」（`e04c`），計畫字面版保留為 `#[ignore]` 的紀錄。T.38 仍是預設與優先（ADR-061）。
+- **後續改善（不擋發版）**：頁面的 training 遺失時，等影像訊號結束就回 RTN，而不是等 T2 逾時後 DCN，可讓對方重送該頁。
+

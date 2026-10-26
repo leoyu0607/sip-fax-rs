@@ -25,7 +25,7 @@ use tokio::time::Instant;
 struct Rig {
     peer: UdpSocket,
     cancel: watch::Sender<bool>,
-    _go: watch::Sender<bool>,
+    _go: watch::Sender<Option<String>>,
     task: tokio::task::JoinHandle<SessionOutcome>,
 }
 
@@ -46,7 +46,7 @@ async fn start(payload_type: u8) -> Rig {
     };
     let factory = T38SessionFactory::new(env);
     let (cancel_tx, cancel) = watch::channel(false);
-    let (go_tx, go) = watch::channel(false);
+    let (go_tx, go) = watch::channel(None);
     let ctx = AudioContext {
         call_id: "j06".into(),
         trunk: "t".into(),

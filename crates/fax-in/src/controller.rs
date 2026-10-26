@@ -979,7 +979,7 @@ struct Live<'a> {
     /// The audio of the call, while a G.711 session runs on it.
     audio: Option<AudioNegotiated>,
     /// Tells the G.711 session to answer the fax.
-    audio_go: Option<watch::Sender<bool>>,
+    audio_go: Option<watch::Sender<Option<String>>>,
     audio_cancel: Option<watch::Sender<bool>>,
     audio_report: Option<crate::event::ReportSink>,
     /// The G.711 session answers the fax (T.30 runs on the audio).
@@ -1096,7 +1096,7 @@ impl Live<'_> {
     /// The call was answered on audio: a G.711 session starts listening, if the factory has
     /// one.
     fn start_audio(&mut self, audio: AudioNegotiated) {
-        let (go_tx, go_rx) = watch::channel(false);
+        let (go_tx, go_rx) = watch::channel(None);
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let report: ReportSink = Arc::default();
         let progress = self.progress_sender();
@@ -1147,7 +1147,7 @@ impl Live<'_> {
         // the session keeps its own maximum duration from now on
         self.audio_deadline = None;
         if let Some(g) = &self.audio_go {
-            let _ = g.send(true);
+            let _ = g.send(audio.reason.clone());
         }
         true
     }

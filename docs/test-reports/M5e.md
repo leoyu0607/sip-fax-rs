@@ -128,3 +128,18 @@ cargo llvm-cov clean --workspace && T4_ORACLE=skip cargo llvm-cov -p fax-in --su
 | J06 變異對照 | `Burst`→`Skip`：catch-up 測試失敗（1 包，要 10 包）；timestamp 步階 +161：兩個測試都失敗 |
 | 修正前的失敗確認（§3） | 沒有實際還原；新增的 `V.21 rx／tx` 斷言比對的是只有 `frame_line()` 會產生的行 |
 | `scripts/ci-local.sh` | **沒有跑**（依指示；這台機器記憶體不夠）。請在 push 前於別台機器或空閒時跑 |
+
+## 9. Opus 審核（2026-10-26）
+
+**結論：通過。** E04 的計畫門檻改由 ADR-068 定案（見下），其餘案例照計畫達成。
+
+- **斷言品質**：抽查 J06、E01–E08、M04、M05b、E04c。沒有空斷言或只印不驗的案例：影像一律以 libtiff 與 poppler 逐像素比對，DB 列、`result.json`、`audio.log` 都有逐欄斷言；J06 附變異對照（`Skip`、+161 都會被抓到）。E04 的「記錄」測試仍有實質斷言（失敗必須乾淨結束、收下的頁必須在壞行門檻內），計畫字面版以 `#[ignore]` 保留，沒有被放寬後當成通過。
+- **過度 mock**：沒有。E 系列是真的 `sip-faxd serve`、真的 UDP、SpanDSP 的音訊數據機；J06 用暫停時鐘但 socket 是真的。
+- **產品修正**（`audio.log` 記 V.21 frame）：小而正確，有單元測試；採納，併入 ADR-068。
+- **E04（遺失 0.5 %）**：接受為未達成，不修。SpanDSP 對 SpanDSP 在同樣條件下失敗 17/40，我方 7/40，可見這是 G.711 沒有 ECM 時的本質，不是我方收端的缺陷；計畫的「全部收下」是 Opus 寫計畫時的估計。T.38 預設優先（ADR-061）正是為此。報告提出的「頁面 training 遺失後等影像訊號結束就回 RTN，不等 T2」列為後續改善（TODO M6），不擋發版。
+- **E05 的 Web `fax.progress`**：接受。`fax.progress` 與 DB 的 `pages` 來自同一個 `RecordWritten::Pages`，T.38 路徑已有 Playwright U11 端到端驗證，傳輸方式不影響這段。
+- **偶發風險**：`e04_loss_half_percent_with_jitter_three_seeds_recorded` 的「至少 1 通收下」依實際時序而定；目前 seed 3 每次收下。若 CI 出現偶發失敗，改為只斷言乾淨結束。
+- **M04**：最終速率降到 2400（計畫寫 7200 或 4800），是 SpanDSP 的降速路徑，接受。
+- **報告 §5 的 `answering the fax (G.711)` 沒帶原因**：`go_audio` 有記原因，但 session 的 `ctx.audio.reason` 是開始監聽時的副本（`None`）。小問題，Opus 已在審核時修正（`AudioContext` 改在 `go` 時以 `go` 通道一併帶入原因，見下一個 commit）。
+- **涵蓋率**：fax-in 93.78%（門檻 70%），fax-modem 維持 ≥ 85%。
+

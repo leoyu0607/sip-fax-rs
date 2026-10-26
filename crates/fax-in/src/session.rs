@@ -78,9 +78,9 @@ pub struct AudioContext {
     pub report: ReportSink,
     /// Page count after every page T.30 confirms, as for T.38.
     pub progress: Option<tokio::sync::mpsc::UnboundedSender<u32>>,
-    /// Turns `true` when the session is to answer the fax (CED, DIS); until then it only
-    /// listens and sends silence.
-    pub go: watch::Receiver<bool>,
+    /// Becomes `Some(reason)` when the session is to answer the fax (CED, DIS); until then it
+    /// only listens and sends silence.
+    pub go: watch::Receiver<Option<String>>,
     /// Turns `true` when the call ends underneath the session, or T.38 takes over.
     pub cancel: watch::Receiver<bool>,
     /// Our station id (CSI). `None`: the factory's.
