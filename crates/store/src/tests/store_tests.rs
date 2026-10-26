@@ -347,7 +347,7 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
         "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'faxes' AND index_name LIKE 'idx_faxes_%'",
     )
     .await;
-    assert_eq!(idx, 7);
+    assert_eq!(idx, 8);
     // running the whole file a second time is harmless as well
     for stmt in &stmts {
         env.store.raw().execute(stmt, &[]).await.unwrap();

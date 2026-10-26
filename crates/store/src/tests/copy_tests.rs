@@ -1536,7 +1536,8 @@ async fn c13_body(env: &Env) {
         }
         BackendKind::Postgres => be
             .query(
-                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()",
+                // the view fax_records (0004) is not a table and is not copied
+                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )
@@ -1544,7 +1545,7 @@ async fn c13_body(env: &Env) {
             .unwrap(),
         BackendKind::Mysql => be
             .query(
-                "SELECT CAST(table_name AS CHAR), CAST(column_name AS CHAR) FROM information_schema.columns WHERE table_schema = DATABASE()",
+                "SELECT CAST(table_name AS CHAR), CAST(column_name AS CHAR) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )
@@ -1552,7 +1553,7 @@ async fn c13_body(env: &Env) {
             .unwrap(),
         BackendKind::Mssql => be
             .query(
-                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = SCHEMA_NAME()",
+                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = SCHEMA_NAME() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )

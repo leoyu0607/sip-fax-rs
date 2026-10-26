@@ -20,7 +20,8 @@ CREATE TABLE api_keys (
 
 CREATE INDEX idx_faxes_updated ON faxes (updated_at, id);
 
-CREATE VIEW fax_records AS
+-- CREATE VIEW has to be the only statement of its batch: EXEC runs it as one.
+EXEC(N'CREATE VIEW fax_records AS
 SELECT id, call_id, trunk, ani, ani_source, dnis, dnis_source, remote_ident,
   started_at, answered_at, ended_at, duration_sec,
   hangup_direction, hangup_code, hangup_text, sip_status, t30_code,
@@ -30,4 +31,4 @@ SELECT id, call_id, trunk, ani, ani_source, dnis, dnis_source, remote_ident,
   tiff_size, pdf_size, files_purged_at,
   is_read, read_changed_by, read_changed_at, note, note_updated_by, note_updated_at,
   created_at, updated_at
-FROM faxes;
+FROM faxes');

@@ -130,7 +130,7 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success(), "{}", err(&o));
     assert!(
-        out(&o).contains("database sqlite: schema version 0 -> 3 (applied 0001, 0002, 0003)"),
+        out(&o).contains("database sqlite: schema version 0 -> 4 (applied 0001, 0002, 0003, 0004)"),
         "{}",
         out(&o)
     );
