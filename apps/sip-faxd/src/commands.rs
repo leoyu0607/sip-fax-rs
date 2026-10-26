@@ -548,10 +548,26 @@ async fn check_and_report(url: &str, shown: &str) -> ExitCode {
     }
 }
 
-/// An error message with the URL's password replaced (drivers sometimes echo the URL).
+/// An error message with the URL's password replaced: drivers sometimes echo the URL, and a
+/// message could also carry the password alone (as written in the URL or decoded).
 fn mask_secrets(msg: &str, url: &str) -> String {
-    let masked = mask_url(url);
-    msg.replace(url, &masked)
+    let mut out = msg.replace(url, &mask_url(url));
+    let password = url
+        .split_once("://")
+        .map(|(_, rest)| rest.split(['/', '?']).next().unwrap_or(rest))
+        .and_then(|authority| authority.rsplit_once('@'))
+        .and_then(|(userinfo, _)| userinfo.split_once(':'))
+        .map(|(_, pw)| pw);
+    if let Some(pw) = password {
+        let decoded = percent_encoding::percent_decode_str(pw).decode_utf8_lossy();
+        // very short ones would mask unrelated text; they are not worth protecting anyway
+        for secret in [pw, decoded.as_ref()] {
+            if secret.len() >= 4 {
+                out = out.replace(secret, "***");
+            }
+        }
+    }
+    out
 }
 
 /// What a connection error usually means, from the drivers' messages.
@@ -766,8 +782,27 @@ pub async fn purge_daily(db: Arc<Db>, data_dir: PathBuf) {
 
 #[cfg(test)]
 mod tests {
-    //! F05: the route summary of `config check`.
+    //! F05: the route summary of `config check`; the masking of database errors.
     use super::*;
+
+    #[test]
+    fn mask_secrets_hides_the_url_and_the_password_alone() {
+        let url = "postgres://fax:p%40ss%20w0rd@db.example.com:5432/fax";
+        let msg =
+            format!("cannot connect to {url}; password 'p@ss w0rd' refused (raw p%40ss%20w0rd)");
+        let m = mask_secrets(&msg, url);
+        assert!(
+            m.contains("postgres://fax:***@db.example.com:5432/fax"),
+            "{m}"
+        );
+        assert!(
+            !m.contains("p@ss w0rd") && !m.contains("p%40ss%20w0rd"),
+            "{m}"
+        );
+        // no password: nothing to hide, and a short one is left alone
+        assert_eq!(mask_secrets("x", "sqlite://data/fax.db"), "x");
+        assert_eq!(mask_secrets("ab ab", "mysql://u:ab@h/d"), "ab ab");
+    }
 
     #[test]
     fn f05_the_route_summary_lists_everything_and_hides_every_secret() {

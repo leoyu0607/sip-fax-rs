@@ -1,0 +1,13 @@
+# CodeQL (advanced setup, .github/workflows/codeql.yml). Test code and the test tools hold fixed
+# test credentials and RFC test vectors on purpose; scanning them only produced false positives.
+# Inline `#[cfg(test)] mod tests` in src/ cannot be excluded by path; those alerts are dismissed.
+name: sip-fax-rs CodeQL config
+paths-ignore:
+  - tools
+  - "**/tests"
+  - "**/tests.rs"
+  - "**/*_tests.rs"
+  - "**/fuzz"
+  - "web-ui/e2e"
+  - "web-ui/**/*.test.ts"
+  - "web-ui/**/*.spec.ts"

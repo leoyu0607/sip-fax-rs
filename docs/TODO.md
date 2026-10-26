@@ -276,6 +276,7 @@
 - [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
+- [x] [Any] CodeQL 審視（2026-10-27，v0.5.0-alpha 之後）：89 個 alert 中 78 個是誤報（測試的固定帳密、RFC 測試向量、登入計時用的假雜湊、印出使用者名稱），已在 GitHub 標為 false positive 並附原因；改為進階設定（`.github/workflows/codeql.yml`＋`.github/codeql/codeql-config.yml`，不掃 `tests/`、`tools/`、fuzz、web-ui e2e），GitHub 的預設設定要關掉；`ci.yml`、`fuzz.yml` 最上層 `permissions: contents: read`（10 個 alert）；`db check` 的 `mask_secrets` 連單獨出現的密碼也遮掉
 - [ ] [Any] M5 計畫 §1 的 criterion 效能量測（每個收端處理 1 秒音訊 < 50 ms，x86_64 musl release）
 - [ ] [Any] G.711：頁面 training 遺失時，等影像訊號結束就回 RTN，不等 T2 逾時（ADR-068，M5e E04）
 - [ ] [Sonnet] T.38 latch 之後對方位址改變的處理（M2d 審核）
