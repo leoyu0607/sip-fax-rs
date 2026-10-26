@@ -265,9 +265,9 @@
     - [x] 單元／整合測試：`crates/fax-in/tests/m5e_audio.rs`（audio-only 的 RTP 埠與 CED、488 後改走 G.711、T.38 接手監聽中的音訊）；`cargo test --workspace` 全過（Windows 上 `T4_ORACLE=skip`）
     - [x] fax-sim：`audio_gateway::run_audio_fax`（SpanDSP `fax_state` 經 RTP，`AudioNet` 可設 codec 與送出抖動，`FaxTx::loss_permille` 雙向遺失）、`sip_uac::ReinviteBy::Audio`（`--mode audio --codec pcmu|pcma`，伺服器的 T.38 re-INVITE 回 488，`UacReport::t38_refused`）；Docker 驗證通過
     - [x] SpanDSP 測試：M05 計畫版通過（3 頁全收、第 2 頁 4 條壞行、SpanDSP 成功），拿掉 `#[ignore]`、刪掉舊的「現況紀錄」；M07 改為「ECM 被關掉後照常收下」；`e2e_m3b` I05 的 migration 數改成 3。Docker 全部 e2e 通過（`E2E_ONLY="--no-fail-fast"`）
-    - [ ] M04 固定雜訊（`m04_constant_noise_that_fails_9600_is_recorded`）在新的結束偵測下可能可以改成計畫的斷言（降速後收下），交給 M5e 測試時一併看
+    - [x] M04 固定雜訊：新的結束偵測下計畫的斷言成立（11 dB 固定 SNR：9600 的 TCF 失敗 → FTT → 7200／2400 收下），已改成計畫的斷言（M5e 測試，見 `docs/test-reports/M5e.md`）
     - [x] 文件：ARCHITECTURE、field-test、IT 手冊、CHANGELOG 中英、ADR-067
-- [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`
+- [x] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`（2026-10-26；待 Opus 審核）：J06 在 `crates/fax-in/tests/j06_rtp_pacing.rs`（虛擬時鐘，20 ms／+160／+1，落後時補送不丟），E 在 `tools/fax-sim/tests/e2e_m5e.rs`（E01–E03、E05–E08 通過；**E04 遺失 0.5 % 未達成**：seed 2 每次失敗，SpanDSP 對 SpanDSP 在同樣遺失下失敗率更高，計畫字面版留 `#[ignore]`）；M04 改成計畫的斷言；修了 1 個產品問題（`audio.log` 沒有 V.21 frame，需補 ADR-068，文字在報告 §3）；fax-sim 新增 `ReinviteBy::AudioThenT38`；fax-in 涵蓋率 93.78%；沒有跑 `scripts/ci-local.sh`
 - [ ] [Opus] 審核 M5a–M5e 測試報告
 - [ ] [Any] 發版（M5）
 

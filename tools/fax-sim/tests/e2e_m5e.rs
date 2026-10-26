@@ -490,9 +490,11 @@ async fn e04_loss_half_percent_with_jitter_three_seeds_recorded() {
     }
 }
 
-/// E04 as the plan has it: 0.5 % loss and jitter, three seeds, all received. **Fails** with seeds
-/// 1 and 2 (T.30 timeouts after packets of the training and of V.21 frames were lost), so it is
-/// `#[ignore]`d; run it with `-- --ignored`.
+/// E04 as the plan has it: 0.5 % loss and jitter, three seeds, all received. **Fails**: seed 2
+/// every time, seed 1 in some runs (T.30 timeouts after packets of a training or of a V.21 frame
+/// were lost; the loss pattern is fixed by the seed but the gateway runs on the wall clock, so
+/// which packet it hits can differ from run to run). It is `#[ignore]`d; run it with
+/// `-- --ignored`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "unmet plan item: not every seed is received at 0.5 % loss (M5e report section 4)"]
 async fn e04_plan_loss_half_percent_with_jitter_all_three_seeds_unmet() {
