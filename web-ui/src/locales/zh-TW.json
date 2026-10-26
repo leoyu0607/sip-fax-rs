@@ -18,7 +18,8 @@
     "logout": "登出",
     "theme": "外觀",
     "unread": "{count} 份未讀",
-    "menu_of": "{name} 的帳號選單"
+    "menu_of": "{name} 的帳號選單",
+    "apikeys": "API 金鑰"
   },
   "live": {
     "on": "即時更新已連線",
@@ -97,7 +98,12 @@
     "bad_role": "角色不正確",
     "username_taken": "帳號已存在",
     "last_admin": "不能停用、降級或刪除最後一個管理員",
-    "bad_locale": "語言不支援"
+    "bad_locale": "語言不支援",
+    "invalid_api_key": "API 金鑰無效（可能已撤銷或過期）",
+    "name_taken": "已經有這個名稱的金鑰（撤銷過的名稱也不能再用）",
+    "already_revoked": "這把金鑰已經撤銷了",
+    "bad_name": "名稱只能用 1–48 個小寫英文字母、數字、「.」「_」「-」",
+    "bad_expiry": "到期日必須是今天以後"
   },
   "validation": {
     "unknown": "值不正確（{code}）",
@@ -322,6 +328,39 @@
     "created": "已建立帳號 {name}",
     "delete_confirm": "確定要刪除帳號 {name}？",
     "delete_of": "刪除 {name}"
+  },
+  "apikeys": {
+    "title": "API 金鑰",
+    "intro": "讓其他系統（例如 ERP、客製程式）以 API 讀取傳真、下載檔案與縮圖。呼叫時帶 HTTP 標頭 Authorization: Bearer <金鑰>。串接說明見 docs/integration.md。",
+    "new": "建立金鑰",
+    "name": "名稱",
+    "name_help": "通常填使用它的系統，例如 erp。小寫英文、數字、「.」「_」「-」，最多 48 個字元；撤銷後名稱不能再用。",
+    "write": "也可以標記已讀、編輯備註",
+    "write_help": "不勾選時只能讀取。不論勾選與否都不能修改設定、帳號或投遞。",
+    "expires": "到期日",
+    "expires_help": "最後可用的一天（到當天結束）。留空表示不會到期，直到撤銷。",
+    "create": "建立",
+    "created": "已建立金鑰 {name}",
+    "created_once": "請現在複製並妥善保存：關閉後就無法再顯示（系統只存它的雜湊）。遺失時撤銷後重新建立。",
+    "key": "金鑰",
+    "copy": "複製",
+    "copied": "已複製",
+    "done": "我已保存，關閉",
+    "prefix": "開頭",
+    "scopes": "權限",
+    "scope_read": "唯讀",
+    "scope_write": "讀取＋已讀／備註",
+    "state": "狀態",
+    "active": "有效",
+    "revoked": "已撤銷",
+    "expired": "已過期",
+    "never": "不會到期",
+    "last_used": "最後使用",
+    "created_by": "建立者",
+    "revoke": "撤銷",
+    "revoke_of": "撤銷 {name}",
+    "revoke_confirm": "撤銷金鑰 {name}？使用它的系統會立刻無法存取，而且無法復原。",
+    "none": "還沒有任何金鑰。"
   },
   "account": {
     "title": "我的帳號",

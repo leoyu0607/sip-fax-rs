@@ -124,6 +124,22 @@ export interface User {
   created_at: string;
 }
 
+/** An API key as listed (M6a): never the key itself. */
+export interface ApiKey {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  active: boolean;
+}
+
 export interface LoginOk {
   user: User;
   csrf: string;
