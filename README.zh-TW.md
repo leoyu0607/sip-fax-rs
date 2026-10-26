@@ -135,6 +135,15 @@ trust_server_certificate = true
 | `sip-faxd db check [--url URL [--password-stdin]]` | 測試連線：伺服器版本、資料表版本；不做任何修改 |
 | `sip-faxd db copy --to URL`（或 `--to-config 檔案`） | 換資料庫，也可以換成另一種（例如 SQLite 改用 SQL Server）：全部資料表連同 id 複製到空的資料庫；服務必須先停止 |
 
+## 與其他系統串接
+
+其他系統（ERP、客製程式）可以用兩種方式讀取傳真，說明在 [docs/integration.md](docs/integration.md)：
+
+- **API 加 API 金鑰**：管理員在 Web 介面的「API 金鑰」頁或以 `sip-faxd apikey create <名稱> [--write] [--expires YYYY-MM-DD]`（另有 `list`、`revoke`）建立金鑰。程式帶 `Authorization: Bearer sfx_...` 就能列出傳真、以 `GET /api/v1/faxes/changes` 增量取得新進與有變動的傳真（每個變動一次）、下載 PDF／TIFF 與每頁的 PNG（原圖或縮圖）；建立時加 `--write` 的金鑰另外可以標記已讀、修改備註。金鑰只能用在傳真相關的路由，可以設到期日、撤銷立即生效，資料庫只存雜湊。OpenAPI 規格在 [docs/openapi.yaml](docs/openapi.yaml)，服務也在 `/api/v1/openapi.yaml` 提供。
+- **資料庫 view `fax_records`**：傳真紀錄對外的固定格式（之後只增加欄位），給唯讀的資料庫帳號查詢；各種資料庫建立唯讀帳號的 SQL 在串接指南中。
+
+不需要任何套件的範例：[examples/java](examples/java)（JDK 17 以上）、[examples/node](examples/node)（Node.js 18 以上）。
+
 ## 投遞
 
 設定了投遞路由時（Web 介面的「設定 → 投遞路由」；下方是 `config import` 的檔案格式），每份結果為 `received` 的傳真，在紀錄寫入資料庫後立刻投遞（中途斷線的 `partial` 只有路由設 `deliver_partial = true` 才投遞；`failed`、`no_fax` 永不投遞）。路由依序比對，**第一條符合的**生效；條件為 `dnis`（完全相同）、`dnis_prefix`、`trunk`（寫了幾個就要全部符合），或 `default = true`（其餘全部，必須是最後一條）。每條路由有一個以上的投遞：

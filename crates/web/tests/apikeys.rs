@@ -142,5 +142,9 @@ async fn a_key_reads_the_faxes_follows_the_changes_and_stops_when_revoked() {
     assert_eq!(r.status(), 401);
     let v: Value = r.json().await.unwrap();
     assert_eq!(v["error"]["code"], "invalid_api_key");
+    // the description of the API needs no login
+    let r = reqwest::get(e.url("/api/v1/openapi.yaml")).await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.text().await.unwrap(), web::api::OPENAPI);
     e.stop().await;
 }

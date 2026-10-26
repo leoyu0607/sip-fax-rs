@@ -128,6 +128,15 @@ Retention (web interface, Settings → Retention): A job runs every day at `run_
 | `sip-faxd db check [--url URL [--password-stdin]]` | Test the connection: server version, schema version; changes nothing |
 | `sip-faxd db copy --to URL` (or `--to-config FILE`) | Move to another database, also of another kind (e.g. SQLite to SQL Server): every table with its ids, into an empty database; the service must be stopped |
 
+## Integration with other systems
+
+Other systems (an ERP, a custom program) read the faxes in two ways, documented in [docs/integration.md](docs/integration.md) (Traditional Chinese):
+
+- **API with an API key:** an administrator creates a key on the web page "API keys" or with `sip-faxd apikey create <name> [--write] [--expires YYYY-MM-DD]` (also `list`, `revoke`). The program sends `Authorization: Bearer sfx_...` and may then list the faxes, follow `GET /api/v1/faxes/changes` (every new or changed fax once), download the PDF / TIFF and every page as PNG (full size or thumbnail); a key created with `--write` may also set the read flag and the note. Keys work on the fax routes only, can expire, are revoked at once, and only their hash is stored. The OpenAPI description is [docs/openapi.yaml](docs/openapi.yaml), also served at `/api/v1/openapi.yaml`.
+- **Database view `fax_records`:** the stable, public shape of a fax record (columns are only ever added), for a read-only database account; the guide has the SQL for each database.
+
+Examples without dependencies: [examples/java](examples/java) (JDK 17+) and [examples/node](examples/node) (Node.js 18+).
+
 ## Delivery
 
 With delivery routes (web interface, Settings → Delivery routes; below in the file format of `config import`), every fax that ends as `received` is delivered as soon as its record is in the database (a fax that broke off, `partial`, only when the route says `deliver_partial = true`; `failed` and `no_fax` never). Routes are tried in order and the **first match** wins; a route matches on `dnis` (exact), `dnis_prefix` and `trunk` (all given conditions must hold), or `default = true` for everything else (last route). Each route has one or more deliveries:
