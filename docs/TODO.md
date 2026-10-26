@@ -284,7 +284,7 @@
   - [x] ④ `docs/integration.md`、`docs/openapi.yaml`、`examples/`（Java `FaxClient`／`FaxDbReader`、Node `fax-client.mjs`，已對真的服務手動跑過 API 範例）、README 兩份、`database.md`、CHANGELOG
   - 接手要點：測試計畫 D02／D03 需要在 CI 跑範例（Node 在 `e2e-web` job 已有；Java 要 `setup-java`）；V03 的唯讀帳號 SQL 要在 `db-matrix` 中照文件執行。
   - [ ] [Sonnet] M6a 測試，報告 `docs/test-reports/M6a.md`
-    - 2026-10-27 Sonnet 完成 K01–K12、C01–C05、V01–V03、D01–D04、U01–U04，全數通過（四種伺服器 DB 本機實跑；Playwright 與 Node／Java 範例本機實跑）；涵蓋率 accounts 94.1 %、store 87.5 %、web 95.9 %；未改產品程式碼；與計畫不同處見報告 §4（Bearer 大小寫、空值參數、回傳形狀 `items`）；CI 結果與 Opus 審核待辦，尚未打勾
+    - 2026-10-27 Sonnet 完成 K01–K12、C01–C05、V01–V03、D01–D04、U01–U04，全數通過（四種伺服器 DB 本機實跑；Playwright 與 Node／Java 範例本機實跑）；涵蓋率 accounts 94.1 %、store 87.5 %、web 95.9 %；未改產品程式碼；與計畫不同處見報告 §4（Bearer 大小寫、空值參數、回傳形狀 `items`）；CI 全綠（run 40419100087，含四種 db-matrix、e2e-web 的 D02/D03 與 U01–U04）；待 Opus 審核，尚未打勾
 - [x] [Any] CodeQL 審視（2026-10-27，v0.5.0-alpha 之後）：89 個 alert 中 78 個是誤報（測試的固定帳密、RFC 測試向量、登入計時用的假雜湊、印出使用者名稱），已在 GitHub 標為 false positive 並附原因；改為進階設定（`.github/workflows/codeql.yml`＋`.github/codeql/codeql-config.yml`，不掃 `tests/`、`tools/`、fuzz、web-ui e2e），GitHub 的預設設定要關掉；`ci.yml`、`fuzz.yml` 最上層 `permissions: contents: read`（10 個 alert）；`db check` 的 `mask_secrets` 連單獨出現的密碼也遮掉
 - [ ] [Any] M5 計畫 §1 的 criterion 效能量測（每個收端處理 1 秒音訊 < 50 ms，x86_64 musl release）
 - [ ] [Any] G.711：頁面 training 遺失時，等影像訊號結束就回 RTN，不等 T2 逾時（ADR-068，M5e E04）

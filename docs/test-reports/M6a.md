@@ -98,7 +98,7 @@
 
 ## 6. CI
 
-已改：`.github/workflows/ci.yml`（`db-matrix` 加 accounts 步驟；`e2e-web` 加 `setup-java`）、`scripts/db-matrix.sh`。CI 結果見 `docs/TODO.md` 的進度行與 PR。
+已改：`.github/workflows/ci.yml`（`db-matrix` 加 accounts 步驟；`e2e-web` 加 `setup-java`）、`scripts/db-matrix.sh`。CI（分支 `m6a`，run 40419100087）全部 job 通過：四種 `db-matrix`、`coverage`、`e2e-web`（含 D02、D03、U01–U04）、`lint`、`test`、`build-musl`、`smoke-rhel`、`e2e-spandsp`。第一次 CI 只有 D02 失敗：傳真剛收完時 `changes` 的 2 秒安定期內讀不到，已在範例執行前等 2.5 秒（那是文件記載的行為，不是產品問題）。
 
 ## 7. 新增與修改的檔案
 
