@@ -273,7 +273,7 @@
 - [x] [Opus] 審核 M5a–M5e 測試報告（全部通過）
   - 2026-10-26 M5b 審核通過（報告 §9）；測試與審核找到的四個引擎缺陷由 Opus 修正（ADR-069：CED 後 75 ms 靜音、偵測器位置與引擎時鐘一致使回應真的等 75 ms、CED 前先聽線路雜訊、開啟門檻 −45 dBm0），M5d 的 M04 改為 10.5 dB
   - 2026-10-26 M5a 審核通過（報告 §9）；審核時修了 `ToneGenerator` 長度乘法溢位、`RtpPacket::encode` 的 extension 長度欄位截斷；同日補上 fuzz 目標 `rtp_decode`（sip-core）、`audio_rx`（新的 `crates/fax-in/fuzz`），已加入 nightly fuzz workflow
-- [ ] [Any] 發版（M5）
+- [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
 - [ ] [Any] M5 計畫 §1 的 criterion 效能量測（每個收端處理 1 秒音訊 < 50 ms，x86_64 musl release）

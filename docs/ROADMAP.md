@@ -9,7 +9,7 @@
 | M2 | ✅ | t38 + t30（non-ECM）+ t4 → TIFF/PDF | 與 SpanDSP 互通，端到端收到多頁傳真 |
 | M3 | ✅ | store（4 種 DB）+ delivery（folder/email/webhook）+ ECM | 各 DB 在容器中的整合測試通過；投遞重試正確 |
 | M4 | ✅ | Web 管理介面 + TUI + CLI 完整（M4a–M4f） | 可查詢和下載傳真、管理路由與設定 |
-| M5 | 🔄 | fax-modem：G.711 passthrough（V.27ter、V.29，最高 9600；不做 V.17，ADR-061） | fax-sim 以 G.711 模式送傳真，可以成功接收 |
+| M5 | ✅ | fax-modem：G.711 passthrough（V.27ter、V.29，最高 9600；不做 V.17，ADR-061） | fax-sim 以 G.711 模式送傳真，可以成功接收 |
 | M6 | ⬜ | Gateway 互通強化（Sonus/AudioCodes 參數、SIP trace 回歸測試）、打包發佈 | 解壓後在 RHEL 9/10 可直接執行 |
 
 ## 主要風險
@@ -28,3 +28,4 @@
 | v0.3.0-alpha | 2026-10-22 | M4：Web 介面（內建、繁中／英文、即時更新）、帳號、設定存資料庫並可線上修改、服務管理（start／stop／status／logs）、TUI |
 | v0.4.0-alpha | 2026-10-23 | M4e／M4f：`db copy` 換資料庫、`[database]` 分欄位與 `db check`、設定檔只留啟動設定；Web 的外觀切換（明亮／深色）、已執行時間每秒更新 |
 | v0.4.1-alpha | 2026-10-23 | Web 介面改善：帳號選單、未讀數、整列可點、簡短時間、傳真內容的資訊欄、需要重啟的設定標記、新增帳號表單、儲存列與帳號列表的版面修正 |
+| v0.5.0-alpha | 2026-10-27 | M5：G.711 傳真（V.21、V.27ter、V.29，最高 9600，不用 ECM）；`faxes.modem`／`media`（migration 0003）；Web 的今日概況、上一份／下一份、離開前提醒 |

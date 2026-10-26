@@ -5,6 +5,10 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.5.0-alpha] - 2026-10-27
+Milestone M5: faxes over G.711 when T.38 is not available.
+
 ### Security
 - `ctutils` (via `hmac` / `digest`, used for webhook signatures) updated to 0.4.4 ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385): constant-time masks could compile to branches). 0.4.1 and earlier ship 0.4.2.
 
@@ -112,6 +116,10 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.5.0-alpha] - 2026-10-27
+里程碑 M5：建立不了 T.38 時改從 G.711 音訊接收傳真。
+
 #### 安全性
 - `ctutils`（經由 `hmac`／`digest`，用於 Webhook 簽章）更新到 0.4.4（[RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)：常數時間的遮罩可能被編譯成分支）。0.4.1 以前的版本使用 0.4.2。
 
