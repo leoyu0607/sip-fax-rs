@@ -120,7 +120,9 @@ test('U01 the administrator creates a read-only key: shown once, copyable, gone 
     const w = row(page, 'e2e-writer');
     await expect(w).toContainText(tr('apikeys.scope_write'));
     await expect(w.getByRole('cell').nth(4)).not.toHaveText(tr('apikeys.never'));
-    await expect(w.getByRole('cell').nth(4)).toContainText('2100/01/01'); // (valid until the end of 2099-12-31: the list shows the moment it ends)
+    // the last valid day, as it was entered (the key ends at the start of the next day)
+    await expect(w.getByRole('cell').nth(4)).toContainText('2099/12/31');
+    await expect(w.getByRole('cell').nth(4)).not.toContainText('2100');
     const e = await sql('a', "select scopes s, expires_at e from api_keys where name = 'e2e-writer'");
     expect(e[0]?.s).toBe('fax:read,fax:write');
     expect(String(e[0]?.e)).toMatch(/^(2099-12-3[01]|2100-01-01)T/);

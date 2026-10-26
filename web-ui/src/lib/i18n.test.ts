@@ -82,3 +82,14 @@ describe('formatWhen', () => {
     expect(formatWhen('garbage', 'en', words, now)).toBe('garbage');
   });
 });
+
+describe('lastDay', () => {
+  it('is the day before an end at midnight, in the current language', async () => {
+    const { lastDay, i18n } = await import('./i18n.svelte');
+    i18n.set('en');
+    const end = new Date(2100, 0, 1, 0, 0, 0).toISOString();
+    expect(lastDay(end)).toBe('12/31/2099');
+    expect(lastDay(null)).toBe('');
+    expect(lastDay('not a time')).toBe('not a time');
+  });
+});

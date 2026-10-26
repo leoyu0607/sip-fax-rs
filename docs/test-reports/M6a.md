@@ -2,7 +2,7 @@
 
 - 實作：Opus（ADR-070）；測試與本報告：Sonnet（依 `docs/test-plans/M6a.md`）
 - 分支：`m6a`
-- 狀態：（待 Opus 審核）
+- 狀態：（Opus 審核通過（2026-10-27，見 §9））
 - 範圍：K01–K12、C01–C05、V01–V03、D01–D04、U01–U04。全部有對應的測試並通過；與計畫字面不同之處見 §4。
 
 ## 1. 環境
@@ -104,3 +104,20 @@
 
 - 新增：`crates/store/src/tests/m6a_tests.rs`、`crates/accounts/tests/m6a_keys.rs`、`crates/web/tests/{m6a_k,m6a_c,m6a_d}.rs`、`apps/sip-faxd/tests/m6a_cli.rs`、`web-ui/e2e/{apikeys,examples}.spec.ts`
 - 修改：`crates/store/src/tests/{mod,copy_tests}.rs`（註冊與 K11）、`crates/web/Cargo.toml`、`Cargo.lock`、`web-ui/e2e/language.spec.ts`、`.github/workflows/ci.yml`、`scripts/db-matrix.sh`
+
+## 9. Opus 審核（2026-10-27）
+
+**結論：通過。**
+
+- **斷言品質**：逐檔檢查最少斷言的測試，沒有空斷言；`#[ignore]` 為 0。K05 逐一打了所有非傳真路由（設定、帳號、狀態、`/auth/*`、WebSocket、金鑰管理、`redeliver`）並檢查沒有副作用；K06 證明同時帶管理員 cookie 不會讓金鑰多出權限，壞金鑰加好 cookie 也不會退回用 session；金鑰明文的搜尋先確認 log 擷取有效，再搜 log、稽核、`/config` 與 DB 檔（含 WAL）。
+- **過度 mock**：沒有。Web 用真伺服器＋SQLite＋`ManualClock`；伺服器 DB 在 CI 的 db-matrix 與本機 Docker 實跑；V03 的唯讀帳號 SQL 直接取自文件，在四種伺服器 DB 建帳號並以它連線；D02／D03 對 HTTPS 的真 `sip-faxd` 跑 Node 與 Java 範例，憑證依文件的 `openssl`／`keytool` 步驟建立。
+- **§4 的差異**：
+  1. `Bearer` 不分大小寫與多餘空白：接受，RFC 6750 的 scheme 不分大小寫；計畫的寫法是我的疏失。
+  2. 非傳真路由帶有效 cookie 時不看 `Authorization`：接受，那是 cookie 本人的權限，不是提權；只帶金鑰時一律 401（K05）。
+  3. 空的 `after`／`since`／`limit` 視為未給：接受，與既有列表 API 一致。
+  4. 回傳形狀 `{items, next}`：計畫筆誤，以實作與文件為準。
+  5. 到期日顯示成 `2100/01/01 00:00:00`：會讓管理員以為多了一天，審核時修正：列表改為「2099/12/31 為止」（最後可用的那一天，`i18n.lastDay`，附 vitest），U 測試同步改斷言。
+- **D02 的 2.5 秒等待**：等的是文件寫明的 2 秒安定期，合理；範例本身追上後會每 10 秒再問，實際使用不受影響。
+- **新相依（dev-dependency）**：`oas3`、`serde_norway`、`tracing-subscriber`，只在測試；`cargo deny` 通過。
+- **涵蓋率**：accounts 94.12 %、store 87.45 %、web 95.86 %，均高於門檻。
+

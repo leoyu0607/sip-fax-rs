@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte';
   import { get, post, type ApiKey } from '../lib/api';
   import { errorText } from '../lib/errors';
-  import { fmt, t } from '../lib/i18n.svelte';
+  import { fmt, lastDay, t } from '../lib/i18n.svelte';
 
   let keys = $state<ApiKey[]>([]);
   let loadError = $state<unknown>(null);
@@ -155,7 +155,7 @@
               {:else if keyState(k) === 'revoked'}<span class="badge status-failed"><span aria-hidden="true">✕</span> {t('apikeys.revoked')}</span>
               {:else}<span class="badge">{t('apikeys.expired')}</span>{/if}
             </td>
-            <td>{k.expires_at ? fmt(k.expires_at) : t('apikeys.never')}</td>
+            <td>{k.expires_at ? t('apikeys.until', { day: lastDay(k.expires_at) }) : t('apikeys.never')}</td>
             <td>{k.last_used_at ? `${fmt(k.last_used_at)} (${k.last_used_ip ?? ''})` : '—'}</td>
             <td>{k.created_by}<br /><span class="muted small">{fmt(k.created_at)}</span></td>
             <td class="row-actions">

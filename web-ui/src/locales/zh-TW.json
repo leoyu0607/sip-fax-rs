@@ -360,7 +360,8 @@
     "revoke": "撤銷",
     "revoke_of": "撤銷 {name}",
     "revoke_confirm": "撤銷金鑰 {name}？使用它的系統會立刻無法存取，而且無法復原。",
-    "none": "還沒有任何金鑰。"
+    "none": "還沒有任何金鑰。",
+    "until": "{day} 為止"
   },
   "account": {
     "title": "我的帳號",

@@ -101,6 +101,19 @@ export function formatTime(iso: string | null | undefined, locale: Locale, timeZ
   }).format(d);
 }
 
+/**
+ * The last day something is valid when it ends at `iso` (the end of that day, as an API key's
+ * expiry is made), as a date in the current language: an end at 2100-01-01 00:00 is 2099/12/31.
+ */
+export function lastDay(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) return iso;
+  return new Intl.DateTimeFormat(current, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    new Date(end.getTime() - 1),
+  );
+}
+
 /** The calendar day of `d` in `timeZone`, as `2026-10-23`. */
 function dayKey(d: Date, timeZone?: string): string {
   return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(d);

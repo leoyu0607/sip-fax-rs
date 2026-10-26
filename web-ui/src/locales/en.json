@@ -360,7 +360,8 @@
     "revoke": "Revoke",
     "revoke_of": "Revoke {name}",
     "revoke_confirm": "Revoke the key {name}? The system that uses it loses access at once, and this cannot be undone.",
-    "none": "No keys yet."
+    "none": "No keys yet.",
+    "until": "until {day}"
   },
   "account": {
     "title": "My account",
