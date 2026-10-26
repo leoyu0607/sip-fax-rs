@@ -162,8 +162,26 @@ const SESSIONS: Spec = Spec {
         ("user_agent", S),
     ],
 };
+const API_KEYS: Spec = Spec {
+    name: "api_keys",
+    identity: true,
+    cols: &[
+        ("id", I),
+        ("name", S),
+        ("token_hash", S),
+        ("prefix", S),
+        ("scopes", S),
+        ("created_by", S),
+        ("created_at", T),
+        ("expires_at", T),
+        ("revoked_at", T),
+        ("revoked_by", S),
+        ("last_used_at", T),
+        ("last_used_ip", S),
+    ],
+};
 /// Copy order (parents first), the same as `store::copy`.
-const SPECS: [&Spec; 7] = [
+const SPECS: [&Spec; 8] = [
     &FAXES,
     &DELIVERIES,
     &SETTINGS,
@@ -171,6 +189,7 @@ const SPECS: [&Spec; 7] = [
     &AUDIT,
     &USERS,
     &SESSIONS,
+    &API_KEYS,
 ];
 
 // ---------------------------------------------------------------- value helpers
@@ -618,6 +637,59 @@ fn session_rows() -> Vec<(bool, Row)> {
     ]
 }
 
+fn api_key_rows() -> Vec<(bool, Row)> {
+    vec![
+        (
+            true,
+            vec![
+                s("erp"),
+                s(&hex64(21)),
+                s("sfx_AbCdEfGh"),
+                s("fax:read"),
+                s("admin"),
+                tm(70_000),
+                nt(),
+                nt(),
+                ns(),
+                tm(70_500),
+                s("198.51.100.7"),
+            ],
+        ),
+        (
+            false,
+            vec![
+                s("gone"),
+                s(&hex64(22)),
+                s("sfx_gone0000"),
+                s("fax:read"),
+                s("admin"),
+                tm(70_000),
+                nt(),
+                nt(),
+                ns(),
+                nt(),
+                ns(),
+            ],
+        ),
+        (
+            true,
+            vec![
+                s(&"k".repeat(48)),
+                s(&hex64(23)),
+                s("sfx_-_x9ZZ12"),
+                s("fax:read,fax:write"),
+                s(&"c".repeat(64)),
+                tm(71_000),
+                tm(71_000 + 86_400_000),
+                tm(72_000),
+                s(&fill("撤銷者", 64)),
+                nt(),
+                s(&fill("2001:db8::", 64)),
+            ],
+        ),
+    ]
+}
+
 fn seed_rows() -> Vec<Vec<(bool, Row)>> {
     vec![
         fax_rows(),
@@ -627,6 +699,7 @@ fn seed_rows() -> Vec<Vec<(bool, Row)>> {
         audit_rows(),
         user_rows(),
         session_rows(),
+        api_key_rows(),
     ]
 }
 
@@ -994,6 +1067,18 @@ async fn c03_body(src: &Env, dst: &Env) {
         .await
         .unwrap();
     assert!(session > max(6), "session id {session} > {}", max(6));
+    let key = st
+        .api_key_create(&NewApiKey {
+            name: "after".into(),
+            token_hash: hex64(24),
+            prefix: "sfx_after000".into(),
+            scopes: "fax:read".into(),
+            created_by: "t".into(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(key.id > max(7), "api key id {} > {}", key.id, max(7));
     // the copied rows are as they were, the new ones are added
     let after = dump(dst.store.raw()).await;
     for (n, spec) in SPECS.iter().enumerate() {
@@ -1035,6 +1120,7 @@ async fn c04_body(src: &Env, dst: &Env) {
         "config_audit",
         "users",
         "sessions",
+        "api_keys",
     ];
     for planted in plants {
         match planted {
@@ -1112,6 +1198,18 @@ async fn c04_body(src: &Env, dst: &Env) {
                     .unwrap();
                 }
             }
+            "api_keys" => {
+                st.api_key_create(&NewApiKey {
+                    name: "planted".into(),
+                    token_hash: hex64(6),
+                    prefix: "sfx_planted0".into(),
+                    scopes: "fax:read".into(),
+                    created_by: "t".into(),
+                    expires_at: None,
+                })
+                .await
+                .unwrap();
+            }
             _ => unreachable!(),
         }
         let first_nonempty = counts(dst.store.raw())
@@ -1162,6 +1260,8 @@ async fn c04_body(src: &Env, dst: &Env) {
 async fn at_version_one(env: &Env) {
     let be = env.store.raw();
     for stmt in [
+        "DROP VIEW fax_records",
+        "DROP TABLE api_keys",
         "DROP TABLE sessions",
         "DROP TABLE users",
         "DROP TABLE config_audit",

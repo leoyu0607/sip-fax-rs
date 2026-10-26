@@ -256,6 +256,16 @@ async fn source(name: &str) -> Source {
     })
     .await
     .unwrap();
+    st.api_key_create(&store::NewApiKey {
+        name: "erp".into(),
+        token_hash: "cd".repeat(32),
+        prefix: "sfx_AbCdEfGh".into(),
+        scopes: "fax:read".into(),
+        created_by: "alice".into(),
+        expires_at: None,
+    })
+    .await
+    .unwrap();
     st.close().await;
     Source {
         dir,
@@ -365,7 +375,7 @@ async fn c11_output_has_the_rows_per_table_masks_the_password_and_tells_the_next
     let total: u64 = want.iter().map(|(_, n)| n).sum();
     assert!(
         text.contains(&format!(
-            "done: {total} rows from sqlite into sqlite (schema version 3)"
+            "done: {total} rows from sqlite into sqlite (schema version 4)"
         )),
         "{text}"
     );

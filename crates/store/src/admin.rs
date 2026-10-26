@@ -153,6 +153,52 @@ pub struct NewSession {
     pub user_agent: Option<String>,
 }
 
+/// One row of `api_keys` (M6a, migration 0004).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiKeyRow {
+    /// Row id.
+    pub id: i64,
+    /// Unique name (lower case), recorded as `api:<name>` when the key changes a fax.
+    pub name: String,
+    /// SHA-256 (hex) of the key.
+    pub token_hash: String,
+    /// The first characters of the key, to recognise it in a list.
+    pub prefix: String,
+    /// Comma separated: `fax:read`, `fax:read,fax:write`.
+    pub scopes: String,
+    /// Who created it.
+    pub created_by: String,
+    /// When.
+    pub created_at: DateTime<Utc>,
+    /// End of validity, if any.
+    pub expires_at: Option<DateTime<Utc>>,
+    /// When it was revoked (it is never deleted).
+    pub revoked_at: Option<DateTime<Utc>>,
+    /// Who revoked it.
+    pub revoked_by: Option<String>,
+    /// Last use (written at most once a minute).
+    pub last_used_at: Option<DateTime<Utc>>,
+    /// Client address of the last use.
+    pub last_used_ip: Option<String>,
+}
+
+/// A key to create.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewApiKey {
+    /// Unique name.
+    pub name: String,
+    /// SHA-256 (hex) of the key.
+    pub token_hash: String,
+    /// The first characters of the key.
+    pub prefix: String,
+    /// Comma separated scopes.
+    pub scopes: String,
+    /// Who creates it.
+    pub created_by: String,
+    /// End of validity.
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 /// The M4a part of the store API.
 #[async_trait]
 pub trait AdminStore: Send + Sync {
@@ -224,6 +270,17 @@ pub trait AdminStore: Send + Sync {
     async fn sessions_delete_expired(&self, now: DateTime<Utc>) -> Result<u64>;
     /// Sessions of a user.
     async fn session_count_for_user(&self, user_id: i64) -> Result<u64>;
+
+    /// Create an API key. `Duplicate` when the name is taken (revoked keys included).
+    async fn api_key_create(&self, k: &NewApiKey) -> Result<ApiKeyRow>;
+    /// By the hash of the key.
+    async fn api_key_get_by_hash(&self, token_hash: &str) -> Result<Option<ApiKeyRow>>;
+    /// All keys, revoked ones included, ordered by name.
+    async fn api_key_list(&self) -> Result<Vec<ApiKeyRow>>;
+    /// Revoke a key that is not revoked yet. Returns whether one was.
+    async fn api_key_revoke(&self, id: i64, by: &str, at: DateTime<Utc>) -> Result<bool>;
+    /// Record a use of the key.
+    async fn api_key_touch(&self, id: i64, at: DateTime<Utc>, ip: Option<&str>) -> Result<()>;
 
     /// Queue a new `pending` attempt (attempt + 1, due at `at`) for every delivery target of the
     /// fax whose latest attempt is `failed` or `giving_up`. Returns the new attempt ids (empty

@@ -138,12 +138,12 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success());
     assert!(
-        out(&o).contains("already at schema version 3, nothing to do"),
+        out(&o).contains("already at schema version 4, nothing to do"),
         "{}",
         out(&o)
     );
     let st = open(&dir).await;
-    assert_eq!(st.schema_version().await.unwrap(), 3);
+    assert_eq!(st.schema_version().await.unwrap(), 4);
 }
 
 #[tokio::test]

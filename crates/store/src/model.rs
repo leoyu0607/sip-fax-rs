@@ -254,6 +254,60 @@ impl FromStr for Cursor {
     }
 }
 
+/// Position in the change feed (M6a, ADR-070): `updated_at` and `id` of the last row a client
+/// has seen. Written `<unix ms>.<id>`, like [`Cursor`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChangeCursor {
+    /// `updated_at` of the last row seen, unix milliseconds.
+    pub updated_ms: i64,
+    /// `id` of the last row seen.
+    pub id: i64,
+}
+
+impl ChangeCursor {
+    /// The position of a record.
+    pub fn of(r: &FaxRecord) -> ChangeCursor {
+        ChangeCursor {
+            updated_ms: r.updated_at.timestamp_millis(),
+            id: r.id,
+        }
+    }
+
+    pub(crate) fn updated_at(&self) -> DateTime<Utc> {
+        Utc.timestamp_millis_opt(self.updated_ms)
+            .single()
+            .expect("valid cursor time")
+    }
+}
+
+impl fmt::Display for ChangeCursor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.updated_ms, self.id)
+    }
+}
+
+impl FromStr for ChangeCursor {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        let c: Cursor = s.parse()?;
+        Ok(ChangeCursor {
+            updated_ms: c.started_ms,
+            id: c.id,
+        })
+    }
+}
+
+/// Where the change feed starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangesFrom {
+    /// From the oldest record.
+    Start,
+    /// After the record a client has seen last.
+    After(ChangeCursor),
+    /// Records changed at or after this time.
+    Since(DateTime<Utc>),
+}
+
 /// Page request.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PageRequest {

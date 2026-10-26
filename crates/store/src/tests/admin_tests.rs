@@ -17,6 +17,8 @@ fn audit(action: &str, before: Option<&str>, after: Option<&str>) -> ConfigAudit
 async fn drop_all(env: &Env) {
     let be = env.store.raw();
     for stmt in [
+        "DROP VIEW fax_records",
+        "DROP TABLE api_keys",
         "DROP TABLE sessions",
         "DROP TABLE users",
         "DROP TABLE config_audit",
@@ -70,7 +72,7 @@ async fn k13_retention_settings_move_into_the_section_body(env: &Env) {
         .unwrap();
     st.set_setting("other.key", "keep me", None).await.unwrap();
     let rep = st.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (1, 3, vec![2, 3]));
+    assert_eq!((rep.from, rep.to, rep.applied), (1, 4, vec![2, 3, 4]));
     let s = purge::load_retention(st.as_ref() as &dyn FaxStore)
         .await
         .unwrap();
