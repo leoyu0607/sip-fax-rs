@@ -130,8 +130,8 @@ async fn e00_audio_only_answers_with_rtp_and_ced_from_its_own_port() {
     let m = &ans.media[0];
     assert_eq!(m.media, "audio");
     assert!(
-        (31000..=31099).contains(&m.port) && m.port % 2 == 0,
-        "RTP port {} not from the pool",
+        (31000..=31099).contains(&m.port) && m.port % 2 == 1,
+        "RTP port {} is not the odd port after a pool port",
         m.port
     );
     assert_eq!(m.formats[0], "0", "PCMU first, as offered and configured");

@@ -852,32 +852,18 @@ async fn drive(
         return failed(FailureReason::NoMediaPort);
     };
     let mut media_ctx = sh.media.with_t38_port(lease.port());
-    // An RTP port too when the fax may come over audio (kept for the whole call as well).
-    let offers_audio = offer
-        .media
-        .iter()
-        .any(|m| m.media.eq_ignore_ascii_case("audio"));
-    let audio_lease = if sh.audio && offers_audio {
-        let Some(l) = sh.ports.acquire() else {
-            tracing::error!(
-                call_id,
-                capacity = sh.ports.capacity(),
-                "no free RTP port in [media] port_range: 503"
-            );
-            let _ = call.reject(StatusCode::SERVICE_UNAVAILABLE).await;
-            return failed(FailureReason::NoMediaPort);
-        };
-        media_ctx = media_ctx.with_audio_port(l.port());
-        Some(l)
-    } else {
-        None
-    };
+    // RTP, when the server receives faxes over G.711, uses the odd port right after the call's
+    // (even) UDPTL port: the pool never hands it out, so one lease covers both.
+    let rtp_port = sh.audio.then(|| lease.port().saturating_add(1));
+    if let Some(p) = rtp_port {
+        media_ctx = media_ctx.with_audio_port(p);
+    }
     tracing::debug!(
         call_id,
         port = lease.port(),
-        rtp_port = audio_lease.as_ref().map(|l| l.port()),
+        rtp_port,
         free = sh.ports.available(),
-        "media ports leased"
+        "UDPTL port leased"
     );
     let mut origin = OriginTracker::random(&media_ctx.local_address);
     let (answer, accepted) = match media::answer(
