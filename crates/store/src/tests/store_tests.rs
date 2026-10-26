@@ -333,7 +333,7 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     );
     // the real migration then runs through (the same statements again, then the rest)
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (0, 2, vec![1, 2]));
+    assert_eq!((rep.from, rep.to, rep.applied), (0, 3, vec![1, 2, 3]));
     for tbl in ["faxes", "settings", "delivery_attempts"] {
         count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await;
     }
@@ -347,6 +347,16 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     for stmt in &stmts {
         env.store.raw().execute(stmt, &[]).await.unwrap();
     }
+    // 0003 added its columns but the run died before recording the version: the next run
+    // meets "Duplicate column name" and counts it as done
+    env.store
+        .raw()
+        .execute("DELETE FROM schema_migrations WHERE version = 3", &[])
+        .await
+        .unwrap();
+    let rep = env.store.migrate().await.unwrap();
+    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
+    count_rows(env, "SELECT COUNT(modem) + COUNT(media) FROM faxes").await;
 }
 
 // ---------------------------------------------------------------- S02
