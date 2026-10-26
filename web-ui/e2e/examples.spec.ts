@@ -79,6 +79,9 @@ test('the key (made with the CLI), a fax, and the certificate the way the guide 
   apiKeyRequest = await request.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders: { Authorization: `Bearer ${key}` } });
   const r = await apiKeyRequest.get(`${BASE}/faxes/${faxId}`);
   expect(r.status()).toBe(200);
+  // the change feed holds back the last 2 seconds (docs/integration.md section 4): the examples
+  // see the fax only after that
+  await new Promise((r) => setTimeout(r, 2500));
 });
 
 /** What the example saved is what the API returns, byte for byte. */
