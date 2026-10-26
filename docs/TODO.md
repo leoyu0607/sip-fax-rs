@@ -233,6 +233,7 @@
   - 2026-10-23：`crates/fax-modem/src/{hdlc,v21}.rs`（HDLC 收送、FCS-16；V.21 相位連續 FSK 送、非同調收＋數位 PLL）、`crates/fax-in/src/audioengine.rs`（sans-IO，以樣本為時脈；CED、V.21 burst、TxComplete、半雙工、回應等對方訊號結束並在 75 ms 後才送；與 T.30 之間每個 octet 位元反轉）；`ReceivedPage::from_t30` 兩個引擎共用。單元測試：fax-modem 12 個（行涵蓋率 97.8%）、audioengine 2 個（答 CED＋CSI＋DIS；對方的 TSI＋DCS 經 V.21 送到 T.30）。高速收端（TCF、影像）在 M5c／M5d。
   - 留給 M5b 測試的 SpanDSP FFI（只在 `tools/`）：`fsk_tx`／`fsk_rx`、`hdlc_tx`，以及之後 M5c／M5d 用的 `v27ter_tx`／`v29_tx`
 - [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
+  - 2026-10-26 進度（Sonnet）：H01–H03、V01–V03 全部達成（SpanDSP 對照：H01 全部 65 536 個 2 octet frame 位元流相同、V01／V02 每條件 210 個 frame 全對、SNR 12 dB 0 錯、V03 頻率 1649.999／1850.001 Hz、前導 1.013 s）；V05 回音案例通過，但**「送完 75 ms 後恢復收」在第一次傳送（CED＋第一個 DIS）之後未達成**（對方在 0–80 ms（邊界約 80–95 ms）內開始的 DCS 整個漏掉，`PresenceDetector` 把第一個區塊當雜訊底；`#[ignore]`，需設計決定，見報告 §4 ①）；V04 不在這次範圍。另發現 CED 與 DIS 之間沒有 75 ms 靜音（`queue_ced`；一行可修，但會讓 M5d 的 M04 11 dB 案例翻轉——該案例的 TCF 零位元比例本來就卡在 95 % 門檻邊上，所以沒修，`#[ignore]` 測試保留斷言，報告 §4 ①）。本次沒有改產品程式碼。新增 fuzz 目標 `hdlc_deframe`（已進 fuzz.yml）；`fax-modem` 涵蓋率 93.83 %。待 Opus 審核，報告 `docs/test-reports/M5b.md`
 - [x] [Any] M5c：`fax-modem::v27ter` 收端（2026-10-24 完成；以下是開發過程的紀錄）
   - **交接狀態（2026-10-23，分支 `m5`）**：使用者要求開發停在這個階段、更新狀態讓其他 agent 接手。
   - 規格來源：ITU-T V.27 ter（1988 Blue Book）與 V.27 Appendix I（擾碼器），從 itu.int 免費下載（`T-REC-V.27ter-198811`、`T-REC-V.27-198811`）；清潔室實作，不參考 SpanDSP 原始碼（ADR-061）。

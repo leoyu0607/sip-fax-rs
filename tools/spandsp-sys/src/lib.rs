@@ -274,3 +274,103 @@ unsafe extern "C" {
     pub fn v17_tx_power(s: *mut v17_tx_state_t, power: f32);
     pub fn v17_tx(s: *mut v17_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
 }
+
+// ---------------------------------------------------------------------------------------------
+// FSK (V.21) transmitter and receiver, and the HDLC transmitter and receiver (M5b tests H01-H02,
+// V01-V03). Signatures from `fsk.h` / `hdlc.h` / `async.h`.
+
+opaque!(
+    fsk_tx_state_t,
+    fsk_rx_state_t,
+    hdlc_tx_state_t,
+    hdlc_rx_state_t
+);
+
+/// `fsk_spec_t` (fsk.h): one channel of an FSK modem.
+#[repr(C)]
+pub struct fsk_spec_t {
+    pub name: *const c_char,
+    /// Frequency of the zero bit (Hz).
+    pub freq_zero: c_int,
+    /// Frequency of the one bit (Hz).
+    pub freq_one: c_int,
+    /// Transmit level (dBm0).
+    pub tx_level: c_int,
+    /// Minimum receive level (dBm0).
+    pub min_level: c_int,
+    /// Bit rate in units of 1/100 bit/s.
+    pub baud_rate: c_int,
+}
+
+/// Index of V.21 channel 1 in `preset_fsk_specs`.
+pub const FSK_V21CH1: usize = 0;
+/// Index of V.21 channel 2 (T.30: 1650 Hz = 1, 1850 Hz = 0) in `preset_fsk_specs`.
+pub const FSK_V21CH2: usize = 1;
+/// `FSK_FRAME_MODE_SYNC`: bits are delivered as they are, no start/stop framing.
+pub const FSK_FRAME_MODE_SYNC: c_int = 1;
+
+/// `void (*)(void *user_data, int bit)` (`span_put_bit_func_t`): a received bit, or a
+/// `SIG_STATUS_*` code (negative).
+pub type span_put_bit_func_t = Option<unsafe extern "C" fn(user_data: *mut c_void, bit: c_int)>;
+/// `void (*)(void *user_data)` (`hdlc_underflow_handler_t`).
+pub type hdlc_underflow_handler_t = Option<unsafe extern "C" fn(user_data: *mut c_void)>;
+/// `void (*)(void *user_data, const uint8_t *pkt, int len, int ok)` (`hdlc_frame_handler_t`).
+pub type hdlc_frame_handler_t =
+    Option<unsafe extern "C" fn(user_data: *mut c_void, pkt: *const u8, len: c_int, ok: c_int)>;
+
+unsafe extern "C" {
+    /// The table of the preset modems (index with `FSK_V21CH2` and so on).
+    pub static preset_fsk_specs: [fsk_spec_t; 11];
+
+    pub fn fsk_tx_init(
+        s: *mut fsk_tx_state_t,
+        spec: *const fsk_spec_t,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut fsk_tx_state_t;
+    pub fn fsk_tx_free(s: *mut fsk_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn fsk_tx_power(s: *mut fsk_tx_state_t, power: f32);
+    /// Generates `len` samples (silence once the data is over).
+    pub fn fsk_tx(s: *mut fsk_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+
+    pub fn fsk_rx_init(
+        s: *mut fsk_rx_state_t,
+        spec: *const fsk_spec_t,
+        framing_mode: c_int,
+        put_bit: span_put_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut fsk_rx_state_t;
+    pub fn fsk_rx_free(s: *mut fsk_rx_state_t) -> c_int;
+    /// Minimum signal level (dBm0) to accept.
+    pub fn fsk_rx_set_signal_cutoff(s: *mut fsk_rx_state_t, cutoff: f32);
+    /// Takes `len` samples; returns the number not processed (0).
+    pub fn fsk_rx(s: *mut fsk_rx_state_t, amp: *const i16, len: c_int) -> c_int;
+
+    pub fn hdlc_tx_init(
+        s: *mut hdlc_tx_state_t,
+        crc32: bool,
+        inter_frame_flags: c_int,
+        progressive: bool,
+        handler: hdlc_underflow_handler_t,
+        user_data: *mut c_void,
+    ) -> *mut hdlc_tx_state_t;
+    pub fn hdlc_tx_free(s: *mut hdlc_tx_state_t) -> c_int;
+    /// Queues a frame (the FCS is added); 0 if accepted.
+    pub fn hdlc_tx_frame(s: *mut hdlc_tx_state_t, frame: *const u8, len: usize) -> c_int;
+    /// Queues `len` flag octets (0: end the transmission once drained).
+    pub fn hdlc_tx_flags(s: *mut hdlc_tx_state_t, len: c_int) -> c_int;
+    /// The next bit (0 or 1), or a `SIG_STATUS_*` code.
+    pub fn hdlc_tx_get_bit(s: *mut hdlc_tx_state_t) -> c_int;
+
+    pub fn hdlc_rx_init(
+        s: *mut hdlc_rx_state_t,
+        crc32: bool,
+        report_bad_frames: bool,
+        framing_ok_threshold: c_int,
+        handler: hdlc_frame_handler_t,
+        user_data: *mut c_void,
+    ) -> *mut hdlc_rx_state_t;
+    pub fn hdlc_rx_free(s: *mut hdlc_rx_state_t) -> c_int;
+    pub fn hdlc_rx_put_bit(s: *mut hdlc_rx_state_t, bit: c_int);
+}

@@ -27,6 +27,7 @@ jobs:
           - { crate: t4, target: t4_decode }
           - { crate: t30, target: frame_parse }
           - { crate: t30, target: receiver_events }
+          - { crate: fax-modem, target: hdlc_deframe }
           - { crate: sip-core, target: rtp_decode }
           - { crate: fax-in, target: audio_rx }
     steps:
