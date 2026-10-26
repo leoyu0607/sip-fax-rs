@@ -13,12 +13,12 @@ use std::sync::Arc;
 const FAX_COLS: &str = "id, call_id, trunk, ani, ani_source, dnis, dnis_source, remote_ident, started_at, answered_at, \
 ended_at, duration_sec, hangup_direction, hangup_code, hangup_text, sip_status, t30_code, fax_status, pages, resolution, \
 bit_rate, compression, ecm, tiff_path, tiff_size, pdf_path, pdf_size, files_purged_at, is_read, read_changed_by, \
-read_changed_at, note, note_updated_by, note_updated_at, created_at, updated_at";
+read_changed_at, note, note_updated_by, note_updated_at, created_at, updated_at, modem, media";
 
 use Kind::{Bool as B, Int as I, Str as S, Time as T};
 const FAX_KINDS: &[Kind] = &[
     I, S, S, S, S, S, S, S, T, T, T, I, S, S, S, I, I, S, I, S, I, S, B, S, I, S, I, T, B, S, T, S,
-    S, T, T, T,
+    S, T, T, T, S, S,
 ];
 
 const DELIVERY_COLS: &str =
@@ -91,6 +91,8 @@ fn read_fax(vals: Vec<Val>) -> Result<FaxRecord> {
         note_updated_at: r.opt_time(),
         created_at: r.time(),
         updated_at: r.time(),
+        modem: r.opt_str(),
+        media: r.opt_str(),
     })
 }
 
@@ -266,6 +268,8 @@ impl FaxStore for SqlStore {
         check_opt("remote_ident", &f.remote_ident, 32)?;
         check_opt("resolution", &f.resolution, 12)?;
         check_opt("compression", &f.compression, 8)?;
+        check_opt("modem", &f.modem, 16)?;
+        check_opt("media", &f.media, 8)?;
         check_opt("tiff_path", &f.tiff_path, 1024)?;
         check_opt("pdf_path", &f.pdf_path, 1024)?;
         let cur = self.require(id).await?;
@@ -280,7 +284,7 @@ impl FaxStore for SqlStore {
                 "UPDATE faxes SET answered_at = ?, ended_at = ?, duration_sec = ?, hangup_direction = ?, hangup_code = ?, \
                  hangup_text = ?, sip_status = ?, t30_code = ?, fax_status = ?, pages = ?, remote_ident = ?, resolution = ?, \
                  bit_rate = ?, compression = ?, ecm = ?, tiff_path = ?, tiff_size = ?, pdf_path = ?, pdf_size = ?, \
-                 updated_at = ? WHERE id = ?",
+                 modem = ?, media = ?, updated_at = ? WHERE id = ?",
                 &[
                     otv(answered),
                     tv(ended),
@@ -301,6 +305,8 @@ impl FaxStore for SqlStore {
                     f.tiff_size.into(),
                     f.pdf_path.clone().into(),
                     f.pdf_size.into(),
+                    f.modem.clone().into(),
+                    f.media.clone().into(),
                     tv(self.clock.now()),
                     id.into(),
                 ],

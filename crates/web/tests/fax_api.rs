@@ -57,6 +57,8 @@ async fn row(
         tiff_size: None,
         pdf_path: None,
         pdf_size: None,
+        modem: None,
+        media: None,
     };
     e.store.upsert_finished(&new, &fin).await.unwrap().0
 }
@@ -494,6 +496,8 @@ async fn w07_a_stored_path_outside_data_dir_is_404_for_the_png_too_and_nothing_l
         tiff_size: Some(10),
         pdf_path: None,
         pdf_size: None,
+        modem: None,
+        media: None,
     };
     e.store.upsert_finished(&new, &fin).await.unwrap();
     for kind in ["full", "thumb"] {

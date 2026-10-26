@@ -65,6 +65,8 @@ pub(crate) const TABLES: &[Table] = &[
             ("note_updated_at", T),
             ("created_at", T),
             ("updated_at", T),
+            ("modem", S),
+            ("media", S),
         ],
     },
     Table {

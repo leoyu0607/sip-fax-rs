@@ -5,17 +5,26 @@
 //! Without [`UacConfig::fax`] the call only verifies the signalling (hold, BYE). With it, once
 //! T.38 is established the UAC behaves as a real gateway: SpanDSP's `t38_terminal` sends a TIFF
 //! over a real UDP socket ([`crate::gateway`]) and the call ends with the server's BYE (or ours).
+//!
+//! [`ReinviteBy::Audio`] (M5e) never switches to T.38: the server's T.38 re-INVITE, if any, is
+//! answered 488, and the fax goes over G.711 ([`crate::audio_gateway`]).
+//! [`ReinviteBy::AudioThenT38`] starts the same way (SpanDSP sends CNG over RTP) but accepts the
+//! server's T.38 re-INVITE and finishes the fax over T.38.
 
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::audio_gateway::{AudioNet, run_audio_fax};
 use crate::gateway::{FaxRun, FaxTx, run_fax};
 use t38::ErrorRecovery;
 
-use sip_core::endpoint::{DialogEvent, Endpoint, EndpointConfig, InviteOptions, ReinviteOutcome};
-use sip_core::message::SipUri;
+use sip_core::endpoint::{
+    DialogEvent, DialogHandle, Endpoint, EndpointConfig, InviteOptions, ReinviteOutcome,
+};
+use sip_core::message::{SipUri, StatusCode};
+use sip_core::rtp::Law;
 use sip_core::sdp::negotiate::{AnswerPolicy, MediaPreference, OriginTracker, answer_offer};
 use sip_core::sdp::{
     Attribute, Connection, MediaDescription, SessionDescription, Timing, parse_sdp,
@@ -31,6 +40,13 @@ pub enum ReinviteBy {
     Server,
     /// No re-INVITE: the initial INVITE already offers T.38 (`m=image` only).
     InitialInvite,
+    /// No T.38 at all: the call stays on G.711 (the server's T.38 re-INVITE is answered 488)
+    /// and the fax goes over the audio.
+    Audio,
+    /// The call starts on G.711 like [`ReinviteBy::Audio`] (the audio fax modem sends CNG and
+    /// waits), but the server's T.38 re-INVITE is accepted: the audio gateway stops and the
+    /// fax goes over T.38 on the same UDP socket ([`UacReport::audio_run`] is the audio part).
+    AudioThenT38,
 }
 
 /// Parameters of one simulated call.
@@ -65,6 +81,9 @@ pub struct UacConfig {
     pub from_user: String,
     /// User part of the To and Request-URI (the called number; default `fax`).
     pub to_user: String,
+    /// [`ReinviteBy::Audio`]: the codec we offer and send (only that one, plus
+    /// telephone-event) and the network between us and the server.
+    pub audio: AudioNet,
 }
 
 impl UacConfig {
@@ -85,6 +104,7 @@ impl UacConfig {
             hangup: None,
             from_user: "gw".into(),
             to_user: "fax".into(),
+            audio: AudioNet::default(),
         }
     }
 }
@@ -112,10 +132,16 @@ pub struct UacReport {
     pub bye_status: u16,
     /// The server sent BYE (we answered it).
     pub peer_bye: bool,
-    /// The UDP port of our media socket (the port in our T.38 offer / answer).
+    /// The UDP port of our media socket (the port in our T.38 offer / answer, or our audio
+    /// offer for [`ReinviteBy::Audio`]).
     pub media_port: u16,
+    /// [`ReinviteBy::Audio`]: T.38 re-INVITEs of the server we answered 488.
+    pub t38_refused: u32,
     /// The fax transfer, when [`UacConfig::fax`] was set.
     pub fax: Option<FaxRun>,
+    /// [`ReinviteBy::AudioThenT38`]: the audio phase before the switch to T.38 (`fax` is the
+    /// T.38 part; when no T.38 re-INVITE came, `fax` is the audio transfer and this is `None`).
+    pub audio_run: Option<FaxRun>,
 }
 
 /// The G.711 offer of a gateway (PCMU, PCMA, telephone-event).
@@ -127,6 +153,28 @@ pub fn audio_offer(address: &str, port: u16) -> SessionDescription {
          a=ptime:20\r\na=sendrecv\r\n"
     );
     parse_sdp(text.as_bytes()).expect("static SDP parses")
+}
+
+/// The G.711 offer of [`ReinviteBy::Audio`]: one codec and telephone-event.
+pub fn audio_offer_with(address: &str, port: u16, law: Law) -> SessionDescription {
+    let (pt, name) = (law.payload_type(), law.encoding_name());
+    let text = format!(
+        "v=0\r\no=fax-sim 1523094871 1523094871 IN IP4 {address}\r\ns=SIP Media Capabilities\r\n\
+         c=IN IP4 {address}\r\nt=0 0\r\nm=audio {port} RTP/AVP {pt} 101\r\na=rtpmap:{pt} {name}/8000\r\n\
+         a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-15\r\na=ptime:20\r\na=sendrecv\r\n"
+    );
+    parse_sdp(text.as_bytes()).expect("static SDP parses")
+}
+
+/// The RTP address (`c=` and `m=audio` port) in an SDP.
+pub fn audio_remote(sdp: &SessionDescription) -> Option<SocketAddr> {
+    let m = sdp
+        .media
+        .iter()
+        .find(|m| m.media.eq_ignore_ascii_case("audio") && m.port != 0)?;
+    let c = sdp.effective_connection(m)?;
+    let ip: std::net::IpAddr = c.address.trim().parse().ok()?;
+    Some(SocketAddr::new(ip, m.port))
 }
 
 /// A gateway-style T.38 re-INVITE offer.
@@ -227,6 +275,9 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
     };
     let first_offer = match cfg.reinvite_by {
         ReinviteBy::InitialInvite => t38_offer(media_port),
+        ReinviteBy::Audio | ReinviteBy::AudioThenT38 => {
+            audio_offer_with(&ip, media_port, cfg.audio.law)
+        }
         _ => audio_offer(&ip, 16384),
     };
     let mut opts = InviteOptions::new(
@@ -247,10 +298,15 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
         bye_status: 0,
         peer_bye: false,
         media_port,
+        t38_refused: 0,
         fax: None,
+        audio_run: None,
     };
     let remote: Option<SocketAddr>;
     match cfg.reinvite_by {
+        ReinviteBy::Audio | ReinviteBy::AudioThenT38 => {
+            remote = report.initial_answer.as_ref().and_then(audio_remote);
+        }
         ReinviteBy::InitialInvite => {
             let a = report
                 .initial_answer
@@ -326,13 +382,22 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
     };
 
     // The gateway proper: SpanDSP sends the fax over the media socket.
-    let remote = remote.ok_or("the server's T.38 SDP has no usable address")?;
+    let remote = remote.ok_or("the server's SDP has no usable media address")?;
     let stop = cfg
         .hangup
         .clone()
         .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+    if cfg.reinvite_by == ReinviteBy::AudioThenT38 {
+        let run = audio_then_t38(&mut dlg, media, remote, fax, cfg, &ip, &mut report, stop).await?;
+        report.fax = Some(run);
+        return finish_call(dlg, report, cfg).await;
+    }
     let stop2 = stop.clone();
-    let mut job = tokio::task::spawn_blocking(move || run_fax(&media, remote, &fax, &stop2));
+    let audio = (cfg.reinvite_by == ReinviteBy::Audio).then_some(cfg.audio);
+    let mut job = tokio::task::spawn_blocking(move || match audio {
+        Some(net) => run_audio_fax(&media, remote, &fax, net, &stop2),
+        None => run_fax(&media, remote, &fax, &stop2),
+    });
     let run = loop {
         tokio::select! {
             r = &mut job => break r.map_err(|e| format!("fax thread: {e}"))??,
@@ -341,13 +406,30 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
                     report.peer_bye = true;
                     stop.store(true, Ordering::Relaxed);
                 }
-                Some(DialogEvent::ReInvite { .. }) => {} // dropped: answered 500
+                Some(DialogEvent::ReInvite { offer, responder }) => {
+                    if audio.is_some() && offer.is_some_and(|o| o.media.iter().any(|m| m.is_t38())) {
+                        // this gateway has no T.38: the fax stays on G.711
+                        report.t38_refused += 1;
+                        let _ = responder.reject(StatusCode::NOT_ACCEPTABLE_HERE).await;
+                    }
+                    // otherwise dropped: answered 500
+                }
                 Some(_) => {}
                 None => stop.store(true, Ordering::Relaxed),
             },
         }
     };
     report.fax = Some(run);
+    finish_call(dlg, report, cfg).await
+}
+
+/// After the transfer: wait for the server's BYE (it hangs up as soon as the fax is complete),
+/// else send ours.
+async fn finish_call(
+    mut dlg: DialogHandle,
+    mut report: UacReport,
+    cfg: &UacConfig,
+) -> Result<UacReport, String> {
     if !report.peer_bye {
         // the server normally hangs up as soon as the fax is complete
         let _ = tokio::time::timeout(cfg.peer_bye_wait, async {
@@ -365,4 +447,85 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
         report.bye_status = dlg.bye().await.map_err(|e| format!("BYE: {e}"))?.code();
     }
     Ok(report)
+}
+
+/// [`ReinviteBy::AudioThenT38`]: SpanDSP's audio fax modem runs over RTP (it sends CNG and waits
+/// for the DIS) until the server's T.38 re-INVITE arrives; then the audio gateway stops, the
+/// re-INVITE is accepted and a T.38 terminal sends the fax from the start on the same socket.
+/// A transfer that completes on audio (no re-INVITE) is returned as it is.
+#[allow(clippy::too_many_arguments)]
+async fn audio_then_t38(
+    dlg: &mut DialogHandle,
+    media: UdpSocket,
+    audio_remote: SocketAddr,
+    fax: FaxTx,
+    cfg: &UacConfig,
+    ip: &str,
+    report: &mut UacReport,
+    stop: Arc<AtomicBool>,
+) -> Result<FaxRun, String> {
+    let media = Arc::new(media);
+    let audio_stop = Arc::new(AtomicBool::new(false));
+    // a zero grace period: once `audio_stop` is set the audio loop ends at its next iteration
+    let mut audio_tx = fax.clone();
+    audio_tx.hangup_grace = Duration::ZERO;
+    let (m, st, net) = (media.clone(), audio_stop.clone(), cfg.audio);
+    let mut job =
+        tokio::task::spawn_blocking(move || run_audio_fax(&m, audio_remote, &audio_tx, net, &st));
+    let offer = loop {
+        tokio::select! {
+            r = &mut job => {
+                // the fax went over G.711 to the end
+                return r.map_err(|e| format!("fax thread: {e}"))?;
+            }
+            ev = dlg.next_event() => match ev {
+                Some(DialogEvent::Bye) => {
+                    report.peer_bye = true;
+                    audio_stop.store(true, Ordering::Relaxed);
+                }
+                Some(DialogEvent::ReInvite { offer, responder }) => {
+                    let Some(offer) = offer.filter(|o| o.media.iter().any(|m| m.is_t38())) else {
+                        // not T.38: 500, as in the other modes
+                        continue;
+                    };
+                    audio_stop.store(true, Ordering::Relaxed);
+                    let audio = (&mut job)
+                        .await
+                        .map_err(|e| format!("fax thread: {e}"))??;
+                    report.audio_run = Some(audio);
+                    let mut policy = AnswerPolicy::new(ip, 16384, media.local_addr().map_err(|e| format!("media socket: {e}"))?.port());
+                    policy.preferred = MediaPreference::T38;
+                    policy.t38.max_bit_rate = cfg.max_bit_rate;
+                    policy.t38.max_version = cfg.t38_version;
+                    let mut origin = OriginTracker::random(ip);
+                    let answer = answer_offer(&offer, &policy, &mut origin)
+                        .map_err(|e| format!("cannot answer the T.38 offer: {e}"))?;
+                    responder
+                        .accept(answer)
+                        .await
+                        .map_err(|e| format!("answering the re-INVITE: {e}"))?;
+                    break offer;
+                }
+                Some(_) => {}
+                None => audio_stop.store(true, Ordering::Relaxed),
+            },
+        }
+    };
+    let remote = t38_remote(&offer).ok_or("the server's T.38 offer has no UDPTL address")?;
+    report.server_t38_offer = Some(offer);
+    let stop2 = stop.clone();
+    let mut job = tokio::task::spawn_blocking(move || run_fax(&media, remote, &fax, &stop2));
+    loop {
+        tokio::select! {
+            r = &mut job => return r.map_err(|e| format!("fax thread: {e}"))?,
+            ev = dlg.next_event() => match ev {
+                Some(DialogEvent::Bye) => {
+                    report.peer_bye = true;
+                    stop.store(true, Ordering::Relaxed);
+                }
+                Some(_) => {}
+                None => stop.store(true, Ordering::Relaxed),
+            },
+        }
+    }
 }

@@ -31,6 +31,7 @@ if cargo llvm-cov --version >/dev/null 2>&1; then
   cargo llvm-cov -p t38 --fail-under-lines 85 --summary-only
   cargo llvm-cov -p t4 --fail-under-lines 85 --summary-only
   cargo llvm-cov -p t30 --fail-under-lines 85 --summary-only
+  cargo llvm-cov -p fax-modem --fail-under-lines 85 --summary-only
   cargo llvm-cov -p store --fail-under-lines 80 --summary-only --ignore-filename-regex 'backend[\\/](mssql|mysql|postgres)\.rs'
   cargo llvm-cov -p delivery --fail-under-lines 80 --summary-only
   cargo llvm-cov -p web --fail-under-lines 80 --summary-only

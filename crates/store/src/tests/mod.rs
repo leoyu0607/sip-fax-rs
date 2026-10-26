@@ -240,5 +240,7 @@ pub fn ff(ended_ms: i64, status: FaxStatus, pages: i32) -> FaxFinal {
         tiff_size: Some(123_456),
         pdf_path: Some(format!("faxes/{ended_ms}.pdf")),
         pdf_size: Some(78_901),
+        modem: None,
+        media: None,
     }
 }

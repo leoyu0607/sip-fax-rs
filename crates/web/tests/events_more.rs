@@ -109,6 +109,7 @@ fn three_page_result(call: &str) -> CallResult {
         ended_at: at(64),
         bye_by: Some(fax_in::event::ByeBy::Local),
         t38: None,
+        audio: None,
         fax: Some(FaxReport {
             code: 0,
             code_name: "ok".into(),
@@ -125,6 +126,8 @@ fn three_page_result(call: &str) -> CallResult {
             pdf: Some("/srv/fax/data/faxes/2026/10/21/c1.pdf".into()),
             store_error: None,
             udptl: UdptlCounters::default(),
+            media: Default::default(),
+            rtp: None,
             tiff_size: Some(12_345),
             pdf_size: Some(23_456),
             ecm: true,

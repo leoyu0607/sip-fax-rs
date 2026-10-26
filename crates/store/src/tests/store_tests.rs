@@ -35,7 +35,7 @@ async fn s01_migration_body(env: &Env) {
         ("faxes", 0),
         ("settings", 0),
         ("delivery_attempts", 0),
-        ("schema_migrations", 2),
+        ("schema_migrations", 3),
         ("config_sections", 0),
         ("config_audit", 0),
         ("users", 0),
@@ -139,7 +139,10 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     }
     // Migrating from empty applies version 1; then auto_migrate=false connects.
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied.clone()), (0, 2, vec![1, 2]));
+    assert_eq!(
+        (rep.from, rep.to, rep.applied.clone()),
+        (0, 3, vec![1, 2, 3])
+    );
     connect_with(&env.url, o).await.unwrap();
 }
 
@@ -189,10 +192,10 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
         assert_eq!(rep.to, latest_version(env.store.backend()), "{rep:?}");
         if !rep.applied.is_empty() {
             applied_by += 1;
-            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1, 2]));
+            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1, 2, 3]));
         } else {
             assert_eq!(
-                rep.from, 2,
+                rep.from, 3,
                 "a loser starts from the version the winner wrote"
             );
         }
@@ -200,9 +203,9 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
     assert_eq!(applied_by, 1, "exactly one instance applies the migration");
     assert_eq!(
         count_rows(env, "SELECT COUNT(*) FROM schema_migrations").await,
-        2
+        3
     );
-    assert_eq!(env.store.schema_version().await.unwrap(), 2);
+    assert_eq!(env.store.schema_version().await.unwrap(), 3);
 }
 
 fn probe_sql(kind: BackendKind) -> &'static str {
@@ -224,7 +227,8 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
         return;
     }
     let kind = env.store.backend();
-    // the real migrations plus a probe as version 3 (the database is already at version 2)
+    // the real migrations plus a probe as the next version (the database is at the latest)
+    let latest = crate::latest_version(kind);
     let with_probe = |sql: &'static str| -> Vec<Migration> {
         let mut v: Vec<Migration> = migrations(kind)
             .iter()
@@ -235,7 +239,7 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
             })
             .collect();
         v.push(Migration {
-            version: 3,
+            version: latest + 1,
             name: "probe",
             sql,
         });
@@ -248,11 +252,15 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
     let err = apply(env.store.raw(), env.clock.as_ref(), &bad)
         .await
         .expect_err("the failing migration is reported");
-    assert!(err.to_string().contains("0003_probe"), "{err}");
+    assert!(
+        err.to_string()
+            .contains(&format!("{:04}_probe", latest + 1)),
+        "{err}"
+    );
     assert_eq!(
         env.store.schema_version().await.unwrap(),
-        2,
-        "version 3 is not recorded"
+        latest,
+        "the probe's version is not recorded"
     );
     let probe = env
         .store
@@ -273,7 +281,10 @@ async fn s01d_failed_migration_then_rerun_body(env: &Env) {
     let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
         .await
         .unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
+    assert_eq!(
+        (rep.from, rep.to, rep.applied),
+        (latest, latest + 1, vec![latest + 1])
+    );
     assert_eq!(count_rows(env, "SELECT COUNT(*) FROM m3b_probe").await, 0);
     // and the lock was released after the failure (a third run does not wait)
     let rep = apply(env.store.raw(), env.clock.as_ref(), &good)
@@ -322,7 +333,7 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     );
     // the real migration then runs through (the same statements again, then the rest)
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (0, 2, vec![1, 2]));
+    assert_eq!((rep.from, rep.to, rep.applied), (0, 3, vec![1, 2, 3]));
     for tbl in ["faxes", "settings", "delivery_attempts"] {
         count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await;
     }
@@ -336,6 +347,16 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     for stmt in &stmts {
         env.store.raw().execute(stmt, &[]).await.unwrap();
     }
+    // 0003 added its columns but the run died before recording the version: the next run
+    // meets "Duplicate column name" and counts it as done
+    env.store
+        .raw()
+        .execute("DELETE FROM schema_migrations WHERE version = 3", &[])
+        .await
+        .unwrap();
+    let rep = env.store.migrate().await.unwrap();
+    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
+    count_rows(env, "SELECT COUNT(modem) + COUNT(media) FROM faxes").await;
 }
 
 // ---------------------------------------------------------------- S02

@@ -79,6 +79,8 @@ fn report(pages: u32) -> FaxReport {
         pdf: Some("/srv/fax/data/faxes/2026/10/21/c1.pdf".into()),
         store_error: None,
         udptl: UdptlCounters::default(),
+        media: Default::default(),
+        rtp: None,
         tiff_size: Some(12_345),
         pdf_size: Some(23_456),
         ecm: true,
@@ -101,6 +103,7 @@ fn finished_ok(call_id: &str, pages: u32) -> CallResult {
         ended_at: at(64),
         bye_by: Some(ByeBy::Local),
         t38: None,
+        audio: None,
         fax: Some(report(pages)),
         outcome: CallOutcome::Completed,
     }

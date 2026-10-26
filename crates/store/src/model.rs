@@ -145,6 +145,10 @@ pub struct FaxFinal {
     pub pdf_path: Option<String>,
     /// PDF size in bytes.
     pub pdf_size: Option<i64>,
+    /// Modem of the last DCS (`v27ter`, `v29`, `v17`).
+    pub modem: Option<String>,
+    /// How the fax travelled: `t38` or `g711`.
+    pub media: Option<String>,
 }
 
 /// One row of `faxes`.
@@ -187,6 +191,8 @@ pub struct FaxRecord {
     pub note_updated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub modem: Option<String>,
+    pub media: Option<String>,
 }
 
 /// Filters for [`crate::FaxStore::list`]. All set fields are ANDed.

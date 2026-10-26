@@ -1,9 +1,10 @@
-//! `sip-uac --target 127.0.0.1:5060 --mode gateway|server|initial [--transport udp|tcp]
-//!          [--from NUMBER] [--to NUMBER] [--ident TSI] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]`
+//! `sip-uac --target 127.0.0.1:5060 --mode gateway|server|initial|audio [--transport udp|tcp]
+//!          [--from NUMBER] [--to NUMBER] [--ident TSI] [--codec pcmu|pcma] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]`
 //!
 //! Places one simulated gateway call into a SIP fax server (see `fax_sim::sip_uac`) and prints
 //! what the server answered. With `--fax` the gateway really sends the TIFF over T.38
-//! (SpanDSP `t38_terminal` on a UDP socket). Exit code 0 when the call went through to the BYE
+//! (SpanDSP `t38_terminal` on a UDP socket), or with `--mode audio` over G.711 (SpanDSP's
+//! audio fax modem over RTP). Exit code 0 when the call went through to the BYE
 //! (and, with `--fax`, SpanDSP reported success).
 
 use fax_sim::gateway::FaxTx;
@@ -13,8 +14,8 @@ use t38::ErrorRecovery;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: sip-uac --target ip:port --mode gateway|server|initial [--transport udp|tcp] \
-         [--from NUMBER] [--to NUMBER] [--ident TSI] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]"
+        "usage: sip-uac --target ip:port --mode gateway|server|initial|audio [--transport udp|tcp] \
+         [--from NUMBER] [--to NUMBER] [--ident TSI] [--codec pcmu|pcma] [--fax FILE.tif [--redundancy N] [--loss PERMILLE] [--seed N] [--version 0..3] [--ecm on|off]]"
     );
     std::process::exit(2);
 }
@@ -27,6 +28,7 @@ async fn main() {
     let mut fax: Option<FaxTx> = None;
     let (mut redundancy, mut loss, mut seed, mut version) = (3u8, 0u32, 1u64, 0u8);
     let mut ecm = false;
+    let mut law = sip_core::rtp::Law::Ulaw;
     let (mut from_user, mut to_user, mut ident) = (None::<String>, None::<String>, None::<String>);
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -37,6 +39,7 @@ async fn main() {
                     "gateway" => ReinviteBy::Gateway,
                     "server" => ReinviteBy::Server,
                     "initial" => ReinviteBy::InitialInvite,
+                    "audio" => ReinviteBy::Audio,
                     _ => usage(),
                 }
             }
@@ -53,6 +56,13 @@ async fn main() {
             ("--seed", Some(v)) => seed = v.parse().unwrap_or_else(|_| usage()),
             ("--version", Some(v)) => version = v.parse().unwrap_or_else(|_| usage()),
             ("--ecm", Some(v)) => ecm = v == "on",
+            ("--codec", Some(v)) => {
+                law = match v.as_str() {
+                    "pcmu" => sip_core::rtp::Law::Ulaw,
+                    "pcma" => sip_core::rtp::Law::Alaw,
+                    _ => usage(),
+                }
+            }
             ("--from", Some(v)) => from_user = Some(v),
             ("--to", Some(v)) => to_user = Some(v),
             ("--ident", Some(v)) => ident = Some(v),
@@ -62,6 +72,7 @@ async fn main() {
     let Some(target) = target else { usage() };
     let mut cfg = UacConfig::new(target, mode);
     cfg.transport = transport;
+    cfg.audio.law = law;
     if let Some(v) = from_user {
         cfg.from_user = v;
     }

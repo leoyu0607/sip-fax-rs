@@ -3,7 +3,8 @@
 //! The tap callback runs inline on the transport's I/O tasks, so it only pushes the event into
 //! an unbounded channel (bounded by a counter; events beyond the bound are dropped and
 //! counted). A writer task sorts the messages by Call-ID and writes
-//! `<dir>/<call-id>/sip.log` plus, when the call ends, `result.json`.
+//! `<dir>/<call-id>/sip.log` plus, when the call ends, `result.json`. The fax sessions add
+//! `udptl.log` (T.38) or `audio.log` (G.711, M5) through the same writer.
 //!
 //! Only Call-IDs the controller announces with [`Capture::begin`] get a directory: the INVITE
 //! reaches the tap before the controller knows about the call, so unannounced messages wait
@@ -33,13 +34,19 @@ const MAX_PENDING_PER_CALL: usize = 16;
 /// How long late messages (retransmissions, the 200 to our BYE) are still appended.
 const LATE_WINDOW: Duration = Duration::from_secs(64);
 
-/// Buffered `udptl.log` text is written out once it reaches this size (`keep = "all"`).
+/// Buffered `udptl.log` / `audio.log` text is written out once it reaches this size
+/// (`keep = "all"`).
 const UDPTL_FLUSH_BYTES: usize = 16 * 1024;
+
+/// The session logs next to `sip.log`, and what one of their lines is.
+const SIDE_FILES: [(&str, &str); 2] = [("udptl.log", "datagram(s)"), ("audio.log", "line(s)")];
 
 enum Msg {
     Tap(TapEvent),
-    Udptl {
+    /// A line of one of [`SIDE_FILES`] (by index).
+    Side {
         call_id: String,
+        file: usize,
         line: String,
     },
     Begin(String),
@@ -138,10 +145,28 @@ impl Capture {
             return;
         }
         let line = udptl_line(at, transmit, datagram, self.udptl_mode, version, hdlc);
+        self.side(call_id, 0, line);
+    }
+
+    /// Records one line of the G.711 session in `audio.log`: `<time> <text>` (V.21 frames,
+    /// modem changes, signal events). Subject to the same `keep` and `max_bytes_per_call` rules
+    /// as `sip.log` (separate budget).
+    pub fn audio(&self, call_id: &str, at: std::time::SystemTime, text: &str) {
+        if self.queued.fetch_add(1, Ordering::Relaxed) >= MAX_QUEUED {
+            self.queued.fetch_sub(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        self.side(call_id, 1, format!("{} {text}\n", rfc3339(at)));
+    }
+
+    /// Queues a line of a side file; the caller has counted it in `queued`.
+    fn side(&self, call_id: &str, file: usize, line: String) {
         if self
             .tx
-            .send(Msg::Udptl {
+            .send(Msg::Side {
                 call_id: call_id.to_string(),
+                file,
                 line,
             })
             .is_err()
@@ -327,10 +352,16 @@ struct Log {
     skipped: u64,
     /// `buf` has been written to disk already (keep = all).
     on_disk: bool,
-    /// `udptl.log` text not written yet.
-    udptl_buf: String,
-    udptl_bytes: usize,
-    udptl_skipped: u64,
+    /// The side files ([`SIDE_FILES`]).
+    side: [SideLog; 2],
+}
+
+/// Text of a side file not written yet, and its budget.
+#[derive(Default)]
+struct SideLog {
+    buf: String,
+    bytes: usize,
+    skipped: u64,
 }
 
 struct Writer {
@@ -351,9 +382,13 @@ impl Writer {
                     self.queued.fetch_sub(1, Ordering::Relaxed);
                     self.on_tap(&ev).await;
                 }
-                Msg::Udptl { call_id, line } => {
+                Msg::Side {
+                    call_id,
+                    file,
+                    line,
+                } => {
                     self.queued.fetch_sub(1, Ordering::Relaxed);
-                    self.on_udptl(&call_id, line).await;
+                    self.on_side(&call_id, file, line).await;
                 }
                 Msg::Begin(id) => self.on_begin(id).await,
                 Msg::End {
@@ -412,9 +447,7 @@ impl Writer {
                 bytes: 0,
                 skipped: 0,
                 on_disk: false,
-                udptl_buf: String::new(),
-                udptl_bytes: 0,
-                udptl_skipped: 0,
+                side: Default::default(),
             },
         );
         for e in early {
@@ -422,22 +455,22 @@ impl Writer {
         }
     }
 
-    async fn on_udptl(&mut self, id: &str, line: String) {
+    async fn on_side(&mut self, id: &str, file: usize, line: String) {
         let keep_all = self.keep == KeepMode::All;
         let dir = self.call_dir(id);
         let max = self.max_bytes;
-        let Some(log) = self.active.get_mut(id) else {
+        let Some(side) = self.active.get_mut(id).and_then(|l| l.side.get_mut(file)) else {
             return;
         };
-        if log.udptl_bytes + line.len() > max {
-            log.udptl_skipped += 1;
+        if side.bytes + line.len() > max {
+            side.skipped += 1;
             return;
         }
-        log.udptl_bytes += line.len();
-        log.udptl_buf.push_str(&line);
-        if keep_all && log.udptl_buf.len() >= UDPTL_FLUSH_BYTES {
-            let text = std::mem::take(&mut log.udptl_buf);
-            let _ = append_file(&dir, "udptl.log", text.as_bytes()).await;
+        side.bytes += line.len();
+        side.buf.push_str(&line);
+        if keep_all && side.buf.len() >= UDPTL_FLUSH_BYTES {
+            let text = std::mem::take(&mut side.buf);
+            let _ = append_file(&dir, SIDE_FILES[file].0, text.as_bytes()).await;
         }
     }
 
@@ -469,15 +502,17 @@ impl Writer {
         let keep = self.keep == KeepMode::All || failed;
         if keep {
             let dir = self.call_dir(&id);
-            let mut utail = log.udptl_buf.clone();
-            if log.udptl_skipped > 0 {
-                utail.push_str(&format!(
-                    "[capture] {} further datagram(s) not stored (max_bytes_per_call reached)\n",
-                    log.udptl_skipped
-                ));
-            }
-            if !utail.is_empty() {
-                let _ = append_file(&dir, "udptl.log", utail.as_bytes()).await;
+            for (side, (name, what)) in log.side.iter().zip(SIDE_FILES) {
+                let mut tail = side.buf.clone();
+                if side.skipped > 0 {
+                    tail.push_str(&format!(
+                        "[capture] {} further {what} not stored (max_bytes_per_call reached)\n",
+                        side.skipped
+                    ));
+                }
+                if !tail.is_empty() {
+                    let _ = append_file(&dir, name, tail.as_bytes()).await;
+                }
             }
             let mut tail = String::new();
             if !log.buf.is_empty() {

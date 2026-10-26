@@ -266,6 +266,8 @@ pub async fn fax(e: &Env, call: &str, ani: &str, minutes: i64) -> i64 {
         tiff_size: Some(tif.len() as i64),
         pdf_path: Some(format!("faxes/2026/10/22/{call}.pdf")),
         pdf_size: Some(pdf.len() as i64),
+        modem: None,
+        media: None,
     };
     e.store.upsert_finished(&new, &fin).await.unwrap().0
 }

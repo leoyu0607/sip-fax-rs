@@ -27,6 +27,11 @@ static SQLITE: &[Migration] = &[
         name: "config_accounts",
         sql: include_str!("../migrations/sqlite/0002_config_accounts.sql"),
     },
+    Migration {
+        version: 3,
+        name: "fax_modem",
+        sql: include_str!("../migrations/sqlite/0003_fax_modem.sql"),
+    },
 ];
 static POSTGRES: &[Migration] = &[
     Migration {
@@ -38,6 +43,11 @@ static POSTGRES: &[Migration] = &[
         version: 2,
         name: "config_accounts",
         sql: include_str!("../migrations/postgres/0002_config_accounts.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "fax_modem",
+        sql: include_str!("../migrations/postgres/0003_fax_modem.sql"),
     },
 ];
 static MYSQL: &[Migration] = &[
@@ -51,6 +61,11 @@ static MYSQL: &[Migration] = &[
         name: "config_accounts",
         sql: include_str!("../migrations/mysql/0002_config_accounts.sql"),
     },
+    Migration {
+        version: 3,
+        name: "fax_modem",
+        sql: include_str!("../migrations/mysql/0003_fax_modem.sql"),
+    },
 ];
 static MSSQL: &[Migration] = &[
     Migration {
@@ -62,6 +77,11 @@ static MSSQL: &[Migration] = &[
         version: 2,
         name: "config_accounts",
         sql: include_str!("../migrations/mssql/0002_config_accounts.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "fax_modem",
+        sql: include_str!("../migrations/mssql/0003_fax_modem.sql"),
     },
 ];
 
@@ -161,7 +181,9 @@ pub async fn check_not_newer(be: &dyn Backend) -> Result<i32> {
 /// second instance finds nothing left to do. Where DDL is transactional (SQLite, PostgreSQL,
 /// MSSQL) a failed migration is rolled back completely; MySQL/MariaDB cannot roll DDL back, so
 /// their migration files only contain statements that are safe to repeat (`CREATE TABLE IF NOT
-/// EXISTS` with the indexes inside the table definition) and a failed run is simply run again.
+/// EXISTS` with the indexes inside the table definition; an `ADD COLUMN` that finds the column
+/// there already, error 1060 "Duplicate column name", counts as done) and a failed run is simply
+/// run again.
 pub async fn migrate(be: &dyn Backend, clock: &dyn Clock) -> Result<MigrateReport> {
     apply(be, clock, migrations(be.kind())).await
 }
@@ -228,9 +250,20 @@ async fn run(
         s.begin().await?;
         let step = async {
             for stmt in split_statements(m.sql) {
-                s.execute(&stmt, &[]).await.map_err(|e| {
-                    Error::Backend(format!("migration {:04}_{}: {e}", m.version, m.name))
-                })?;
+                match s.execute(&stmt, &[]).await {
+                    Ok(_) => {}
+                    // MySQL cannot roll an ADD COLUMN back: done by an earlier run that failed
+                    // before recording its version
+                    Err(e)
+                        if kind == BackendKind::Mysql
+                            && e.to_string().contains("Duplicate column name") => {}
+                    Err(e) => {
+                        return Err(Error::Backend(format!(
+                            "migration {:04}_{}: {e}",
+                            m.version, m.name
+                        )));
+                    }
+                }
             }
             s.execute(
                 "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",

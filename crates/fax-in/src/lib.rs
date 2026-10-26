@@ -14,9 +14,15 @@
 //! that glues `t38`, `t30` and `t4`. M2d adds [`t38session`], the real [`session::FaxSession`]:
 //! a UDPTL socket on the call's pool port, the engine on a real-time clock, and the TIFF / PDF
 //! output under `[storage] data_dir`.
+//!
+//! M5 adds [`audioengine`], the sans-IO G.711 passthrough engine (8 kHz audio in and out, the
+//! same T.30 receiver), and [`audiosession`], the session that drives it over RTP on calls that
+//! stay on audio.
 
 #![deny(missing_docs)]
 
+pub mod audioengine;
+pub mod audiosession;
 pub mod capture;
 pub mod config;
 pub mod controller;
@@ -35,8 +41,8 @@ pub mod trunk;
 pub use config::{ConfigError, FaxInConfig, FaxSessionKind};
 pub use controller::{DrainProgress, FaxIn, RegistrationView, StartError, StartOptions};
 pub use event::{
-    ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, FaxReport, ReportSink, T38Negotiated,
-    T38Path, UdptlCounters,
+    AudioNegotiated, ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, FaxMedia, FaxReport,
+    ReportSink, RtpCounters, T38Negotiated, T38Path, UdptlCounters,
 };
 pub use numbers::Numbers;
 pub use recorder::{Recorder, RecorderConfig};

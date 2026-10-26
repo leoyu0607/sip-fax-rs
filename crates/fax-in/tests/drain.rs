@@ -45,6 +45,8 @@ fn report(pages: u32, code: u8, partial: bool) -> FaxReport {
         pdf: Some("/d/faxes/x.pdf".into()),
         store_error: None,
         udptl: UdptlCounters::default(),
+        media: Default::default(),
+        rtp: None,
         tiff_size: Some(1),
         pdf_size: Some(1),
         ecm: false,

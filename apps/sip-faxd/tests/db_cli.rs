@@ -116,6 +116,8 @@ fn fin(tiff: &str, pdf: &str, ended_days_ago: i64) -> FaxFinal {
         tiff_size: Some(3),
         pdf_path: Some(pdf.into()),
         pdf_size: Some(3),
+        modem: None,
+        media: None,
     }
 }
 
@@ -128,7 +130,7 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success(), "{}", err(&o));
     assert!(
-        out(&o).contains("database sqlite: schema version 0 -> 2 (applied 0001, 0002)"),
+        out(&o).contains("database sqlite: schema version 0 -> 3 (applied 0001, 0002, 0003)"),
         "{}",
         out(&o)
     );
@@ -136,12 +138,12 @@ async fn i05_db_migrate_creates_the_schema_and_is_repeatable() {
     let o = run(&["db", "migrate"], &cfg);
     assert!(o.status.success());
     assert!(
-        out(&o).contains("already at schema version 2, nothing to do"),
+        out(&o).contains("already at schema version 3, nothing to do"),
         "{}",
         out(&o)
     );
     let st = open(&dir).await;
-    assert_eq!(st.schema_version().await.unwrap(), 2);
+    assert_eq!(st.schema_version().await.unwrap(), 3);
 }
 
 #[tokio::test]

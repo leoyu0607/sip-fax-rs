@@ -11,6 +11,7 @@ sip-core = { workspace = true }
 t38 = { path = "../t38" }
 t30 = { path = "../t30" }
 t4 = { path = "../t4" }
+fax-modem = { path = "../fax-modem" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
@@ -22,8 +23,10 @@ store = { path = "../store" }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 arc-swap = { workspace = true }
+rand = { workspace = true }
 serde_path_to_error = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
+fax-modem = { path = "../fax-modem", features = ["testtx"] }

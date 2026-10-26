@@ -478,6 +478,8 @@ async fn w07_tricks_in_the_path_never_read_outside_the_data_directory() {
         tiff_size: Some(10),
         pdf_path: Some("faxes/../../secret.txt".into()),
         pdf_size: Some(10),
+        modem: None,
+        media: None,
     };
     e.store.upsert_finished(&fin_new, &fin).await.unwrap();
     for f in ["file.pdf", "file.tif"] {

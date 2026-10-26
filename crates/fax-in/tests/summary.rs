@@ -31,6 +31,8 @@ fn fax(code: u8, name: &str, pages: u32) -> FaxReport {
         pdf: None,
         store_error: None,
         udptl: UdptlCounters::default(),
+        media: Default::default(),
+        rtp: None,
         tiff_size: None,
         pdf_size: None,
         ecm: false,
@@ -53,6 +55,7 @@ fn result(outcome: CallOutcome, report: Option<FaxReport>, bye: Option<ByeBy>) -
         ended_at: at(63, 0),
         bye_by: bye,
         t38: None,
+        audio: None,
         fax: report,
         outcome,
     }

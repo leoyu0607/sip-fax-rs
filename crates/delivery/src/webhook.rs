@@ -64,6 +64,8 @@ pub fn record_json(rec: &FaxRecord, attempt: i32) -> serde_json::Value {
         "bit_rate": rec.bit_rate,
         "compression": rec.compression,
         "ecm": rec.ecm,
+        "modem": rec.modem,
+        "media": rec.media,
         "pdf_size": rec.pdf_size,
         "tiff_size": rec.tiff_size,
     })

@@ -540,6 +540,8 @@ pub(crate) mod tests {
             pdf: None,
             store_error: None,
             udptl: UdptlCounters::default(),
+            media: Default::default(),
+            rtp: None,
             tiff_size: None,
             pdf_size: None,
             ecm: false,
@@ -559,6 +561,7 @@ pub(crate) mod tests {
             ended_at: SystemTime::UNIX_EPOCH,
             bye_by: None,
             t38: None,
+            audio: None,
             fax: Some(fax),
             outcome: if shutdown {
                 CallOutcome::Failed {

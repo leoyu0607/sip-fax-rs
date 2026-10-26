@@ -1,6 +1,6 @@
 # sip-fax IT 安裝維運手冊
 
-適用版本：v0.4.1-alpha
+適用版本：v0.5.0-alpha
 
 sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳真來電以 SIP 送進來，sip-fax 以 T.38 接收，存成 TIFF 與 PDF、寫入資料庫，並可投遞到資料夾、Email 或 Webhook。座席人員以 Web 介面查看。這份手冊給負責安裝與維運的人員；座席的操作請見《座席使用手冊》（`agent.md`）。
 
@@ -12,15 +12,15 @@ sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳
 | 套件 | 不需要安裝任何套件：發佈的是靜態連結的單一執行檔 |
 | 資料庫 | 預設內建 SQLite，不需安裝；也支援 PostgreSQL、MySQL／MariaDB、Microsoft SQL Server |
 | 硬碟 | 一頁傳真的 TIFF＋PDF＋預覽圖約 100–300 KB；依每天的頁數與保存天數估算 |
-| 網路 | SIP（UDP／TCP 5060）、T.38（UDP，預設 30000–30999）、Web（TCP 8443） |
+| 網路 | SIP（UDP／TCP 5060）、T.38 與 RTP（UDP，預設 30000–30999，偶數與奇數埠都要開）、Web（TCP 8443） |
 
-目前只支援 **T.38**。對方只能送 G.711 音訊傳真時無法接收（G.711 passthrough 在後續版本提供）。
+以 **T.38** 為主。對方不接受 T.38 時，改從 **G.711** 音訊接收（最高 9600 bit/s，不使用 ECM）。
 
 ## 2. 安裝
 
 ```sh
-tar xzf sip-fax-rs-0.4.1-linux-x86_64.tar.gz -C /opt
-mv /opt/sip-fax-rs-0.4.1-linux-x86_64 /opt/sip-fax
+tar xzf sip-fax-rs-0.5.0-linux-x86_64.tar.gz -C /opt
+mv /opt/sip-fax-rs-0.5.0-linux-x86_64 /opt/sip-fax
 cd /opt/sip-fax
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 useradd --system --home /opt/sip-fax --shell /sbin/nologin sipfax
@@ -85,7 +85,7 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd     # 非 root 也能監聽 5060
 ### 3.3 Gateway 對接要點
 
 - **來源 IP**：只有中繼 `allowed_sources`（預設是 `peer` 的 IP）內的來源可以打進來，其他依 `[sip] unknown_source` 處理（預設 `drop` 直接丟棄）。第一次對接建議設成 `log`：任何來源都會接聽，並在 log 記下對方實際的 IP，確認後改回 `drop`。
-- **T.38 建立方式**（`t38_policy`）：`auto`（預設，適合大多數 gateway）、`wait-peer`（只等對方發起 re-INVITE）、`initiate`、`audio-only`。
+- **T.38 建立方式**（`t38_policy`）：`auto`（預設，適合大多數 gateway：等 `initiate_after_secs` 後由我方發 T.38 re-INVITE，對方拒絕就改用 G.711）、`wait-peer`（只等對方發起 re-INVITE，`initiate_after_secs` 內沒等到就改用 G.711）、`initiate`（同 `auto`）、`audio-only`（一律用 G.711）。改用 G.711 的通話在 `result.json` 的 `audio.reason` 記錄原因，Web 傳真內容頁的「傳送方式」顯示 G.711。
 - **號碼來源**（`[trunks.numbers]`）：發話號碼依序取 P-Asserted-Identity、Remote-Party-ID、From；受話號碼依序取 Request-URI、To。可移除國碼前綴（`ani_strip_prefix = "+886"`）。不確定時，先收一通，看 `logs/calls/<call-id>/sip.log` 再調整。
 - **註冊**：對端要求 REGISTER 時，開啟 `[trunks.register]` 並填入帳號密碼；狀態可在 Web「系統狀態」或 `./sip-faxd status` 查看。
 - **ECM**：預設關閉，與真實 gateway 驗證前請維持關閉。
@@ -296,7 +296,8 @@ Web「設定 → 保存期限」：
 |---|---|
 | 完全沒有接到電話 | `[sip] advertised`、防火牆 5060；`unknown_source = "log"` 後看 log 有沒有被丟棄的來源；`tcpdump -i any -w sip.pcap udp port 5060` |
 | 接通但傳真失敗 | `logs/calls/<call-id>/result.json` 的失敗原因、`udptl.log`；防火牆是否開了 `port_range` 的 UDP |
-| 對方拒絕 T.38（「對方不接受 T.38」） | 對端只支援 G.711，這一版無法接收 |
+| 對方拒絕 T.38（「對方不接受 T.38」） | 只在 `[call] fax_session = "hold"` 時出現；正式設定會改用 G.711 接收 |
+| G.711 傳真失敗 | `audio.log` 看在哪一步停住（沒有 DCS、TCF 一直 FTT、頁面中斷）；`result.json` 的 `fax.rtp`（`lost_ms`、`late`）看網路是否掉封包；防火牆是否開了奇數埠 |
 | 號碼不對或空白 | 看 `sip.log` 號碼在哪個 header，調整中繼的「號碼擷取」 |
 | 新來電回 503 | 服務正在停止，或 `port_range` 的埠用完（同時通話數太多） |
 | Web 打不開 | `status` 是否執行中、防火牆 8443、log 中 Web 的錯誤（憑證檔無法讀取、埠被占用） |

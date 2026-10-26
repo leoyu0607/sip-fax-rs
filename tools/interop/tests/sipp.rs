@@ -289,7 +289,7 @@ fn s07_peer_488_to_our_t38_reinvite_is_acked_then_we_hang_up() {
     assert!(
         faxd.log()
             .iter()
-            .any(|l| l.contains("G.711 passthrough not yet supported")),
+            .any(|l| l.contains("no G.711 session for this call")),
         "logged"
     );
     faxd.stop();

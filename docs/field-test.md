@@ -1,6 +1,13 @@
-# 現場試接指南（v0.4.1-alpha）
+# 現場試接指南（v0.5.0-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
+
+0.5.0 新增的功能（M5）：
+- **G.711 傳真**：CS210 或 gateway 不接受 T.38 時，改從 G.711 音訊（PCMU／PCMA）接收，最高 9600 bit/s（V.27ter、V.29），不使用 ECM。`result.json` 的 `audio.reason` 記錄為什麼改走音訊，`logs/calls/<call-id>/audio.log` 記錄音訊上的 T.30 過程；Web 傳真內容頁的「傳送方式」顯示 T.38 或 G.711。G.711 目前只和 SpanDSP 互通驗證過，**這次試接若遇到 G.711 來電，請回傳 `audio.log`、`sip.log` 與 `result.json`**。
+- **防火牆**：RTP 使用該通 UDPTL 埠的下一個奇數埠，請開放整個 `port_range`（偶數與奇數埠，第 3 節）。
+- Web 介面：系統狀態頁的「今日概況」與資料目錄的剩餘空間；傳真內容頁的上一份／下一份；有未儲存的備註或設定時離開會先詢問。
+
+**從 0.4.1 升級**：停止舊版，把新版解壓到新目錄，再把舊目錄的 `conf/sip-faxd.toml`、`conf/secret.key`、`data/` 複製過去後啟動。第一次啟動會自動在 `faxes` 加兩個欄位（migration 0003：`modem`、`media`）。
 
 0.4.1 的改善（Web 介面）：
 - 右上角點自己的名稱打開帳號選單（我的帳號、語言、外觀、登出）；選單「傳真」旁顯示未讀份數，即時更新。
@@ -35,8 +42,8 @@
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.4.1-linux-x86_64.tar.gz
-cd sip-fax-rs-0.4.1-linux-x86_64
+tar xzf sip-fax-rs-0.5.0-linux-x86_64.tar.gz
+cd sip-fax-rs-0.5.0-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```
@@ -82,7 +89,7 @@ trust_server_certificate = true    # 自簽憑證時
 
 ## 3. 防火牆
 - SIP：UDP 5060，只允許 CS210 的 IP 連入。
-- T.38：UDP 30000–30999，也就是 `port_range` 設定的範圍。
+- T.38 與 RTP（G.711）：UDP 30000–30999，也就是 `port_range` 設定的範圍（偶數埠是 T.38，奇數埠是 RTP，整個範圍都要開）。
 - Web 介面：TCP 8443（HTTPS）。**預設開啟**，設定檔沒有 `[web]` 也會啟動；只開放給要使用介面的網段。不需要時在設定檔寫 `[web]` `enabled = false`。第一次啟動時密碼在 `conf/initial-admin-password`。
 
 ```sh
@@ -125,7 +132,7 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd
 4. 如果完全沒有接到電話：附上 `tcpdump -i any -w cs210.pcap udp port 5060` 的擷取。
 
 ## 7. 已知限制（alpha）
-- 只支援 T.38。如果 CS210 拒絕 T.38、要求 G.711，這一版會掛斷，並在 `result.json` 記錄失敗原因。G.711 passthrough 在 M5 才會做。
+- T.38 優先。CS210 拒絕 T.38 時，0.5 起改從 G.711 音訊接收（最高 9600 bit/s，不使用 ECM），`result.json` 的 `audio.reason` 記錄原因，`logs/calls/<call-id>/audio.log` 記錄音訊上的 T.30 過程。G.711 只和 SpanDSP 互通驗證過，還沒有和真實 gateway 測過；防火牆要開放整個 `port_range`（RTP 用偶數 UDPTL 埠的下一個奇數埠）。
 - ECM 預設關閉。發送端要求 ECM 時，傳送會以 non-ECM 完成。ECM 只和 SpanDSP 互通驗證過，還沒有和真實 gateway 測過。
 - 紀錄也可以直接用 SQLite 工具查詢 `data/sip-faxd.db`（欄位說明見壓縮檔內的 `docs/database.md`）。
 - localTCF 時不會送 CFR。這是跟 SpanDSP 一致的行為，但還沒有用 CS210 驗證過，這正是這次試接要確認的項目之一。

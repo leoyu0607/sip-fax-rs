@@ -119,6 +119,31 @@ pub struct ReceivedPage {
 }
 
 impl ReceivedPage {
+    /// A page T.30 accepted, re-encoded as MMR; the error text when encoding failed (the page
+    /// is then kept with an empty strip).
+    pub fn from_t30(p: &t30::PageData) -> (ReceivedPage, Option<String>) {
+        let (g4, err) = match t4::encode_mmr(&p.bitmap, p.width) {
+            Ok(g4) => (g4, None),
+            Err(e) => (
+                Vec::new(),
+                Some(format!("page {}: MMR encoding failed: {e}", p.number)),
+            ),
+        };
+        let page = ReceivedPage {
+            number: p.number,
+            width: p.width,
+            height: p.rows,
+            x_dpi: p.x_dpi,
+            y_dpi: p.y_dpi,
+            g4,
+            bad_lines: p.bad_lines,
+            longest_bad_run: p.longest_bad_run,
+            source_coding: p.compression,
+            modem: p.modem,
+        };
+        (page, err)
+    }
+
     /// The page as a `t4::Page` for the TIFF / PDF writers.
     pub fn as_t4_page(&self) -> t4::Page<'_> {
         t4::Page {
@@ -476,24 +501,10 @@ impl T38Engine {
     }
 
     fn store_page(&mut self, p: &t30::PageData) {
-        let g4 = match t4::encode_mmr(&p.bitmap, p.width) {
-            Ok(g4) => g4,
-            Err(e) => {
-                self.note(format!("page {}: MMR encoding failed: {e}", p.number));
-                Vec::new()
-            }
-        };
-        self.pages.push(ReceivedPage {
-            number: p.number,
-            width: p.width,
-            height: p.rows,
-            x_dpi: p.x_dpi,
-            y_dpi: p.y_dpi,
-            g4,
-            bad_lines: p.bad_lines,
-            longest_bad_run: p.longest_bad_run,
-            source_coding: p.compression,
-            modem: p.modem,
-        });
+        let (page, err) = ReceivedPage::from_t30(p);
+        if let Some(e) = err {
+            self.note(e);
+        }
+        self.pages.push(page);
     }
 }

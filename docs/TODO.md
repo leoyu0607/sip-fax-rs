@@ -208,12 +208,76 @@
   - 截圖已可自動產生：`scripts/e2e-web.sh --config playwright.shots.config.ts`（`web-ui/e2e/manual.shots.ts`，Docker 裡真的 sip-faxd 與 SpanDSP 傳真），輸出到 `docs/manual/images/`；介面改了就重跑
 
 ## M5 — G.711 passthrough
-- [ ] [Opus] 撰寫 docs/test-plans/M5.md
-- [ ] [Sonnet] fax-modem：CNG/CED、V.21 HDLC、V.27ter、V.29、V.17（接收方向優先）
-- [ ] [Sonnet] RTP 接收 payload stream 和 jitter buffer
-- [ ] [Opus] 審核 docs/test-reports/M5.md
+> 2026-10-23 使用者決定（ADR-061）：只做 V.27ter 與 V.29（最高 9600），不做 V.17；`auto` 時對方直接送 CNG 仍先試 T.38，被拒才 G.711。分期 M5a–M5e，M5e 完成即發版。
+- [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
+- **交接狀態（2026-10-26，分支 `m5`，最後 commit `0bbb99e`，ci-local 通過）**：使用者要求更新狀態，由另一位 agent 接手。
+  - 完成：M5a（開發＋測試）、M5b（開發）、M5c（V.27ter，開發＋測試＋審核）、M5d（V.29，開發＋測試＋審核）。本階段的決策記在 ADR-062～065：062 是 V.27ter 收端修正；063 是 V.29 Segment 3 擬合檢查；064 是 V.27ter 4800 損傷案例的門檻改為計畫 SNR＋2 dB；065 是 V.29 資料段時脈改回 Gardner 二階迴路。音訊引擎的 DIS 只宣告 V.27ter＋V.29。
+  - 建議接手順序：
+    ① M5e 開發，含下方「M5e 設計待辦」①③④⑤⑥⑦。其中 ⑤ 音訊 session 強制 `t30.ecm = false`，不做的話 ECM 的對方一定失敗；④ 和 M04 的結束偵測，是 `m05_a_lost_packet_in_the_middle_of_a_page_plan`（`#[ignore]`）要通過的前提。
+    ② M5e 測試交 Sonnet（J06、E01–E08）。
+    ③ M5b 測試交 Sonnet（H01–H03、V01–V05）。
+    ④ Opus 審核 `docs/test-reports/M5a.md`。
+    M5e 完成即發版（走 CLAUDE.md 的發版檢查清單）。
+  - 試行說明：2026-10-24～25 使用者在該 session 試行「開發切小任務給 Haiku、Opus 審核」。結論：表格、串接這類規格明確的工作，Haiku 做得穩；需要設計判斷的除錯，Haiku 做不好，最後都由 Opus 自己做。這只是那個 session 的授權，CLAUDE.md 的「Subagent 只用在測試」沒有改。接手者照 CLAUDE.md 做，除非使用者另外指示。
+  - 操作注意：
+    - 背景跑 `scripts/ci-local.sh` 時要自己抓結束碼（`…; rc=$?; …; exit $rc`）。若最後一個指令是 `tail` 之類，回報的 exit 0 不是 ci-local 的結果。
+    - 改 `tools/` 下的檔案要另外在 `tools/` 裡跑 `cargo fmt --all`，根目錄的 fmt 不涵蓋它。
+    - SpanDSP 測試只跑部分時：`E2E_ONLY="--test b_v29_spandsp --test m5d_audio_engine_spandsp" E2E_SKIP_CHECKS=1 scripts/e2e-docker.sh --test-threads=1`。
+    - rtk hook 會過濾 `git log` 等輸出，要看原始輸出時用 `rtk proxy git …`。
+
+- [x] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
+  - 2026-10-23：`crates/sip-core/src/rtp/{g711,packet,jitter}.rs`（G.711 依規格重寫，sipress 的有誤，見 sipress-extraction.md）、`crates/fax-modem/src/{level,goertzel,tone}.rs`；單元測試 fax-modem 5 個（行涵蓋率 98.6%）、sip-core rtp 11 個；CI coverage 納入 `fax-modem ≥ 85%`。下一步：Sonnet 依計畫補 G01–G05、J01–J05、J07、N01–N04（含 SpanDSP 對照：`alaw_to_linear`／`ulaw_to_linear`、`modem_connect_tones_rx`）
+- [x] [Sonnet] M5a 測試 G01–G04、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`（待 Opus 審核；G05、J06 延到 M5e）
+  - 2026-10-23：測試在 `crates/sip-core/tests/m5a_{g,j}.rs`、`crates/fax-modem/tests/m5a_n.rs`，SpanDSP 對照在 `tools/fax-sim/tests/{g01_g02_g711_spandsp,n03_ced_spandsp}.rs`（`spandsp-sys` 補了 `g711_*`、`modem_connect_tones_rx_*`）。測試發現並修了三個產品問題：jitter buffer 見底後永遠回不來（送端時脈 −200 ppm 約 150 s 後全部 gap，改為見底後重新等 `start_depth`）、CNG 偵測器在 −43 dBm0 偵測不到（門檻改用 −48）、μ-law 編碼負值不奇對稱（與 SpanDSP 差 127 個輸入）。涵蓋率 fax-modem 98.6%、sip-core 93.8%。審核重點見報告 §4（N04 的「判定延遲」解讀）與 §5
+- [x] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D
+  - 2026-10-23：`crates/fax-modem/src/{hdlc,v21}.rs`（HDLC 收送、FCS-16；V.21 相位連續 FSK 送、非同調收＋數位 PLL）、`crates/fax-in/src/audioengine.rs`（sans-IO，以樣本為時脈；CED、V.21 burst、TxComplete、半雙工、回應等對方訊號結束並在 75 ms 後才送；與 T.30 之間每個 octet 位元反轉）；`ReceivedPage::from_t30` 兩個引擎共用。單元測試：fax-modem 12 個（行涵蓋率 97.8%）、audioengine 2 個（答 CED＋CSI＋DIS；對方的 TSI＋DCS 經 V.21 送到 T.30）。高速收端（TCF、影像）在 M5c／M5d。
+  - 留給 M5b 測試的 SpanDSP FFI（只在 `tools/`）：`fsk_tx`／`fsk_rx`、`hdlc_tx`，以及之後 M5c／M5d 用的 `v27ter_tx`／`v29_tx`
+- [x] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
+  - 2026-10-26 進度（Sonnet，審核退回後更新）：H01–H03、V01–V05 完成。V04：`V21Preamble` +19.7 ms、`NoSignal` +26.4 ms（SpanDSP 來源 +7.6／+11.1 ms）、回應時序 73.5 ms（ADR-069 之後），−43 dBm0 不回報前導（`ON_DBM0` 門檻，`#[ignore]`）。ADR-069 修好的 V03／V05 案例已取消 `#[ignore]`。`AudioEngine` 加 `drain_signals()` 觀測介面。待 Opus 審核，報告 `docs/test-reports/M5b.md`
+- [x] [Any] M5c：`fax-modem::v27ter` 收端（2026-10-24 完成；以下是開發過程的紀錄）
+  - **交接狀態（2026-10-23，分支 `m5`）**：使用者要求開發停在這個階段、更新狀態讓其他 agent 接手。
+  - 規格來源：ITU-T V.27 ter（1988 Blue Book）與 V.27 Appendix I（擾碼器），從 itu.int 免費下載（`T-REC-V.27ter-198811`、`T-REC-V.27-198811`）；清潔室實作，不參考 SpanDSP 原始碼（ADR-061）。
+  - 已完成：`crates/fax-modem/src/dsp.rs`（複數、RRC、三次內插、二階迴路）；`crates/fax-modem/src/v27ter.rs` 的擾碼器（1 + x⁻⁶ + x⁻⁷ 加 8／9／12 位元的重複樣式保護：連續 33 個位置等於 8、9 或 12 位元前的位元就反轉下一位）、測試用發送端（`#[cfg(test)] testtx`，Segment 3／4／5 與 Table 4 逐項相同：暫存器 `0011110`，字串第一個字元是最新的位元，輸出 `1 ⊕ b6 ⊕ b7`，Segment 4 每三位取第一位）、收端（下變頻 1800 Hz、RRC 匹配濾波 α = 0.5、T/2 三次內插＋Gardner 時脈、T/2 等化器 15 taps（NLMS，初始中心 tap 必須在偶數索引）、決策導向二階載波迴路、Segment 3 鎖定、Segment 4 以 0°／180° 訓練、第一個非 0°／180° 的變化是 Segment 5、差分解碼、解擾）。
+  - 測試狀態：`clean_signals_at_both_speeds_and_both_trainings` 通過（4800 與 2400、短與長訓練，9600 bit 0 錯）；Table 4、擾碼器 round-trip 通過。`quiet_offset_and_drifting_signals` **未通過，暫時 `#[ignore]`**：−43 dBm0、seed 3、9600 bit 時從第 2 個資料符號就錯（sent `[6,5,7,2,…]` got `[6,2,0,4,…]`），但同樣 −43 dBm0 的 100 bit（seed 1）完全正確，−10 dBm0 的 9600 bit 也正確；±7 Hz 與 ±100 ppm 還沒驗。除錯工具：`cargo test -p fax-modem --release debug_trace -- --ignored --nocapture`（印出每個符號的 |z|、殘差角度，以及送出與判定的相位變化）。
+  - 2026-10-24 ①② 完成（試行：開發由 Haiku 做、Opus 審核）：原因是 `loud`（Gardner 時脈與 Segment 3 反轉計數的開關）用開啟門檻 −43 dBm0，−43 dBm0 的訊號每 5 ms 量到 −43.0～−43.1，`loud` 晚了約 8 個符號才開，Segment 3 沒收斂、反轉計數一直中斷，Training 晚到 Segment 4 結束後，`Trained` 落在 Segment 5 第 53 個符號，少了 55 個資料符號。改為 `loud` 用關閉門檻 −48 dBm0（與載波消失的判定一致）。`quiet_offset_and_drifting_signals` 全部通過（−43 dBm0、±7 Hz、±100 ppm，兩種速率），已拿掉 `#[ignore]`。代價：雜訊在 −48～−43 dBm0 也會開始找 Segment 3；20 秒白雜訊（−40～−60 dBm0）與靜音沒有誤判，1 小時白雜訊的 A09 交 Sonnet 驗。
+  - 2026-10-24 ③ 完成（Haiku 實作、Opus 審核退回一次）：`fax-in::audioengine` 依 DCS 本身的 FIF（`t30::caps::parse_rate`，不用 `t30.dcs()`：T.30 忽略的 DCS 不會更新它）建 `V27terRx`（4800／2400；其他速率記 log）；`Training`→`RxSignal::Training`、`Bits`→octet（第一個收到的位元是 MSB）→`ImageData`、`CarrierLost`→`DataEnd`；高速收端在能量偵測之前處理，避免同一個 20 ms 的 NoSignal 先結束 TCF／頁面而漏掉資料。fax-modem 新增只給測試用的 feature `testtx`（`v27ter::testtx::Tx`，fax-in 的 dev-dependency 開啟，不進正式執行檔）。測試：TCF 全 0 → CFR（901 octets，7188／7208 bit 為 0）、亂數 → FTT、第二個 DCS 換成 2400 收端。待觀察（M5e）：V.21 的能量偵測在 V.27ter 訊號期間也是 On，V.21 收端可能解出雜訊幀（FCS 擋下，測試中沒有出現）。
+  - ④ M5c 測試已完成並審核（見下一項）。
+  - M5a 測試已由 Sonnet 完成並合進 `m5`（2026-10-23）；**待 Opus 審核** `docs/test-reports/M5a.md`（§4 的 N04「判定延遲」解讀、§5 列出的未修小問題）。
+- [x] [Sonnet] M5c 測試 A01–A07、A09、M01，報告 `docs/test-reports/M5c.md`（2026-10-24；Opus 審核通過，A04／A05 未達 10⁻⁵，見報告 §9）：SpanDSP `v27ter_tx` 當送端，A01–A07 在 `tools/fax-sim/tests/a_v27ter_spandsp.rs`，M01 在 `m01_audio_engine_spandsp.rs`，A09 在 `crates/fax-modem/tests/m5c_a09.rs`（1 小時白雜訊 `#[ignore]`，指令見報告）；找到並修了 4 個產品問題（擾碼器 guard 回授、雜訊假 Training、Segment 4 載波迴路、DCS 的 X 位元，ADR-062）；A03 在計畫的 SNR 達標，A04／A05 在計畫的 SNR 達不到 1e-5（見報告 §4）
+- [x] [Any] V.27ter 收端套用 M5d 的時脈做法（2026-10-25 試行 Haiku 實作、Opus 驗收；**結論：沒有改善，未採用**）：Train／Data 改用等化器係數重心帶時脈後，4800 在 Docker 的 A04／A05 BER 與原本的 Gardner 相同或略差（+100 ppm 5.3e-5 對 3.3e-5，G.711 兩種 law 都是 4.0e-5，與原本相同）；資料段步階加大到 0.02 以上時，2400 在 12 dB 的長傳送約 17 萬 bit 後失鎖。A05 沒有時脈偏差也一樣差，所以 4800 的不足不是時脈造成的：A03（只有雜訊，15 dB）本身就是 6.9e-6，已在門檻邊緣，加上任何損傷就超過。程式碼已還原，實作留在 scratchpad 不進 repo。
+- [x] [Opus] A04／A05 的門檻（2026-10-25 使用者交由 Opus 決定，ADR-064）：V.27ter 4800 的損傷案例改為「計畫 SNR＋2 dB（17 dB）時 ≤ 10⁻⁵、計畫 SNR 時 ≤ 10⁻⁴」，現有測試正是這樣斷言，A04／A05 改記為達成
+- [x] [Any] M5e 設計待辦 ①③④⑤⑥⑦（2026-10-26，ADR-066）：① `tone::PresenceDetector` 與 V.27ter／V.29 的載波結束改為「低於 −48 dBm0 或比訊號低 10 dB」，開始要比雜訊高 10 dB；③ 不需處理（收端仍在 DCS 之後才建立）；④ `AudioEngine::process_lost`：連續 60 ms 內收端跳過缺口；⑤ `AudioEngine::new` 強制關閉 ECM／MMR；⑥ DCS 指定沒有收端的數據機時，TCF 一結束就回 FTT；⑦ V.29 Segment 4 的位元不交給 T.30。單元測試在 `tone.rs`、`v27ter.rs`、`v29.rs`、`audioengine.rs`；SpanDSP 的 `m5d_audio_engine_spandsp.rs` 改用 `process_lost`（M05）與 M07 新行為，待 Docker 驗證（`m05_..._plan` 的 `#[ignore]` 要在 Docker 通過後拿掉）。原始紀錄：
+  - 原待辦（M5c 報告 §5）：① 訊號結束改看相對下降或符號品質（目前用絕對 −48 dBm0，線路雜訊較高時等不到 TCF／頁面結束；M04 也會碰到）；③ 1100 Hz CNG 會符合 V.27ter Segment 3（收端若在 DCS 前建立就要處理）；④ 20 ms 封包缺口讓 `CarrierLost` 截斷頁面而不是壞行（影響 M05，`m05_a_lost_packet_in_the_middle_of_a_page_plan` 修好後拿掉 `#[ignore]`）；⑤ 音訊 session 必須讓 `t30.ecm` 為 false（音訊路徑沒有 ECM，`[trunks.fax] ecm` 預設開，M5d M07）；⑥ DCS 指定我方沒有的數據機（例如 V.17）時立刻回 FTT 或重送 DIS（目前等 T2，M5d B10）；⑦ 9600 TCF 的 1 只剩約 1.9% 餘裕（收端輸出了 Segment 4 的擾碼 1），傾向收端不輸出 Segment 4 的位元（M5d §5 ②）
+- [x] [Any] `apps/sip-faxd` 的 Permission denied 偶發（`delivery_service::r05`、`service::control::m07`／`m10`、`k07`）：根因是 `ControlServer::bind` 為了讓 socket 一建立就是 0600，暫時把**整個行程**的 umask 設成 0o177，同時間其他執行緒建立的目錄變成 0600（沒有 x），裡面就建不了檔案。正式環境啟動時也可能發生。2026-10-24 改為在 0700 的私有目錄裡 bind、chmod 0600 後 rename 到位，不再動 umask（`service/control.rs::bind_private`，新增 m11）；`sip-faxd` 測試連跑 5 次 106 個全過
+- [x] [Any] M5d：`fax-modem::v29` 收端；DIS 預設宣告 V.27ter＋V.29（2026-10-24，分支 `m5d-v29`；開發試行 Haiku 實作、Opus 審核，2b 的強健性由 Opus 接手）
+  - 規格：ITU-T V.29（1988 Blue Book）由 Opus 讀過（含 Figure 4 的 A／B／C／D 點、Appendix I 的輸出取 x⁻⁷ 才符合 §8.2 的 CDCDCDC 開頭），清潔室實作。只做 9600／7200（DCS 沒有 V.29 4800）。
+  - `crates/fax-modem/src/v29.rs`：Table 1／2 的星座、擾碼器 1 + x⁻¹⁸ + x⁻²³、Segment 3 產生器、測試用發送端（feature `testtx`）；收端：Segment 2 交替鎖定後以已知 A／B 追載波，Segment 3 以已知 C／D 訓練等化器，之後以等化器係數重心帶時脈（Gardner 只在 Segment 2；α = 0.25 時 Gardner 太弱，100 ppm 時乾淨訊號的 MER 從 35 掉到 25.6 dB），資料段等化器步階 0.05。
+  - 測試：乾淨訊號、−43 dBm0、靜音／雜訊不誤判、B03（9600 SNR 20 dB、7200 SNR 17 dB）、B04（±7 Hz、±100 ppm 單項與組合加雜訊，兩種速率，3 個 seed，0 錯誤且 MER 在頻帶內 SNR 的 1.5 dB 內）；fax-modem 涵蓋率 92.9%。
+  - `fax-in::audioengine`：DCS 選 V.29 9600／7200 時建 `V29Rx`（`HighSpeed` enum）；`AudioConfig::default()` 的 DIS 只宣告 V.27ter＋V.29（ADR-061，t30 自己的預設不變，T.38 仍用 V.17）；TCF 全 0 → CFR、亂數 → FTT（兩種速率）、DIS 不含 V.17 的測試。
+  - 試行心得：Haiku 做表格、發送端、串接很穩；強健性除錯花了約 30 萬 token 仍沒找到原因，Opus 改用 MER 當連續指標後才定位到時脈。
+- [x] [Sonnet] M5d 測試 B01–B07、B09、B10、M02–M08，報告 `docs/test-reports/M5d.md`（2026-10-25；Opus 審核通過，見報告 §9）：SpanDSP `v29_tx`／`v17_tx` 當送端，B 在 `tools/fax-sim/tests/b_v29_spandsp.rs`，M 在 `m5d_audio_engine_spandsp.rs`，B09 在 `crates/fax-modem/tests/m5d_b09.rs`；修了 1 個產品問題（Segment 3 擬合檢查，ADR-063）；B03 7200 長頁、M04 固定 SNR、M05 未達成，M07 不可測（音訊路徑沒有 ECM）
+- [x] [Opus] V.29 7200 在 SNR 17–19 dB 的長傳送（> 30 秒）會失去資料（M5d B03）（2026-10-25，ADR-065）：根因是 Segment 3 之後用等化器係數重心帶時脈，時脈沒有時脈偏差也會慢慢走（30 秒約 1 個 T/2），等化器把 tap 往兩側攤開來吸收，重心一直停在中心，最後崩潰；關掉重心時脈後 tap 就穩定。改為 Segment 3 時脈保持不動，Segment 4 起用 Gardner 二階迴路（kp 0.005、ki 1e-5，可用範圍 kp 0.002–0.01、ki 2e-6–1e-5）。洩漏（往 0 或往訓練後的係數）都試過，無效。SpanDSP 的 B03 長頁在 17／19 dB 拿掉 `#[ignore]` 後通過，B04 與單元測試全部通過，新增單元測試 `a_long_7200_transmission_at_17_db_stays_locked`
+- [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
+  - 2026-10-26 進度（分支 `m5`）：開發完成，ROADMAP 完成標準已達成（`tools/fax-sim/tests/e2e_m5e.rs` 的 `d01`：fax-sim 拒絕 T.38 後以 G.711 送 2 頁給 `sip-faxd serve`，V.29 9600 收下、libtiff／poppler 逐像素相同）。下一步：M5e 測試交 Sonnet（J06、E01–E08，寫在 `e2e_m5e.rs`）、M5b 測試、審核 M5a，然後發版。
+    - [x] 引擎修正 ①④⑤⑥⑦（ADR-066，`6b86c39`）
+    - [x] `fax_in::audiosession`（`G711FaxSession`：RTP socket、`JitterBuffer`、20 ms tick 落後時連續補跑、`process_lost`、送 RTP、`audio.log`）；`session.rs` 新增 `AudioContext`／`AudioFaxSession`、`FaxSessionFactory::receives_audio`／`create_audio`（`T38SessionFactory` 兩者都有，`hold` 沒有）；`t38session::conclude` 兩種 session 共用寫檔與報告（`9852c7b`）
+    - [x] controller（ADR-067）：音訊來電的 RTP 用該通 UDPTL 偶數埠的下一個奇數埠（原本另租一個埠，`e2e_m2d` E04 因埠數減半回 503，改掉），接通就建 G.711 session 監聽；`audio-only` 立即接收、對方拒絕我方 T.38 re-INVITE（488／415／606、沒有可用 `m=image`、2xx 沒有 SDP）時改走 G.711、`wait-peer` 在 `initiate_after_secs` 內沒等到 T.38 也改走 G.711；之後 T.38 仍可接手。沒有音訊 session 的 factory（`hold`）維持舊行為（`g711_passthrough_unsupported`，SIPp 測試用這個）。`CallResult.audio`（codec、port、`reason`）、`FaxReport.media`（`t38`／`g711`）與 `rtp` 計數；`capture` 新增 `audio.log`
+    - [x] DB：migration 0003 `faxes.modem`、`faxes.media`（MySQL 重跑時的「Duplicate column name」視為完成）；Web API、webhook、內容頁「傳送方式」（`ec62150`）
+    - [x] 單元／整合測試：`crates/fax-in/tests/m5e_audio.rs`（audio-only 的 RTP 埠與 CED、488 後改走 G.711、T.38 接手監聽中的音訊）；`cargo test --workspace` 全過（Windows 上 `T4_ORACLE=skip`）
+    - [x] fax-sim：`audio_gateway::run_audio_fax`（SpanDSP `fax_state` 經 RTP，`AudioNet` 可設 codec 與送出抖動，`FaxTx::loss_permille` 雙向遺失）、`sip_uac::ReinviteBy::Audio`（`--mode audio --codec pcmu|pcma`，伺服器的 T.38 re-INVITE 回 488，`UacReport::t38_refused`）；Docker 驗證通過
+    - [x] SpanDSP 測試：M05 計畫版通過（3 頁全收、第 2 頁 4 條壞行、SpanDSP 成功），拿掉 `#[ignore]`、刪掉舊的「現況紀錄」；M07 改為「ECM 被關掉後照常收下」；`e2e_m3b` I05 的 migration 數改成 3。Docker 全部 e2e 通過（`E2E_ONLY="--no-fail-fast"`）
+    - [x] M04 固定雜訊：新的結束偵測下計畫的斷言成立（11 dB 固定 SNR：9600 的 TCF 失敗 → FTT → 7200／2400 收下），已改成計畫的斷言（M5e 測試，見 `docs/test-reports/M5e.md`）
+    - [x] 文件：ARCHITECTURE、field-test、IT 手冊、CHANGELOG 中英、ADR-067
+- [x] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`（2026-10-26；待 Opus 審核）：J06 在 `crates/fax-in/tests/j06_rtp_pacing.rs`（虛擬時鐘，20 ms／+160／+1，落後時補送不丟），E 在 `tools/fax-sim/tests/e2e_m5e.rs`（E01–E03、E05–E08 通過；**E04 遺失 0.5 % 未達成**：seed 2 每次失敗，SpanDSP 對 SpanDSP 在同樣遺失下失敗率更高，計畫字面版留 `#[ignore]`）；M04 改成計畫的斷言；修了 1 個產品問題（`audio.log` 沒有 V.21 frame，需補 ADR-068，文字在報告 §3）；fax-sim 新增 `ReinviteBy::AudioThenT38`；fax-in 涵蓋率 93.78%；沒有跑 `scripts/ci-local.sh`
+  - 2026-10-26 **Opus 審核通過**（報告 §9；ADR-068：`audio.log` 的 T.30 frame、E04 的門檻）
+- [x] [Opus] 審核 M5a–M5e 測試報告（全部通過）
+  - 2026-10-26 M5b 審核通過（報告 §9）；測試與審核找到的四個引擎缺陷由 Opus 修正（ADR-069：CED 後 75 ms 靜音、偵測器位置與引擎時鐘一致使回應真的等 75 ms、CED 前先聽線路雜訊、開啟門檻 −45 dBm0），M5d 的 M04 改為 10.5 dB
+  - 2026-10-26 M5a 審核通過（報告 §9）；審核時修了 `ToneGenerator` 長度乘法溢位、`RtpPacket::encode` 的 extension 長度欄位截斷；同日補上 fuzz 目標 `rtp_decode`（sip-core）、`audio_rx`（新的 `crates/fax-in/fuzz`），已加入 nightly fuzz workflow
+- [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
+- [ ] [Any] M5 計畫 §1 的 criterion 效能量測（每個收端處理 1 秒音訊 < 50 ms，x86_64 musl release）
+- [ ] [Any] G.711：頁面 training 遺失時，等影像訊號結束就回 RTN，不等 T2 逾時（ADR-068，M5e E04）
 - [ ] [Sonnet] T.38 latch 之後對方位址改變的處理（M2d 審核）
 - [ ] [Any] 用 CS210 的實際擷取驗證 localTCF 時是否送 CFR，並調整 `cht-cs210` 預設組（M2c 審核）
 - [ ] [Sonnet] K01 的根本解：dialog 改用單一有序事件佇列（ADR-016）

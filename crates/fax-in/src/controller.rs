@@ -3,8 +3,15 @@
 //! Flow (docs/ARCHITECTURE.md "fax-in call flow"): map the source to a trunk (C02), answer
 //! G.711 or T.38 according to the trunk's `t38_policy` (C06/C07/C08), then either accept the
 //! peer's T.38 re-INVITE or send our own after `initiate_after_secs`. Once T.38 is in force
-//! the call is handed to a [`FaxSession`](crate::session::FaxSession). When T.38 cannot be
-//! established the call ends with a BYE and a failure reason (G.711 passthrough is M5).
+//! the call is handed to a [`FaxSession`](crate::session::FaxSession).
+//!
+//! G.711 (M5, ADR-061): a call answered on audio gets an
+//! [`AudioFaxSession`](crate::session::AudioFaxSession) at once, with an RTP port of its own;
+//! it listens until it is told to answer the fax: at once with `t38_policy = "audio-only"`,
+//! when the peer refuses our T.38 re-INVITE (488 / 415 / 606, no usable `m=image`, a 2xx
+//! without SDP), or, with `wait-peer`, when no T.38 re-INVITE came within
+//! `initiate_after_secs`. T.38 coming later still takes over. Without an audio session (a
+//! factory that has none) a call that cannot get T.38 ends with a BYE, as before M5.
 
 use arc_swap::ArcSwap;
 use std::io;
@@ -30,13 +37,14 @@ use crate::config::{
     ConfigError, FaxInConfig, TransportName, UnknownSource, resolve_peer, split_host_port,
 };
 use crate::event::{
-    ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated, T38Path,
+    AudioNegotiated, ByeBy, CallEvent, CallOutcome, CallResult, FailureReason, T38Negotiated,
+    T38Path,
 };
 use crate::event::{FaxReport, ReportSink};
 use crate::media::{self, Accepted, MediaCtx, Unacceptable};
 use crate::ports::PortPool;
 use crate::session::{
-    FaxSessionFactory, SessionContext, SessionOutcome, StubFactory, UdptlSettings,
+    AudioContext, FaxSessionFactory, SessionContext, SessionOutcome, StubFactory, UdptlSettings,
 };
 use crate::t38session::{T38SessionEnv, T38SessionFactory};
 use crate::trunk::{Trunk, TrunkTable};
@@ -80,6 +88,8 @@ struct Shared {
     events: mpsc::UnboundedSender<CallEvent>,
     capture: Option<Arc<Capture>>,
     factory: Arc<dyn FaxSessionFactory>,
+    /// The factory receives faxes over G.711: audio calls get an RTP port from the pool.
+    audio: bool,
     stop: watch::Receiver<bool>,
     /// The configuration the process started with (what the fixed parts were built from).
     started: FaxInConfig,
@@ -298,6 +308,7 @@ impl FaxIn {
             ports,
             events: ev_tx,
             capture: capture.clone(),
+            audio: factory.receives_audio(),
             factory,
             stop: stop_rx.clone(),
             drain: drain_rx,
@@ -660,6 +671,8 @@ struct Rec {
     answered_at: Option<SystemTime>,
     t38_at: Option<SystemTime>,
     t38: Option<T38Negotiated>,
+    /// The audio, once the fax goes over G.711.
+    audio: Option<AudioNegotiated>,
     /// Where the fax session leaves its report.
     fax: Option<ReportSink>,
     /// Who sent the BYE.
@@ -706,6 +719,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall, _active: ActiveCall) {
                     ended_at: SystemTime::now(),
                     bye_by: None,
                     t38: None,
+                    audio: None,
                     fax: None,
                     outcome: CallOutcome::Failed {
                         reason: FailureReason::UnknownSource,
@@ -732,6 +746,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall, _active: ActiveCall) {
         answered_at: None,
         t38_at: None,
         t38: None,
+        audio: None,
         fax: None,
         bye_by: None,
     };
@@ -768,6 +783,7 @@ async fn run_call(sh: Arc<Shared>, call: IncomingCall, _active: ActiveCall) {
         ended_at: SystemTime::now(),
         bye_by: rec.bye_by,
         t38: rec.t38,
+        audio: rec.audio,
         fax,
         outcome,
     };
@@ -835,10 +851,17 @@ async fn drive(
         let _ = call.reject(StatusCode::SERVICE_UNAVAILABLE).await;
         return failed(FailureReason::NoMediaPort);
     };
-    let media_ctx = sh.media.with_t38_port(lease.port());
+    let mut media_ctx = sh.media.with_t38_port(lease.port());
+    // RTP, when the server receives faxes over G.711, uses the odd port right after the call's
+    // (even) UDPTL port: the pool never hands it out, so one lease covers both.
+    let rtp_port = sh.audio.then(|| lease.port().saturating_add(1));
+    if let Some(p) = rtp_port {
+        media_ctx = media_ctx.with_audio_port(p);
+    }
     tracing::debug!(
         call_id,
         port = lease.port(),
+        rtp_port,
         free = sh.ports.available(),
         "UDPTL port leased"
     );
@@ -898,6 +921,12 @@ async fn drive(
         initiate_at: None,
         audio_deadline: None,
         reinvite_pending: false,
+        audio: None,
+        audio_go: None,
+        audio_cancel: None,
+        audio_report: None,
+        audio_active: false,
+        audio_go_at: None,
     }
     .run(dlg, accepted)
     .await
@@ -918,7 +947,10 @@ type ReinviteFuture = std::pin::Pin<
 >;
 
 enum Internal {
+    /// The T.38 session ended.
     Session(SessionOutcome),
+    /// The G.711 session ended (also a cancelled one that only listened).
+    Audio(SessionOutcome),
 }
 
 /// State of one answered call.
@@ -944,6 +976,16 @@ struct Live<'a> {
     initiate_at: Option<Instant>,
     audio_deadline: Option<Instant>,
     reinvite_pending: bool,
+    /// The audio of the call, while a G.711 session runs on it.
+    audio: Option<AudioNegotiated>,
+    /// Tells the G.711 session to answer the fax.
+    audio_go: Option<watch::Sender<Option<String>>>,
+    audio_cancel: Option<watch::Sender<bool>>,
+    audio_report: Option<crate::event::ReportSink>,
+    /// The G.711 session answers the fax (T.30 runs on the audio).
+    audio_active: bool,
+    /// `wait-peer`: when the G.711 session answers if no T.38 came.
+    audio_go_at: Option<Instant>,
 }
 
 /// Resolves once the stop flag is set. (The guard of `wait_for` must not live across an
@@ -978,6 +1020,21 @@ impl Live<'_> {
         self.t38 = true;
         self.initiate_at = None;
         self.audio_deadline = None;
+        self.audio_go_at = None;
+        if self.audio.take().is_some() {
+            // T.38 takes over from the audio, also from a fax already being answered there
+            if self.audio_active {
+                tracing::info!(
+                    call_id = self.call_id,
+                    "T.38 takes over from the G.711 session"
+                );
+            }
+            self.audio_active = false;
+            self.rec.audio = None;
+            if let Some(c) = self.audio_cancel.take() {
+                let _ = c.send(true);
+            }
+        }
         let now = SystemTime::now();
         self.rec.t38 = Some(p.clone());
         self.rec.t38_at = Some(now);
@@ -993,21 +1050,7 @@ impl Live<'_> {
         let t38cfg = &self.trunk.cfg.t38;
         let report: ReportSink = Arc::default();
         self.rec.fax = Some(report.clone());
-        // every page T.30 confirms becomes a CallEvent::PageReceived
-        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<u32>();
-        {
-            let sh = self.sh.clone();
-            let call_id = self.call_id.to_string();
-            self.aux.spawn(async move {
-                while let Some(pages) = progress_rx.recv().await {
-                    sh.emit(CallEvent::PageReceived {
-                        call_id: call_id.clone(),
-                        pages,
-                        at: SystemTime::now(),
-                    });
-                }
-            });
-        }
+        let progress_tx = self.progress_sender();
         let ctx = SessionContext {
             call_id: self.call_id.to_string(),
             trunk: self.trunk.name().to_string(),
@@ -1033,19 +1076,136 @@ impl Live<'_> {
         self.session_cancel = Some(cancel_tx);
     }
 
+    /// A channel whose page counts become `CallEvent::PageReceived`.
+    fn progress_sender(&mut self) -> mpsc::UnboundedSender<u32> {
+        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<u32>();
+        let sh = self.sh.clone();
+        let call_id = self.call_id.to_string();
+        self.aux.spawn(async move {
+            while let Some(pages) = progress_rx.recv().await {
+                sh.emit(CallEvent::PageReceived {
+                    call_id: call_id.clone(),
+                    pages,
+                    at: SystemTime::now(),
+                });
+            }
+        });
+        progress_tx
+    }
+
+    /// The call was answered on audio: a G.711 session starts listening, if the factory has
+    /// one.
+    fn start_audio(&mut self, audio: AudioNegotiated) {
+        let (go_tx, go_rx) = watch::channel(None);
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let report: ReportSink = Arc::default();
+        let progress = self.progress_sender();
+        let ctx = AudioContext {
+            call_id: self.call_id.to_string(),
+            trunk: self.trunk.name().to_string(),
+            audio: audio.clone(),
+            fax: self.trunk.cfg.fax.clone(),
+            report: report.clone(),
+            progress: Some(progress),
+            go: go_rx,
+            cancel: cancel_rx,
+            station_id: Some(self.snap.cfg.call.station_id.clone()),
+            max_duration: Some(self.max_duration()),
+        };
+        let Some(session) = self.sh.factory.create_audio(&ctx) else {
+            return;
+        };
+        let tx = self.internal_tx.clone();
+        self.aux.spawn(async move {
+            let out = session.run(ctx).await;
+            let _ = tx.send(Internal::Audio(out));
+        });
+        self.audio = Some(audio);
+        self.audio_go = Some(go_tx);
+        self.audio_cancel = Some(cancel_tx);
+        self.audio_report = Some(report);
+    }
+
+    /// The G.711 session answers the fax. `false` when there is none.
+    fn go_audio(&mut self, reason: String) -> bool {
+        if self.t38 {
+            return false;
+        }
+        let Some(audio) = self.audio.as_mut() else {
+            return false;
+        };
+        if self.audio_active {
+            return true;
+        }
+        tracing::info!(call_id = self.call_id, %reason, codec = %audio.codec, "fax over G.711");
+        audio.reason = Some(reason);
+        self.rec.audio = Some(audio.clone());
+        self.rec.fax = self.audio_report.clone();
+        self.audio_active = true;
+        self.initiate_at = None;
+        self.audio_go_at = None;
+        // the session keeps its own maximum duration from now on
+        self.audio_deadline = None;
+        if let Some(g) = &self.audio_go {
+            let _ = g.send(audio.reason.clone());
+        }
+        true
+    }
+
+    /// A fax session runs (T.38, or G.711 answering the fax).
+    fn fax_running(&self) -> bool {
+        self.t38 || self.audio_active
+    }
+
     fn cancel_session(&self) {
         if let Some(c) = &self.session_cancel {
             let _ = c.send(true);
         }
+        if let Some(c) = &self.audio_cancel {
+            let _ = c.send(true);
+        }
     }
 
-    fn fallback(&self, cause: String) -> (CallOutcome, bool) {
+    /// The outcome of the running fax session, if `i` is it (a cancelled listening G.711
+    /// session also reports, and is ignored).
+    fn running_outcome(&self, i: Internal) -> Option<SessionOutcome> {
+        match i {
+            Internal::Session(o) if self.t38 => Some(o),
+            Internal::Audio(o) if self.audio_active => Some(o),
+            _ => None,
+        }
+    }
+
+    /// Waits (bounded) for the running fax session to end.
+    async fn wait_session(
+        &self,
+        irx: &mut mpsc::UnboundedReceiver<Internal>,
+    ) -> Option<SessionOutcome> {
+        let wait = async {
+            while let Some(i) = irx.recv().await {
+                if let Some(o) = self.running_outcome(i) {
+                    return Some(o);
+                }
+            }
+            None
+        };
+        tokio::time::timeout(SESSION_FINISH_WAIT, wait)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// T.38 is not to be: the fax goes over G.711, or, without an audio session, the call ends.
+    fn fallback(&mut self, cause: String) -> Option<(CallOutcome, bool)> {
+        if self.go_audio(cause.clone()) {
+            return None;
+        }
         tracing::warn!(call_id = self.call_id, %cause,
-            "G.711 passthrough not yet supported; ending the call");
-        (
+            "no G.711 session for this call; ending it");
+        Some((
             failed(FailureReason::G711PassthroughUnsupported { cause }),
             true,
-        )
+        ))
     }
 
     async fn on_peer_reinvite(
@@ -1118,13 +1278,13 @@ impl Live<'_> {
                         self.establish(p);
                         None
                     }
-                    None => Some(self.fallback(
+                    None => self.fallback(
                         "peer answered the T.38 re-INVITE without a usable m=image line".into(),
-                    )),
+                    ),
                 }
             }
             Ok(ReinviteOutcome::Rejected(st)) if matches!(st.code(), 488 | 415 | 606) => {
-                Some(self.fallback(format!("peer answered {} to the T.38 re-INVITE", st.code())))
+                self.fallback(format!("peer answered {} to the T.38 re-INVITE", st.code()))
             }
             Ok(ReinviteOutcome::Rejected(st)) => Some((
                 failed(FailureReason::T38ReinviteFailed {
@@ -1140,16 +1300,16 @@ impl Live<'_> {
                 }),
                 true,
             )),
-            Ok(ReinviteOutcome::NoAnswer) => Some(
-                self.fallback("peer answered the T.38 re-INVITE with a 2xx without SDP".into()),
-            ),
+            Ok(ReinviteOutcome::NoAnswer) => {
+                self.fallback("peer answered the T.38 re-INVITE with a 2xx without SDP".into())
+            }
             // the dialog is gone; its Terminated event decides
             Err(_) => None,
         }
     }
 
     fn after_peer_bye(&self, session: Option<SessionOutcome>) -> CallOutcome {
-        if self.t38 {
+        if self.fax_running() {
             match session {
                 Some(SessionOutcome::Failed(d)) => failed(FailureReason::Session { detail: d }),
                 Some(SessionOutcome::MaxDuration) => failed(FailureReason::MaxDuration),
@@ -1168,13 +1328,19 @@ impl Live<'_> {
         let mut stop = self.sh.stop.clone();
         match accepted {
             Accepted::T38(p) => self.establish(*p),
-            Accepted::Audio => {
+            Accepted::Audio(a) => {
                 self.audio_deadline = Some(Instant::now() + self.max_duration());
-                if !self.trunk.cfg.t38_policy.accepts_t38() {
-                    tracing::warn!(
-                        call_id = self.call_id,
-                        "t38_policy = audio-only: the call stays on G.711 and G.711 passthrough is not implemented yet"
-                    );
+                self.start_audio(*a);
+                let policy = self.trunk.cfg.t38_policy;
+                if !policy.accepts_t38() {
+                    if !self.go_audio("t38_policy = audio-only".into()) {
+                        tracing::warn!(
+                            call_id = self.call_id,
+                            "t38_policy = audio-only, but there is no G.711 session: the call is only held"
+                        );
+                    }
+                } else if !policy.initiates() && self.audio.is_some() {
+                    self.audio_go_at = Some(Instant::now() + self.trunk.cfg.initiate_after());
                 }
             }
         }
@@ -1237,8 +1403,16 @@ impl Live<'_> {
                         }
                     }
                 }
-                Some(i) = irx.recv() => match i {
-                    Internal::Session(out) => {
+                Some(i) = irx.recv() => match self.running_outcome(i) {
+                    None => {
+                        // a listening G.711 session that ended by itself (its RTP port could
+                        // not be bound, ...): there is no audio session any more
+                        if !self.t38 && !self.audio_active && self.audio.take().is_some() {
+                            tracing::warn!(call_id = self.call_id, "the G.711 session ended before the fax");
+                            self.audio_go_at = None;
+                        }
+                    }
+                    Some(out) => {
                         self.session_finished = true;
                         match out {
                         SessionOutcome::Completed => break (CallOutcome::Completed, true, false),
@@ -1259,6 +1433,13 @@ impl Live<'_> {
                         reinvite = Some(self.start_own_reinvite());
                     }
                 }
+                () = at(self.audio_go_at) => {
+                    self.audio_go_at = None;
+                    self.go_audio(format!(
+                        "t38_policy = wait-peer and no T.38 re-INVITE within {} s",
+                        self.trunk.cfg.initiate_after().as_secs_f64()
+                    ));
+                }
                 () = at(self.audio_deadline) => {
                     self.audio_deadline = None;
                     tracing::warn!(call_id = self.call_id, "maximum call duration reached without T.38");
@@ -1274,9 +1455,8 @@ impl Live<'_> {
         self.cancel_session();
         // Let the session finish what it is doing (it writes the received pages when it is
         // cancelled) before the call result is read.
-        if self.t38 && !self.session_finished {
-            let wait = async { irx.recv().await };
-            let _ = tokio::time::timeout(SESSION_FINISH_WAIT, wait).await;
+        if self.fax_running() && !self.session_finished {
+            let _ = self.wait_session(&mut irx).await;
         }
         if send_bye {
             // The call is over either way; do not hold the result back for an unresponsive peer
@@ -1301,12 +1481,12 @@ impl Live<'_> {
         session_result: &mut Option<SessionOutcome>,
     ) -> CallOutcome {
         self.cancel_session();
-        if self.t38 && session_result.is_none() {
-            let wait = async { irx.recv().await.map(|Internal::Session(o)| o) };
-            if let Ok(Some(o)) = tokio::time::timeout(SESSION_FINISH_WAIT, wait).await {
-                self.session_finished = true;
-                *session_result = Some(o);
-            }
+        if self.fax_running()
+            && session_result.is_none()
+            && let Some(o) = self.wait_session(irx).await
+        {
+            self.session_finished = true;
+            *session_result = Some(o);
         }
         self.after_peer_bye(session_result.take())
     }

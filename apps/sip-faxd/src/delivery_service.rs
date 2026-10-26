@@ -430,6 +430,7 @@ mod tests {
             ended_at: now,
             bye_by: Some(ByeBy::Local),
             t38: None,
+            audio: None,
             fax: Some(FaxReport {
                 code,
                 code_name: if partial { "partial_dcn" } else { "ok" }.into(),
@@ -446,6 +447,8 @@ mod tests {
                 pdf: Some(pdf.display().to_string()),
                 store_error: None,
                 udptl: UdptlCounters::default(),
+                media: Default::default(),
+                rtp: None,
                 tiff_size: Some(std::fs::metadata(&tif).unwrap().len()),
                 pdf_size: Some(std::fs::metadata(&pdf).unwrap().len()),
                 ecm: false,

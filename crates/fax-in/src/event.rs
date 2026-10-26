@@ -54,6 +54,23 @@ pub struct T38Negotiated {
     pub warnings: Vec<String>,
 }
 
+/// The G.711 audio of a call that received (or was ready to receive) its fax over audio (M5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioNegotiated {
+    /// `PCMU` or `PCMA`: the codec we send (the first of our answer).
+    pub codec: String,
+    /// Its RTP payload type.
+    pub payload_type: u8,
+    /// Where the peer wants RTP (`ip:port`), from `c=` and `m=`.
+    pub peer_media: Option<String>,
+    /// Our RTP port.
+    pub local_port: u16,
+    /// Why the fax went over audio (`t38_policy = audio-only`, `peer answered 488 to the T.38
+    /// re-INVITE`, ...). `None` while the audio only listened (T.38 came instead).
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
 /// Why a call is counted as failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -78,7 +95,8 @@ pub enum FailureReason {
     NoMediaPort,
     /// No ACK for our 200.
     AckTimeout,
-    /// T.38 could not be established and G.711 passthrough does not exist yet.
+    /// T.38 could not be established and this server has no G.711 session (a session factory
+    /// without audio, e.g. `fax_session = "hold"`).
     G711PassthroughUnsupported {
         /// What led here ("peer answered 488 to the T.38 re-INVITE", ...).
         cause: String,
@@ -114,7 +132,7 @@ pub enum FailureReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CallOutcome {
-    /// T.38 was established and the session ended normally.
+    /// The fax session (T.38 or G.711) ended normally.
     Completed,
     /// The call failed.
     Failed {
@@ -151,6 +169,38 @@ pub struct UdptlCounters {
     pub lost: u64,
 }
 
+/// How the fax travelled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FaxMedia {
+    /// T.38 over UDPTL (0.4 and older reports have no field: they were all T.38).
+    #[default]
+    T38,
+    /// G.711 passthrough: the modems on the audio.
+    G711,
+}
+
+/// RTP counters of one G.711 session.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RtpCounters {
+    /// Datagrams received from the peer (all, including ones that did not parse).
+    pub rx_packets: u64,
+    /// Packets sent to the peer.
+    pub tx_packets: u64,
+    /// Received datagrams ignored because they came from another address than the latched one.
+    pub rx_foreign: u64,
+    /// Datagrams that are not RTP, or carry another payload type than PCMU / PCMA.
+    pub rx_ignored: u64,
+    /// Packets that arrived after their time had been played.
+    pub late: u64,
+    /// Duplicate packets.
+    pub duplicate: u64,
+    /// Restarts of the receive buffer (new SSRC, timestamp jump).
+    pub resyncs: u64,
+    /// Received audio missing (lost packets), in milliseconds.
+    pub lost_ms: u64,
+}
+
 /// What the T.38 / T.30 fax session delivered. Present in [`CallResult`] when a fax session
 /// ran, whether it succeeded or not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,8 +233,14 @@ pub struct FaxReport {
     pub pdf: Option<String>,
     /// Why the files could not be written, if that failed.
     pub store_error: Option<String>,
-    /// UDPTL counters.
+    /// UDPTL counters (all zero for G.711).
     pub udptl: UdptlCounters,
+    /// T.38 or G.711.
+    #[serde(default)]
+    pub media: FaxMedia,
+    /// RTP counters (G.711 only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtp: Option<RtpCounters>,
     /// Size of the TIFF file in bytes (0.1.1 and older `result.json` files lack it).
     #[serde(default)]
     pub tiff_size: Option<u64>,
@@ -263,6 +319,9 @@ pub struct CallResult {
     /// Negotiated T.38 parameters, if T.38 was established.
     #[serde(default)]
     pub t38: Option<T38Negotiated>,
+    /// The G.711 audio, if the fax went over audio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioNegotiated>,
     /// What the fax session delivered (T.30 result, pages, files), if one ran.
     #[serde(default)]
     pub fax: Option<FaxReport>,

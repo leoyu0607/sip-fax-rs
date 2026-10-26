@@ -150,3 +150,227 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn udptl_rx_packet(s: *mut udptl_state_t, buf: *const u8, len: c_int) -> c_int;
 }
+
+// ---------------------------------------------------------------------------------------------
+// G.711 and modem connect tones (M5a tests G01, G02, N03). `alaw_to_linear` and the other
+// per-sample converters are `static inline` in g711.h and not exported: the exported
+// `g711_encode` / `g711_decode` run exactly the same inline code over a buffer.
+
+opaque!(g711_state_t, modem_connect_tones_rx_state_t);
+
+/// g711.h: `G711_ALAW`
+pub const G711_ALAW: c_int = 0;
+/// g711.h: `G711_ULAW`
+pub const G711_ULAW: c_int = 1;
+
+/// modem_connect_tones.h: 1100 Hz calling tone
+pub const MODEM_CONNECT_TONES_FAX_CNG: c_int = 1;
+/// modem_connect_tones.h: `MODEM_CONNECT_TONES_ANS` (= `MODEM_CONNECT_TONES_FAX_CED`), 2100 Hz
+pub const MODEM_CONNECT_TONES_ANS: c_int = 2;
+/// modem_connect_tones.h: ANS with phase reversals
+pub const MODEM_CONNECT_TONES_ANS_PR: c_int = 3;
+/// modem_connect_tones.h: CED or the V.21 preamble
+pub const MODEM_CONNECT_TONES_FAX_CED_OR_PREAMBLE: c_int = 7;
+
+/// `void (*)(void *user_data, int code, int level, int delay)` (`span_tone_report_func_t`)
+pub type span_tone_report_func_t =
+    Option<unsafe extern "C" fn(user_data: *mut c_void, code: c_int, level: c_int, delay: c_int)>;
+
+unsafe extern "C" {
+    pub fn g711_init(s: *mut g711_state_t, mode: c_int) -> *mut g711_state_t;
+    pub fn g711_free(s: *mut g711_state_t) -> c_int;
+    pub fn g711_decode(
+        s: *mut g711_state_t,
+        amp: *mut i16,
+        g711_data: *const u8,
+        g711_bytes: c_int,
+    ) -> c_int;
+    pub fn g711_encode(
+        s: *mut g711_state_t,
+        g711_data: *mut u8,
+        amp: *const i16,
+        len: c_int,
+    ) -> c_int;
+
+    pub fn modem_connect_tones_rx_init(
+        s: *mut modem_connect_tones_rx_state_t,
+        tone_type: c_int,
+        tone_callback: span_tone_report_func_t,
+        user_data: *mut c_void,
+    ) -> *mut modem_connect_tones_rx_state_t;
+    pub fn modem_connect_tones_rx_free(s: *mut modem_connect_tones_rx_state_t) -> c_int;
+    pub fn modem_connect_tones_rx(
+        s: *mut modem_connect_tones_rx_state_t,
+        amp: *const i16,
+        len: c_int,
+    ) -> c_int;
+    pub fn modem_connect_tones_rx_get(s: *mut modem_connect_tones_rx_state_t) -> c_int;
+}
+
+// ---------------------------------------------------------------------------------------------
+// V.27ter transmitter (M5c tests A01-A07, M01 uses `fax_state_t`). The independent source of
+// V.27ter signals for our receiver.
+
+opaque!(v27ter_tx_state_t);
+
+/// async.h: `SIG_STATUS_END_OF_DATA`, returned by a `get_bit` callback when the data is over.
+pub const SIG_STATUS_END_OF_DATA: c_int = -7;
+
+/// `int (*)(void *user_data)` (`span_get_bit_func_t`): the next bit (0 or 1) or a `SIG_STATUS_*`
+/// code (negative).
+pub type span_get_bit_func_t = Option<unsafe extern "C" fn(user_data: *mut c_void) -> c_int>;
+
+unsafe extern "C" {
+    pub fn v27ter_tx_init(
+        s: *mut v27ter_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v27ter_tx_state_t;
+    pub fn v27ter_tx_free(s: *mut v27ter_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v27ter_tx_power(s: *mut v27ter_tx_state_t, power: f32);
+    /// Generates up to `len` samples; returns how many (0 once the transmission is over).
+    pub fn v27ter_tx(s: *mut v27ter_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+}
+
+// ---------------------------------------------------------------------------------------------
+// V.29 and V.17 transmitters (M5d tests B01-B07; B10 sends V.17 at a V.29 receiver). Same shape
+// as `v27ter_tx`. Signatures from `v29tx.h` / `v17tx.h`.
+
+opaque!(v29_tx_state_t, v17_tx_state_t);
+
+unsafe extern "C" {
+    pub fn v29_tx_init(
+        s: *mut v29_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v29_tx_state_t;
+    pub fn v29_tx_free(s: *mut v29_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v29_tx_power(s: *mut v29_tx_state_t, power: f32);
+    /// Generates up to `len` samples; returns how many (0 once the transmission is over).
+    pub fn v29_tx(s: *mut v29_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+
+    pub fn v17_tx_init(
+        s: *mut v17_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut v17_tx_state_t;
+    /// Restart with the long (`short_train` false) or the short training sequence.
+    pub fn v17_tx_restart(
+        s: *mut v17_tx_state_t,
+        bit_rate: c_int,
+        tep: bool,
+        short_train: bool,
+    ) -> c_int;
+    pub fn v17_tx_free(s: *mut v17_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn v17_tx_power(s: *mut v17_tx_state_t, power: f32);
+    pub fn v17_tx(s: *mut v17_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+}
+
+// ---------------------------------------------------------------------------------------------
+// FSK (V.21) transmitter and receiver, and the HDLC transmitter and receiver (M5b tests H01-H02,
+// V01-V03). Signatures from `fsk.h` / `hdlc.h` / `async.h`.
+
+opaque!(
+    fsk_tx_state_t,
+    fsk_rx_state_t,
+    hdlc_tx_state_t,
+    hdlc_rx_state_t
+);
+
+/// `fsk_spec_t` (fsk.h): one channel of an FSK modem.
+#[repr(C)]
+pub struct fsk_spec_t {
+    pub name: *const c_char,
+    /// Frequency of the zero bit (Hz).
+    pub freq_zero: c_int,
+    /// Frequency of the one bit (Hz).
+    pub freq_one: c_int,
+    /// Transmit level (dBm0).
+    pub tx_level: c_int,
+    /// Minimum receive level (dBm0).
+    pub min_level: c_int,
+    /// Bit rate in units of 1/100 bit/s.
+    pub baud_rate: c_int,
+}
+
+/// Index of V.21 channel 1 in `preset_fsk_specs`.
+pub const FSK_V21CH1: usize = 0;
+/// Index of V.21 channel 2 (T.30: 1650 Hz = 1, 1850 Hz = 0) in `preset_fsk_specs`.
+pub const FSK_V21CH2: usize = 1;
+/// `FSK_FRAME_MODE_SYNC`: bits are delivered as they are, no start/stop framing.
+pub const FSK_FRAME_MODE_SYNC: c_int = 1;
+
+/// `void (*)(void *user_data, int bit)` (`span_put_bit_func_t`): a received bit, or a
+/// `SIG_STATUS_*` code (negative).
+pub type span_put_bit_func_t = Option<unsafe extern "C" fn(user_data: *mut c_void, bit: c_int)>;
+/// `void (*)(void *user_data)` (`hdlc_underflow_handler_t`).
+pub type hdlc_underflow_handler_t = Option<unsafe extern "C" fn(user_data: *mut c_void)>;
+/// `void (*)(void *user_data, const uint8_t *pkt, int len, int ok)` (`hdlc_frame_handler_t`).
+pub type hdlc_frame_handler_t =
+    Option<unsafe extern "C" fn(user_data: *mut c_void, pkt: *const u8, len: c_int, ok: c_int)>;
+
+unsafe extern "C" {
+    /// The table of the preset modems (index with `FSK_V21CH2` and so on).
+    pub static preset_fsk_specs: [fsk_spec_t; 11];
+
+    pub fn fsk_tx_init(
+        s: *mut fsk_tx_state_t,
+        spec: *const fsk_spec_t,
+        get_bit: span_get_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut fsk_tx_state_t;
+    pub fn fsk_tx_free(s: *mut fsk_tx_state_t) -> c_int;
+    /// Output power in dBm0.
+    pub fn fsk_tx_power(s: *mut fsk_tx_state_t, power: f32);
+    /// Generates `len` samples (silence once the data is over).
+    pub fn fsk_tx(s: *mut fsk_tx_state_t, amp: *mut i16, len: c_int) -> c_int;
+
+    pub fn fsk_rx_init(
+        s: *mut fsk_rx_state_t,
+        spec: *const fsk_spec_t,
+        framing_mode: c_int,
+        put_bit: span_put_bit_func_t,
+        user_data: *mut c_void,
+    ) -> *mut fsk_rx_state_t;
+    pub fn fsk_rx_free(s: *mut fsk_rx_state_t) -> c_int;
+    /// Minimum signal level (dBm0) to accept.
+    pub fn fsk_rx_set_signal_cutoff(s: *mut fsk_rx_state_t, cutoff: f32);
+    /// Takes `len` samples; returns the number not processed (0).
+    pub fn fsk_rx(s: *mut fsk_rx_state_t, amp: *const i16, len: c_int) -> c_int;
+
+    pub fn hdlc_tx_init(
+        s: *mut hdlc_tx_state_t,
+        crc32: bool,
+        inter_frame_flags: c_int,
+        progressive: bool,
+        handler: hdlc_underflow_handler_t,
+        user_data: *mut c_void,
+    ) -> *mut hdlc_tx_state_t;
+    pub fn hdlc_tx_free(s: *mut hdlc_tx_state_t) -> c_int;
+    /// Queues a frame (the FCS is added); 0 if accepted.
+    pub fn hdlc_tx_frame(s: *mut hdlc_tx_state_t, frame: *const u8, len: usize) -> c_int;
+    /// Queues `len` flag octets (0: end the transmission once drained).
+    pub fn hdlc_tx_flags(s: *mut hdlc_tx_state_t, len: c_int) -> c_int;
+    /// The next bit (0 or 1), or a `SIG_STATUS_*` code.
+    pub fn hdlc_tx_get_bit(s: *mut hdlc_tx_state_t) -> c_int;
+
+    pub fn hdlc_rx_init(
+        s: *mut hdlc_rx_state_t,
+        crc32: bool,
+        report_bad_frames: bool,
+        framing_ok_threshold: c_int,
+        handler: hdlc_frame_handler_t,
+        user_data: *mut c_void,
+    ) -> *mut hdlc_rx_state_t;
+    pub fn hdlc_rx_free(s: *mut hdlc_rx_state_t) -> c_int;
+    pub fn hdlc_rx_put_bit(s: *mut hdlc_rx_state_t, bit: c_int);
+}

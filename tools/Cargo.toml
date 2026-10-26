@@ -5,7 +5,12 @@ resolver = "3"
 members = ["spandsp-sys", "fax-sim", "interop"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
+
+# The V.27ter receiver tests push millions of samples through the DSP: optimise those crates even
+# in the test profile (the rest of the workspace is unchanged).
+[profile.dev.package.fax-modem]
+opt-level = 3

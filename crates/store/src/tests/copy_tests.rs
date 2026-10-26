@@ -77,6 +77,8 @@ const FAXES: Spec = Spec {
         ("note_updated_at", T),
         ("created_at", T),
         ("updated_at", T),
+        ("modem", S),
+        ("media", S),
     ],
 };
 const DELIVERIES: Spec = Spec {
@@ -274,6 +276,8 @@ fn fax_rows() -> Vec<(bool, Row)> {
         ("note_updated_at", tm(70_999)),
         ("created_at", tm(124)),
         ("updated_at", tm(70_999)),
+        ("modem", s(&fill("v27ter", 16))),
+        ("media", s(&fill("g711", 8))),
     ] {
         set(&mut a, &FAXES, c, v);
     }
@@ -1327,7 +1331,7 @@ async fn c10_batch_boundaries_copy_every_row_in_order() {
     let del_batch = batch_rows(DELIVERIES.cols.len()) as i64;
     assert_eq!(
         (insert, del_batch),
-        (55, 100),
+        (52, 100),
         "the boundaries below were chosen for these sizes"
     );
     let sizes = [

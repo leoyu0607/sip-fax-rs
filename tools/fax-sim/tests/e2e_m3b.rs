@@ -442,11 +442,11 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
     let (code, out, err) = cli(&["db", "migrate"]);
     assert_eq!(code, Some(0), "{err}");
     assert!(
-        out.contains("schema version 0 -> 2 (applied 0001, 0002)"),
+        out.contains("schema version 0 -> 3 (applied 0001, 0002, 0003)"),
         "{out}"
     );
     let (_, out, _) = cli(&["db", "migrate"]);
-    assert!(out.contains("already at schema version 2"), "{out}");
+    assert!(out.contains("already at schema version 3"), "{out}");
 
     // db backfill restores the call that the live server could not write
     let (code, out, err) = cli(&["db", "backfill"]);
@@ -514,6 +514,8 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
         tiff_size: row.tiff_size,
         pdf_path: row.pdf_path.clone(),
         pdf_size: row.pdf_size,
+        modem: None,
+        media: None,
     };
     db.finalize(row.id, &old).await.unwrap();
     let (code, out, _) = cli(&["purge", "--dry-run"]);

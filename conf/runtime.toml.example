@@ -39,17 +39,19 @@ advertised = "192.0.2.10:5060"
 unknown_source = "drop"
 
 # ---------------------------------------------------------------------------------------
-# [media]  what our SDP says (the audio port is a placeholder until G.711 passthrough, M5)
+# [media]  what our SDP says
 # ---------------------------------------------------------------------------------------
 [media]
 # Address in c= and o=. Default: the host of [sip] advertised, else the bind IP.
 # address = "192.0.2.10"
-# RTP port in the audio answer.
+# RTP port in the audio answer, only with [call] fax_session = "hold". The real fax session
+# uses the odd port after the call's UDPTL port for RTP instead (G.711 fax, 0.5).
 audio_port = 20000
 # UDP ports for T.38 (UDPTL), "low-high". Each call is given one EVEN port of the range for
-# its whole duration and returns it when the call ends, so "30000-30999" allows 500
-# simultaneous calls. When no port is free a new call is answered with 503 Service
-# Unavailable and the error is logged. Open this range (UDP) in the firewall.
+# its whole duration, and the ODD port right after it for RTP (G.711), and returns them when
+# the call ends, so "30000-30999" allows 500 simultaneous calls. When no port is free a new
+# call is answered with 503 Service Unavailable and the error is logged. Open this range (UDP,
+# both even and odd ports) in the firewall.
 # (The old single-port option `t38_port` was removed; it is rejected with an error.)
 port_range = "30000-30999"
 
@@ -216,8 +218,8 @@ peer = "203.0.113.10:5060"
 #   "wait-peer" - like auto but we never send the re-INVITE ourselves
 #   "initiate"  - like auto; the emphasis is on our own re-INVITE (identical on the wire for
 #                 now; CNG detection comes later)
-#   "audio-only"- stay on G.711: T.38 offers get 488 (G.711 passthrough itself is not
-#                 implemented yet, so such a call is recorded as a failure when it ends)
+#   "audio-only"- stay on G.711: T.38 offers get 488 and the fax is received on the audio
+#                 (V.27ter / V.29, up to 9600 bit/s, no ECM)
 # t38_policy = "auto"
 # Seconds to wait after the ACK before our own T.38 re-INVITE (auto / initiate).
 # initiate_after_secs = 3
