@@ -80,7 +80,7 @@
 
 ⑦ **H01 SpanDSP 的結尾 flag 不在 flag 邊界**：`hdlc_tx` 是以 octet 為單位拿位元，結尾的 flag 在它要下一個 octet 時結束，所以結尾可能少於或多於 flag 的整數倍幾個 bit；比較時以 SpanDSP 多出的尾端必須是 flag 的位元為準（我方的 `encode_burst` 結尾永遠是整數個 flag）。串接 burst 的 H02 測試以我方 burst 的長度截斷 SpanDSP 的位元（H01 已證明到那裡為止相同）。
 
-⑧ **fuzz：`audio_rx` 目標有、沒在 nightly 矩陣裡**（`crates/fax-in/fuzz/fuzz_targets/audio_rx.rs` 存在，但 `.github/workflows/fuzz.yml` 沒有列它；計畫 §1 寫「nightly fuzz workflow 納入 `rtp_decode`、`hdlc_deframe`、`audio_rx`」）。本次只加了 `hdlc_deframe`；`audio_rx` 與 `rtp_decode` 屬於 M5a／M5e，未動。
+⑧ **fuzz 矩陣**：撰寫本報告時主 session 已另外把 `rtp_decode`、`audio_rx` 加進 `.github/workflows/fuzz.yml`（commit 8e14875），本次的 `hdlc_deframe` 與它們並存於矩陣中；沒有衝突。
 
 ## 5. 涵蓋率
 
