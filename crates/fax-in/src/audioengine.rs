@@ -207,6 +207,16 @@ fn timer_index(t: Timer) -> usize {
     Timer::ALL.iter().position(|x| *x == t).unwrap_or(0)
 }
 
+/// `audio.log` line of one T.30 frame (address, control, FCF, FIF in T.30 notation): its name
+/// and every octet in hex.
+fn frame_line(what: &str, frame: &[u8]) -> String {
+    let name = frame
+        .get(2)
+        .map_or("empty", |f| t30::frame::fcf_name(f & 0x7F));
+    let hex: Vec<String> = frame.iter().map(|b| format!("{b:02X}")).collect();
+    format!("{what} {name} {}", hex.join(" "))
+}
+
 /// T.30 notation ⇄ HDLC wire order.
 fn reverse_octets(frame: &[u8]) -> Vec<u8> {
     frame.iter().map(|b| b.reverse_bits()).collect()
@@ -400,6 +410,9 @@ impl AudioEngine {
                     Some(HdlcEvent::Preamble) => self.feed(Event::Signal(RxSignal::V21Preamble)),
                     Some(HdlcEvent::Frame { data, fcs_ok }) => {
                         let frame = reverse_octets(&data);
+                        if fcs_ok {
+                            self.note(frame_line("V.21 rx", &frame));
+                        }
                         // (the X bit, the first bit sent, is the most significant in T.30 notation)
                         let is_dcs = fcs_ok && frame.len() >= 3 && frame[2] & 0x7F == t30::fcf::DCS;
                         // the peer trains with what its DCS says, whatever T.30 decided
@@ -547,6 +560,9 @@ impl AudioEngine {
         if at < earliest {
             self.queue
                 .extend(std::iter::repeat_n(0i16, (earliest - at) as usize));
+        }
+        for f in frames {
+            self.note(frame_line("V.21 tx", f));
         }
         let wire: Vec<Vec<u8>> = frames.iter().map(|f| reverse_octets(f)).collect();
         let flags =
@@ -704,6 +720,12 @@ mod tests {
         let dis = frames.iter().find(|f| f[2] == t30::fcf::DIS).unwrap();
         assert_eq!(dis[1], t30::frame::CONTROL_FINAL);
         assert_eq!(e.state(), t30::State::WaitCommand);
+        // audio.log: our frame by name, with its octets (no station id: no CSI)
+        let log = e.drain_log();
+        assert!(
+            log.iter().any(|l| l.starts_with("V.21 tx DIS FF C8 ")),
+            "{log:#?}"
+        );
     }
 
     #[test]
@@ -720,12 +742,25 @@ mod tests {
         peer.extend(tx.modulate(&hdlc::encode_burst(&wire, 38, 2)));
         let _ = run(&mut e, &peer, 3_000);
         // FIF 00 46 00 is V.17 14400: not received by this receiver
+        let log = e.drain_log();
         assert!(
-            e.drain_log()
-                .iter()
+            log.iter()
                 .any(|l| l.contains("DCS selects") && l.contains("not received")),
             "the DCS reached T.30"
         );
+        // every V.21 frame is in the log (audio.log): ours sent, the peer's received
+        for want in [
+            "V.21 tx DIS FF C8 ",
+            "V.21 rx TSI FF C0 ",
+            "V.21 rx DCS FF C8 ",
+        ] {
+            assert!(
+                log.iter().any(|l| l.starts_with(want)),
+                "no {want:?} in {log:#?}"
+            );
+        }
+        let dcs = log.iter().find(|l| l.starts_with("V.21 rx DCS")).unwrap();
+        assert_eq!(dcs, "V.21 rx DCS FF C8 41 00 46 00", "all octets, in hex");
     }
 
     /// The DIS the engine sends advertises V.27ter and V.29, and not V.17 (ADR-061).

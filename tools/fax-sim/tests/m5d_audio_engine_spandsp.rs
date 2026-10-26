@@ -379,41 +379,157 @@ fn m04_a_bad_tcf_at_9600_is_refused_and_the_call_falls_back() {
     }
 }
 
-/// The plan's wording: a channel whose constant SNR makes the TCF of 9600 fail. White noise
-/// louder than -48 dBm0 keeps the engine from ever seeing the end of a signal, so the call cannot
-/// complete (docs/test-reports/M5d.md); recorded: it ends, with which codes.
+/// White noise of `snr` dB (relative to SpanDSP's signal, about -13 dBm0) over the whole call.
+fn constant_snr(snr: f64, seed: u64) -> impl FnMut(&AudioEngine, u64, &mut [i16]) -> bool {
+    let mut noise = Noise(SplitMix64::new(seed));
+    let sd = rms(-13.0) / 10f64.powf(snr / 20.0);
+    move |_, _, a| {
+        for s in a.iter_mut() {
+            *s = (f64::from(*s) + sd * noise.gauss())
+                .round()
+                .clamp(-32768.0, 32767.0) as i16;
+        }
+        false
+    }
+}
+
+/// The plan's wording: a channel whose constant SNR makes the TCF of 9600 fail, we answer FTT and
+/// SpanDSP falls back and succeeds. Since ADR-066 the engine finds the end of a signal in noise,
+/// so this works. Measured by sweeping 8-20 dB (3 seeds each, SpanDSP forced to V.29): 15 dB and
+/// up pass the 9600 TCF; at 11 dB the TCF has 94.6-94.9 % zero bits (T.30 needs 95 %) in all
+/// three seeds: FTT, then 7200 (one seed, pages 13 and 26 bad lines) or 4800/2400 (two seeds,
+/// where the 7200 TCF is refused too); 12-14 dB pass the TCF but the page is rejected (the next
+/// test); 10 dB goes down to 2400 after four TCFs; 8 dB cannot be received at all (the last
+/// test). A fall-back needs the TCF to fail for the answer to be FTT, so 11 dB is the condition.
 #[test]
-fn m04_constant_noise_that_fails_9600_is_recorded() {
-    for snr in [12.0, 16.0] {
-        let specs = vec![PageSpec::fine(300)];
-        let mut noise = Noise(SplitMix64::new(0x5D04_1000 + snr as u64));
-        let sd = rms(-13.0) / 10f64.powf(snr / 20.0);
+fn m04_constant_snr_11_db_fails_the_9600_tcf_with_ftt_and_the_call_succeeds_lower() {
+    for seed in 0..3u64 {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let mut up = constant_snr(11.0, 0x5D04_2000 + 11 * 16 + seed);
         let o = call_with(
             &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
-            &mut |_, _, a| {
-                for s in a.iter_mut() {
-                    *s = (f64::from(*s) + sd * noise.gauss())
-                        .round()
-                        .clamp(-32768.0, 32767.0) as i16;
-                }
-                false
-            },
+            &mut up,
             &mut |_, _| {},
         );
-        let r = o.result.as_ref();
+        let tcfs: Vec<&String> = o.log.iter().filter(|l| l.starts_with("TCF:")).collect();
+        let r = o.result.as_ref().unwrap();
         eprintln!(
-            "M04 constant SNR {snr} dB: engine done {} after {} ms, ours {:?} pages {}, SpanDSP {:?}",
-            o.engine_done,
-            o.sim_ms,
-            r.map(|r| (r.code, r.bit_rate)),
+            "M04 constant 11 dB seed {seed}: {} TCF(s) {tcfs:?}; final {:?} {} bit/s, pages {}, bad lines {:?}; {} ms",
+            tcfs.len(),
+            r.modem,
+            r.bit_rate,
             o.pages.len(),
-            o.caller_code
+            o.pages.iter().map(|p| p.bad_lines).collect::<Vec<_>>(),
+            o.sim_ms
         );
+        // the 9600 TCF failed (FTT) ...
+        assert!(tcfs.len() >= 2, "log {:#?}", o.log);
         assert!(
-            o.engine_done,
-            "the engine must end the call (T.30 timers); log {:#?}",
+            tcfs[0].contains("of 14696 bits zero")
+                && o.log.iter().any(|l| l.starts_with("V.21 tx FTT")),
+            "the first TCF is the 9600 one and is answered FTT; log {:#?}",
             o.log
         );
+        // ... and SpanDSP went down and got the two pages through
+        assert!(o.engine_done, "log {:#?}", o.log);
+        assert_eq!(o.caller_code, Some(sys::T30_ERR_OK), "log {:#?}", o.log);
+        assert!(r.code.is_ok(), "{:?}", r.code);
+        assert!(r.bit_rate < 9600, "{}", r.bit_rate);
+        assert_eq!(o.pages.len(), 2);
+        for (i, p) in o.pages.iter().enumerate() {
+            assert!(
+                u64::from(p.bad_lines) * 100 <= u64::from(specs[i].height) * 10,
+                "page {i}: {} bad lines",
+                p.bad_lines
+            );
+        }
+    }
+}
+
+/// At 14 dB the 9600 TCF passes but the page has too many bad lines: RTN, SpanDSP retrains at
+/// 7200 (its TCF is good) and resends; the pages arrive pixel exact (3 seeds).
+#[test]
+fn m04_constant_snr_14_db_page_rejected_with_rtn_then_7200_exact() {
+    for seed in 0..3u64 {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let mut up = constant_snr(14.0, 0x5D04_2000 + 14 * 16 + seed);
+        let o = call_with(
+            &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
+            &mut up,
+            &mut |_, _| {},
+        );
+        let tcfs: Vec<&String> = o.log.iter().filter(|l| l.starts_with("TCF:")).collect();
+        eprintln!(
+            "M04 constant 14 dB seed {seed}: {} TCF(s) {tcfs:?}; {} ms",
+            tcfs.len(),
+            o.sim_ms
+        );
+        assert_eq!(tcfs.len(), 2, "log {:#?}", o.log);
+        assert!(
+            o.log.iter().any(|l| l.starts_with("page rejected")),
+            "the first page is rejected; log {:#?}",
+            o.log
+        );
+        assert!(o.log.iter().any(|l| l.starts_with("V.21 tx RTN")));
+        assert_received(&o, &specs, t30::Modem::V29, &[7200]);
+    }
+}
+
+/// At 12 dB the 9600 TCF passes but the page is rejected (RTN) and the rate falls to 7200; the pages arrive within the
+/// T.30 bad-line threshold (3 seeds).
+#[test]
+fn m04_constant_snr_12_db_pages_within_the_bad_line_threshold() {
+    for seed in 0..3u64 {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let mut up = constant_snr(12.0, 0x5D04_2000 + 12 * 16 + seed);
+        let o = call_with(
+            &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
+            &mut up,
+            &mut |_, _| {},
+        );
+        let r = o.result.as_ref().unwrap();
+        eprintln!(
+            "M04 constant 12 dB seed {seed}: {:?} {} bit/s, pages {}, bad lines {:?}, {} ms",
+            r.modem,
+            r.bit_rate,
+            o.pages.len(),
+            o.pages.iter().map(|p| p.bad_lines).collect::<Vec<_>>(),
+            o.sim_ms
+        );
+        assert!(o.engine_done, "log {:#?}", o.log);
+        assert_eq!(o.caller_code, Some(sys::T30_ERR_OK), "log {:#?}", o.log);
+        assert!(r.code.is_ok(), "{:?}", r.code);
+        assert_eq!(o.pages.len(), 2);
+        assert!(r.bit_rate < 9600, "fell back from 9600: {}", r.bit_rate);
+        for (i, p) in o.pages.iter().enumerate() {
+            assert!(
+                u64::from(p.bad_lines) * 100 <= u64::from(specs[i].height) * 10,
+                "page {i}: {} bad lines of {}",
+                p.bad_lines,
+                specs[i].height
+            );
+        }
+    }
+}
+
+/// Noise so loud (8 dB) that no TCF can pass: the call must still end (T.30 timers), not hang.
+#[test]
+fn m04_hopeless_noise_ends_the_call() {
+    for seed in 0..3u64 {
+        let specs = vec![PageSpec::fine(300)];
+        let mut up = constant_snr(8.0, 0x5D04_2000 + 8 * 16 + seed);
+        let o = call_with(
+            &Opts::new(specs).modems(sys::T30_SUPPORT_V29),
+            &mut up,
+            &mut |_, _| {},
+        );
+        let r = o.result.as_ref().map(|r| (r.code, r.pages));
+        eprintln!(
+            "M04 constant 8 dB seed {seed}: engine done {} after {} ms, ours {r:?}, SpanDSP {:?}",
+            o.engine_done, o.sim_ms, o.caller_code
+        );
+        assert!(o.engine_done, "log {:#?}", o.log);
+        assert!(o.sim_ms < 120_000, "{} ms", o.sim_ms);
     }
 }
 
@@ -774,5 +890,153 @@ fn m08_a_dcs_in_the_middle_of_our_ced_is_lost_but_the_call_recovers_on_the_repea
     assert!(
         f3.contains(&t30::fcf::CFR) && !f3.contains(&t30::fcf::FTT),
         "frames {f3:02x?}; log {log3:#?}"
+    );
+}
+
+// ===========================================================================================
+// E04 (in process): what packet loss does to a call
+
+/// One 20 ms block lost (and the engine told so) at every offset 0..1200 ms after the engine
+/// entered `RxImage` for the first time: the page training and the first rows of the image are in
+/// this window. Every call completes, within the T.30 bad-line threshold.
+#[test]
+fn m05b_one_lost_block_at_any_offset_after_rx_image_is_survived() {
+    for off in (0..=1200u64).step_by(20) {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let mut entered: Option<u64> = None;
+        let o = call_with(
+            &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
+            &mut |e, t, _| {
+                if entered.is_none() && e.state() == t30::State::RxImage {
+                    entered = Some(t);
+                }
+                entered.is_some_and(|t0| t == t0 + off)
+            },
+            &mut |_, _| {},
+        );
+        assert!(entered.is_some(), "never in RxImage");
+        assert!(o.engine_done, "offset {off}: log {:#?}", o.log);
+        assert_eq!(o.caller_code, Some(sys::T30_ERR_OK), "offset {off}");
+        assert_eq!(o.pages.len(), 2, "offset {off}");
+        for (i, p) in o.pages.iter().enumerate() {
+            assert!(
+                u64::from(p.bad_lines) * 100 <= u64::from(specs[i].height) * 10,
+                "offset {off} page {i}: {} bad lines",
+                p.bad_lines
+            );
+        }
+        // the page that lost a block is the first one; the second is exact
+        assert_page_exact(&o, 1, &specs[1]);
+    }
+}
+
+/// Random loss of 0.5 % of the blocks in both directions (a fixed PRNG per seed), two fine pages
+/// at V.29, 40 seeds. Recorded: how often the call fails, with ours as the receiver and with
+/// SpanDSP's own receiver (the same loss, SpanDSP to SpanDSP). An audio channel has no error
+/// correction: a V.21 frame or a training sequence that is hit has to be repeated by the peer, and
+/// the peers give up after a few tries, so not every call can survive. The test asserts that ours
+/// fails no more often than SpanDSP's own receiver, and that every call ends.
+#[test]
+fn e04c_random_loss_half_percent_ours_is_no_worse_than_spandsp() {
+    let seeds = 40u64;
+    let mut ours_fail = Vec::new();
+    for seed in 0..seeds {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let mut rng_up = SplitMix64::new(0xE04_0000 + seed);
+        let mut rng_down = SplitMix64::new(0xE04_8000 + seed);
+        let o = call_with(
+            &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
+            &mut |_, _, _| rng_up.next_permille() < 5,
+            &mut |_, a| {
+                if rng_down.next_permille() < 5 {
+                    a.fill(0);
+                }
+            },
+        );
+        assert!(o.engine_done && o.sim_ms < 900_000, "seed {seed}: no end");
+        let ok = o.caller_code == Some(sys::T30_ERR_OK)
+            && o.result.as_ref().is_some_and(|r| r.code.is_ok());
+        if ok {
+            assert_eq!(o.pages.len(), 2, "seed {seed}");
+            for (i, p) in o.pages.iter().enumerate() {
+                assert!(
+                    u64::from(p.bad_lines) * 100 <= u64::from(specs[i].height) * 10,
+                    "seed {seed} page {i}: {} bad lines",
+                    p.bad_lines
+                );
+            }
+        } else {
+            ours_fail.push((
+                seed,
+                o.result.as_ref().map(|r| r.code.name()),
+                o.caller_code,
+                o.pages.len(),
+            ));
+        }
+    }
+    // the control: SpanDSP's own receiver
+    let mut ctl_fail = 0;
+    for seed in 0..seeds {
+        let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
+        let tif = tmp("ctl-pages.tif");
+        tiff_writer::write_file(&tif, &specs).unwrap();
+        let rxf = tmp("ctl-rx.tif");
+        let mut caller = FaxModem::new(
+            true,
+            &T30Config {
+                tx_file: Some(&tif),
+                rx_file: None,
+                ecm: false,
+                ident: "0000000001",
+                modems: Some(sys::T30_SUPPORT_V29),
+                ..T30Config::default()
+            },
+        )
+        .unwrap();
+        let mut answerer = FaxModem::new(
+            false,
+            &T30Config {
+                tx_file: None,
+                rx_file: Some(&rxf),
+                ecm: false,
+                ident: "0000000002",
+                modems: Some(sys::T30_SUPPORT_V29),
+                ..T30Config::default()
+            },
+        )
+        .unwrap();
+        let mut r1 = SplitMix64::new(0xE04_0000 + seed);
+        let mut r2 = SplitMix64::new(0xE04_8000 + seed);
+        let mut t = 0u64;
+        while t < 900_000
+            && !(caller.completion_code().is_some() && answerer.completion_code().is_some())
+        {
+            let mut to_answerer = [0i16; 160];
+            let mut to_caller = [0i16; 160];
+            caller.tx(&mut to_answerer);
+            answerer.tx(&mut to_caller);
+            if r1.next_permille() < 5 {
+                to_answerer.fill(0);
+            }
+            if r2.next_permille() < 5 {
+                to_caller.fill(0);
+            }
+            answerer.rx(&mut to_answerer);
+            caller.rx(&mut to_caller);
+            t += 20;
+        }
+        if !(caller.completion_code() == Some(0) && answerer.completion_code() == Some(0)) {
+            ctl_fail += 1;
+        }
+    }
+    eprintln!(
+        "E04c: 0.5 % loss each way, {seeds} seeds: ours failed {} {:?}; SpanDSP to SpanDSP failed {ctl_fail}",
+        ours_fail.len(),
+        ours_fail
+    );
+    assert!(
+        ours_fail.len() <= ctl_fail,
+        "ours failed {} of {seeds}, SpanDSP's own receiver {ctl_fail}",
+        ours_fail.len()
     );
 }
