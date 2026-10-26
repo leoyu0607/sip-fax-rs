@@ -142,5 +142,5 @@ cargo fmt --all --check
 - **§4 與計畫的差異**：全部接受。① J01 的延遲差一包是 push／pull 順序造成，報告兩種量法都有斷言。② 預設深度 60 ms 在 ±40 ms 抖動下不保證無損：已在 M5e 以 E04（±30 ms 全部收下）確認預設值夠用，不改。⑤ N04 以回報的位置衡量（±5 ms）符合計畫本意：音訊引擎與 T.38 對照用的是訊號起訖的位置，不是事件回傳的時刻；debounce 的 15 ms／10 ms 另有測試鎖住。⑥ 語音以合成替身代替，接受，有授權錄音檔時再補。
 - **§2 N04 的遲滯案例**：M5e 的 ADR-066（相對下降 10 dB 即為訊號結束）讓原本 −30→−45 的案例變成兩段訊號，測試已在 M5e 改為 −38 起始；本次把 §2 的描述同步更新。
 - **§5 觀察到的問題**：`ToneGenerator::new` 的樣本數乘法改為飽和（`remaining` 也是），`RtpPacket::encode` 的 extension 超過 65 535 個 word 時截斷資料而不是寫出長度不符的封包；兩者都在審核時修正並附單元測試。其餘（播放前 timestamp 跳躍丟一包、ptime 中途改變的重疊、`Pull(0)` 暫時超過 `max_depth`、CNG ±38 Hz 容許度、過量時一次丟到起始深度）影響小或不會發生，維持現狀。
-- **漏測**：計畫 §1 的 fuzz 目標 `rtp_decode`、`audio_rx`（`hdlc_deframe` 在 M5b）與 criterion 效能量測沒有做；fuzz 目標發版前補上，效能量測列為 M6 待辦。G05、J06 已在 M5e 完成。
+- **漏測**：計畫 §1 的 fuzz 目標 `rtp_decode`、`audio_rx`（`hdlc_deframe` 在 M5b）與 criterion 效能量測沒有做；fuzz 目標由 Opus 在審核時補上（`crates/sip-core/fuzz`、`crates/fax-in/fuzz`，納入 nightly fuzz workflow），效能量測列為 M6 待辦。G05、J06 已在 M5e 完成。
 - **涵蓋率**：fax-modem 98.64%（≥ 85%）、sip-core 93.76%（≥ 85%）；CI 的 coverage job 持續把關。

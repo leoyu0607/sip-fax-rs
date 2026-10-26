@@ -270,7 +270,7 @@
 - [x] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`（2026-10-26；待 Opus 審核）：J06 在 `crates/fax-in/tests/j06_rtp_pacing.rs`（虛擬時鐘，20 ms／+160／+1，落後時補送不丟），E 在 `tools/fax-sim/tests/e2e_m5e.rs`（E01–E03、E05–E08 通過；**E04 遺失 0.5 % 未達成**：seed 2 每次失敗，SpanDSP 對 SpanDSP 在同樣遺失下失敗率更高，計畫字面版留 `#[ignore]`）；M04 改成計畫的斷言；修了 1 個產品問題（`audio.log` 沒有 V.21 frame，需補 ADR-068，文字在報告 §3）；fax-sim 新增 `ReinviteBy::AudioThenT38`；fax-in 涵蓋率 93.78%；沒有跑 `scripts/ci-local.sh`
   - 2026-10-26 **Opus 審核通過**（報告 §9；ADR-068：`audio.log` 的 T.30 frame、E04 的門檻）
 - [ ] [Opus] 審核 M5a–M5e 測試報告（M5a、M5c、M5d、M5e 已通過；剩 M5b）
-  - 2026-10-26 M5a 審核通過（報告 §9）；審核時修了 `ToneGenerator` 長度乘法溢位、`RtpPacket::encode` 的 extension 長度欄位截斷。發版前要補 fuzz 目標 `rtp_decode`、`audio_rx`
+  - 2026-10-26 M5a 審核通過（報告 §9）；審核時修了 `ToneGenerator` 長度乘法溢位、`RtpPacket::encode` 的 extension 長度欄位截斷；同日補上 fuzz 目標 `rtp_decode`（sip-core）、`audio_rx`（新的 `crates/fax-in/fuzz`），已加入 nightly fuzz workflow
 - [ ] [Any] 發版（M5）
 
 ## M6 — 互通強化與發佈

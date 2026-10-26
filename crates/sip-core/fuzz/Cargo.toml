@@ -28,3 +28,10 @@ path = "fuzz_targets/parse_sdp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "rtp_decode"
+path = "fuzz_targets/rtp_decode.rs"
+test = false
+doc = false
+bench = false

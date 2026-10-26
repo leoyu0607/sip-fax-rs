@@ -1,7 +1,8 @@
 name: Fuzz
 
 # Nightly fuzzing of the sip-core parsers (docs/test-plans/M1.md P12) and the t38 IFP / UDPTL
-# decoders (docs/test-plans/M2.md section 0), the t4 decoder and the t30 frame parser / receiver. Deliberately NOT
+# decoders (docs/test-plans/M2.md section 0), the t4 decoder, the t30 frame parser / receiver, RTP and the G.711
+# audio engine (docs/test-plans/M5.md section 1). Deliberately NOT
 # triggered by push or pull_request: fuzzing must never block or slow down normal CI.
 on:
   schedule:
@@ -26,6 +27,8 @@ jobs:
           - { crate: t4, target: t4_decode }
           - { crate: t30, target: frame_parse }
           - { crate: t30, target: receiver_events }
+          - { crate: sip-core, target: rtp_decode }
+          - { crate: fax-in, target: audio_rx }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
