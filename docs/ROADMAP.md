@@ -10,7 +10,7 @@
 | M3 | ✅ | store（4 種 DB）+ delivery（folder/email/webhook）+ ECM | 各 DB 在容器中的整合測試通過；投遞重試正確 |
 | M4 | ✅ | Web 管理介面 + TUI + CLI 完整（M4a–M4f） | 可查詢和下載傳真、管理路由與設定 |
 | M5 | ✅ | fax-modem：G.711 passthrough（V.27ter、V.29，最高 9600；不做 V.17，ADR-061） | fax-sim 以 G.711 模式送傳真，可以成功接收 |
-| M6 | ⬜ | Gateway 互通強化（Sonus/AudioCodes 參數、SIP trace 回歸測試）、打包發佈 | 解壓後在 RHEL 9/10 可直接執行 |
+| M6 | 🟨 | Gateway 互通強化（Sonus/AudioCodes 參數、SIP trace 回歸測試）、打包發佈；M6a 串接介面（API 金鑰、`fax_records` view、增量查詢，ADR-070） | 解壓後在 RHEL 9/10 可直接執行 |
 
 ## 主要風險
 - 純 Rust 的 T.30 和 ECM 需要細心對照 SpanDSP 行為。以互通測試（第 2 層）持續驗證。

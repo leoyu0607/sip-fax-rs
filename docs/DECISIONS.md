@@ -568,3 +568,12 @@ M5c／M5d 測試報告 §5 留下的設計問題，在接上 RTP 之前於 `fax-
 - **先聽線路雜訊再送 CED**：ADR-066 假設偵測器聽到的第一個區塊是通話開頭（只會是 CNG），但引擎送完 CED＋第一個 DIS（約 4.5 s）才開始聽，而對方的 DCS 在 55–95 ms 內就開始，於是被當成雜訊底，整個 TSI／DCS 漏掉，要等 T4（3 s）重送 DIS（M5b V05 發現）。現在 CED 之前的 200 ms 靜音（`ced_lead_silence_ms`）期間，偵測器照樣聽線路（事件不使用），雜訊底在第一次傳送前就建立。沒有改成「沒有雜訊底時當作安靜」，因為那會讓開頭就有 ≥ −43 dBm0 固定雜訊的線路被當成訊號一直在（ADR-066 的 M04 條件）。
 - **偵測器開啟門檻 −45 dBm0**：`tone::ON_DBM0` 由 −43 改為 −45。T.30 要求收端收得到 −43 dBm0 的訊號，門檻剛好等於它時，區塊電平在門檻上下跳，前導常常偵測不到（M5b V04）。−45 仍在關閉門檻 −48 之上。CNG 偵測不受影響（它的能量門檻本來就是 −48，ADR 見 M5a 報告）。
 - **影響**：整通時間軸往後移 75 ms 起，M5d 的 M04「固定 SNR 讓 9600 TCF 失敗」案例原本卡在 95 % 門檻邊（11 dB 時 94.6–94.9 %），改為 10.5 dB（92.9–94.4 %）。
+
+## ADR-070：給專案同事的串接介面：API 金鑰、`fax_records` view、增量查詢（2026-10-27，M6a）
+需求（2026-10-27 使用者）：專案同事要串接客製，讀傳真的狀態與資訊、取傳真檔與 PNG 縮圖；他們的程式在**別台機器**，用 **Java 或 Node.js**，可以讀資料庫或呼叫 API。以前只有給瀏覽器用的 session（cookie＋CSRF）、內部資料表，以及只在伺服器本機有效的檔案路徑。
+- **API 金鑰**：管理員在 Web 介面（「API 金鑰」頁）或 CLI（`sip-faxd apikey create|list|revoke`）建立。金鑰是 `sfx_` 加 32 個隨機 byte 的 base64url（共 47 字元），只在建立時顯示一次；資料庫只存 SHA-256 與前 12 個字元（列表用來辨認）。呼叫時帶 `Authorization: Bearer <金鑰>`，不需要 cookie 與 CSRF（不是瀏覽器自動帶的憑證，沒有 CSRF 問題）；會改資料的請求仍要 `application/json`。
+- **權限逐把選擇**（使用者決定）：`fax:read`（列表、增量查詢、單筆、TIFF／PDF、PNG、計數）一定有；`fax:write`（已讀、備註）建立時勾選。金鑰**只能用在 `/api/v1/faxes` 底下**，設定、帳號、狀態、事件、金鑰管理等一律不接受金鑰（401）。投遞紀錄與重新投遞不開放。以金鑰寫入的已讀與備註記為 `api:<名稱>`。
+- **生命週期**：可設到期日；撤銷後保留紀錄（列表看得到誰在何時撤銷），不能再用，也不能復原；名稱不可重複（含已撤銷的）。建立與撤銷寫進稽核（`config_audit`，`api_key:<名稱>`）。最後使用時間與 IP 每把金鑰最多每分鐘寫一次。無效、撤銷、過期的金鑰回同一個 401 `invalid_api_key`，不透露是哪一種。
+- **增量查詢**：`GET /api/v1/faxes/changes?after=<cursor>&limit=`，依 `(updated_at, id)` 由舊到新，回傳 `next` cursor；同事每隔一段時間帶上一次的 cursor 呼叫，就能拿到新進與有變動的傳真（接收中、完成、已讀、備註）。只回傳 `updated_at` 早於現在 2 秒的列，避免與正在寫入的交易競態而漏掉；第一次可用 `since=<RFC 3339>` 從某個時間開始。
+- **資料庫 view `fax_records`**（migration 0004，四種 DB）：對外只承諾這個 view 的欄位（不含檔案路徑），之後的版本只增加欄位、不改名、不刪除；內部的 `faxes` 表可以照常改。另加 `faxes (updated_at, id)` 索引供增量查詢。文件附四種 DB 建立「只能讀這個 view」帳號的 SQL。檔案與縮圖一律走 API（路徑只在伺服器本機有效）。
+- **文件與範例**：`docs/integration.md`（繁中）、`docs/openapi.yaml`（OpenAPI 3.1，服務也在 `/api/v1/openapi.yaml` 提供，不需登入）、`examples/java`（JDK 17 以上，只用內建 `HttpClient`，單檔可直接 `java FaxClient.java` 執行；JDBC 讀 view 的範例）、`examples/node`（Node 18 以上，只用內建 `fetch`）。自簽憑證約兩年更新一次、指紋會變，串接時建議在 `[web]` 設定公司自己的憑證；文件說明 Java 匯入 truststore、Node 用 `NODE_EXTRA_CA_CERTS`。
