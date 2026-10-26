@@ -2,8 +2,8 @@
 <!DOCTYPE scenario SYSTEM "sipp.dtd">
 <!--
   S07: SIPp refuses sip-faxd's T.38 re-INVITE with 488. sip-faxd ACKs the 488 and, because
-  G.711 passthrough does not exist yet, ends the call with BYE (failure reason
-  g711_passthrough_unsupported). SIPp answers the BYE with 200.
+  the test runs with fax_session = "hold" (no G.711 session), ends the call with BYE (failure
+  reason g711_passthrough_unsupported). SIPp answers the BYE with 200.
 -->
 <scenario name="S07 488 on sip-faxd's re-INVITE">
   <send retrans="500">

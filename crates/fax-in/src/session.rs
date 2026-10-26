@@ -1,5 +1,9 @@
 //! The fax session seam: once T.38 is established the controller hands the call to a
 //! [`FaxSession`]. The stub only holds the call; [`crate::t38session`] is the real T.38 / T.30 session.
+//!
+//! A call answered on audio gets an [`AudioFaxSession`] (M5) as soon as it is answered, when the
+//! factory has one ([`FaxSessionFactory::receives_audio`]): it listens from the start and answers
+//! the fax once [`AudioContext::go`] turns `true` ([`crate::audiosession`]).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -7,7 +11,7 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use crate::event::{ReportSink, T38Negotiated};
+use crate::event::{AudioNegotiated, ReportSink, T38Negotiated};
 
 /// The UDPTL error recovery we send, from the trunk's `[trunks.t38]` settings (the scheme in
 /// force comes from [`T38Negotiated::udp_ec`]).
@@ -59,6 +63,32 @@ pub struct SessionContext {
     pub max_duration: Option<Duration>,
 }
 
+/// What a G.711 session knows about the call.
+#[derive(Debug, Clone)]
+pub struct AudioContext {
+    /// SIP Call-ID.
+    pub call_id: String,
+    /// Trunk name.
+    pub trunk: String,
+    /// The audio in force.
+    pub audio: AudioNegotiated,
+    /// Fax capabilities of the trunk (`[trunks.fax]`; ECM is never used on audio).
+    pub fax: crate::config::FaxSection,
+    /// The session leaves its fax report here before it returns (when it answered the fax).
+    pub report: ReportSink,
+    /// Page count after every page T.30 confirms, as for T.38.
+    pub progress: Option<tokio::sync::mpsc::UnboundedSender<u32>>,
+    /// Turns `true` when the session is to answer the fax (CED, DIS); until then it only
+    /// listens and sends silence.
+    pub go: watch::Receiver<bool>,
+    /// Turns `true` when the call ends underneath the session, or T.38 takes over.
+    pub cancel: watch::Receiver<bool>,
+    /// Our station id (CSI). `None`: the factory's.
+    pub station_id: Option<String>,
+    /// Longest the session may run. `None`: the factory's.
+    pub max_duration: Option<Duration>,
+}
+
 /// How a session ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionOutcome {
@@ -81,10 +111,32 @@ pub trait FaxSession: Send + 'static {
     ) -> Pin<Box<dyn Future<Output = SessionOutcome> + Send>>;
 }
 
+/// A fax session on the G.711 audio of a call.
+pub trait AudioFaxSession: Send + 'static {
+    /// Runs the session to completion. Must end promptly when `ctx.cancel` turns `true`; a
+    /// session cancelled before `go` reports nothing.
+    fn run(
+        self: Box<Self>,
+        ctx: AudioContext,
+    ) -> Pin<Box<dyn Future<Output = SessionOutcome> + Send>>;
+}
+
 /// Creates one session per call.
 pub trait FaxSessionFactory: Send + Sync + 'static {
     /// A new session for the call described by `ctx`.
     fn create(&self, ctx: &SessionContext) -> Box<dyn FaxSession>;
+
+    /// Whether this factory receives faxes over G.711 ([`FaxSessionFactory::create_audio`]):
+    /// the controller then gives every audio call an RTP port of its own.
+    fn receives_audio(&self) -> bool {
+        false
+    }
+
+    /// A G.711 session for an audio call; `None` (the default): faxes are received over T.38
+    /// only, and a call that cannot get T.38 fails.
+    fn create_audio(&self, _ctx: &AudioContext) -> Option<Box<dyn AudioFaxSession>> {
+        None
+    }
 }
 
 /// Resolves when the cancel flag turns `true` (or its sender is gone).

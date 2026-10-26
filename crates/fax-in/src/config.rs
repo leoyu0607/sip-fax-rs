@@ -236,10 +236,13 @@ impl PortRange {
 pub struct MediaConfig {
     /// Address put into `c=` / `o=` of our SDP. Default: the advertised host, else the bind IP.
     pub address: Option<String>,
-    /// RTP port in the audio answer (placeholder until G.711 passthrough, M5).
+    /// RTP port in the audio answer when faxes are not received over G.711
+    /// (`fax_session = "hold"`). The real fax session (M5) gives every audio call an RTP port of
+    /// its own from `port_range` instead, and this setting is not used.
     pub audio_port: u16,
-    /// UDPTL ports for T.38 calls, `"low-high"`. Every call is given one even port of the
-    /// range for its whole duration; when none is free a new call is answered with 503.
+    /// UDPTL and RTP ports, `"low-high"`. Every call is given one even port of the range for
+    /// UDPTL for its whole duration, and one more for RTP when it is answered on audio; when
+    /// none is free a new call is answered with 503.
     pub port_range: String,
     /// Removed option, kept only to give a helpful error: `t38_port` was replaced by
     /// `port_range` in M2.

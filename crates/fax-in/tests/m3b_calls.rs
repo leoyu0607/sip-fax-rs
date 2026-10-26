@@ -62,6 +62,8 @@ impl FaxSession for Scripted {
                 pdf: Some("/d/faxes/2026/10/21/x.pdf".into()),
                 store_error: None,
                 udptl: UdptlCounters::default(),
+                media: Default::default(),
+                rtp: None,
                 tiff_size: Some(111),
                 pdf_size: Some(222),
                 ecm: true,

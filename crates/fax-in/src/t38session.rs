@@ -26,8 +26,10 @@ use tokio::net::UdpSocket;
 use tokio::time::Instant;
 
 use crate::capture::{Capture, dir_name};
-use crate::event::{FaxReport, UdptlCounters};
-use crate::session::{FaxSession, FaxSessionFactory, SessionContext, SessionOutcome};
+use crate::event::{FaxMedia, FaxReport, ReportSink, RtpCounters, UdptlCounters};
+use crate::session::{
+    AudioContext, AudioFaxSession, FaxSession, FaxSessionFactory, SessionContext, SessionOutcome,
+};
 use crate::t38engine::{EngineConfig, Pacing, ReceivedPage, UdptlEngine};
 use crate::timefmt;
 
@@ -53,7 +55,7 @@ pub struct T38SessionEnv {
     pub pacing: Pacing,
 }
 
-/// Creates [`T38FaxSession`]s.
+/// Creates [`T38FaxSession`]s and, for calls on audio, [`crate::audiosession`] sessions (M5).
 #[derive(Clone)]
 pub struct T38SessionFactory {
     env: Arc<T38SessionEnv>,
@@ -72,6 +74,16 @@ impl FaxSessionFactory for T38SessionFactory {
             env: self.env.clone(),
         })
     }
+
+    fn receives_audio(&self) -> bool {
+        true
+    }
+
+    fn create_audio(&self, _ctx: &AudioContext) -> Option<Box<dyn AudioFaxSession>> {
+        Some(Box::new(crate::audiosession::G711FaxSession {
+            env: self.env.clone(),
+        }))
+    }
 }
 
 /// A fax session receiving over T.38.
@@ -89,7 +101,7 @@ impl FaxSession for T38FaxSession {
 }
 
 /// `ip:port` or `[v6]:port` of the peer's SDP.
-fn parse_peer(text: Option<&str>) -> Option<SocketAddr> {
+pub(crate) fn parse_peer(text: Option<&str>) -> Option<SocketAddr> {
     let a: SocketAddr = text?.parse().ok()?;
     (a.port() != 0).then_some(a)
 }
@@ -142,7 +154,7 @@ fn engine_config(env: &T38SessionEnv, ctx: &SessionContext) -> EngineConfig {
 
 /// How the session loop ended.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum End {
+pub(crate) enum End {
     Done,
     Cancelled,
     MaxDuration,
@@ -283,10 +295,57 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
     for line in eng.engine_mut().drain_log() {
         tracing::debug!(call_id = %ctx.call_id, "t30: {line}");
     }
-    let mut result = eng.engine().result().cloned();
+    let result = eng.engine().result().cloned();
     let pages = eng.engine_mut().take_pages();
     drop(sock);
+    conclude(
+        env,
+        Concluding {
+            call_id: &ctx.call_id,
+            report: &ctx.report,
+            started_at,
+            end,
+            state_at_cancel,
+            result,
+            pages,
+            media: FaxMedia::T38,
+            udptl: counters,
+            rtp: None,
+        },
+    )
+    .await
+}
 
+/// What a session hands to [`conclude`] when its loop is over.
+pub(crate) struct Concluding<'a> {
+    pub call_id: &'a str,
+    pub report: &'a ReportSink,
+    pub started_at: SystemTime,
+    pub end: End,
+    /// The T.30 state when the loop was cut short (not `Done`).
+    pub state_at_cancel: Option<t30::State>,
+    pub result: Option<t30::T30Result>,
+    pub pages: Vec<ReceivedPage>,
+    pub media: FaxMedia,
+    pub udptl: UdptlCounters,
+    pub rtp: Option<RtpCounters>,
+}
+
+/// The end of a session, T.38 or G.711: writes the pages, leaves the report and returns the
+/// outcome.
+pub(crate) async fn conclude(env: &T38SessionEnv, c: Concluding<'_>) -> SessionOutcome {
+    let Concluding {
+        call_id,
+        report: sink,
+        started_at,
+        end,
+        state_at_cancel,
+        mut result,
+        pages,
+        media,
+        udptl,
+        rtp,
+    } = c;
     // The peer hung up while we waited for its DCN after the final MCF: every page was
     // confirmed, so that is a success.
     if end == End::Cancelled
@@ -316,7 +375,9 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
         tiff: None,
         pdf: None,
         store_error: None,
-        udptl: counters,
+        udptl,
+        media,
+        rtp,
         tiff_size: None,
         pdf_size: None,
         ecm: result.ecm,
@@ -326,7 +387,7 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
     if !pages.is_empty() {
         match store_pages(
             &env.data_dir,
-            &ctx.call_id,
+            call_id,
             started_at,
             &pages,
             result.remote_ident.as_deref(),
@@ -340,14 +401,19 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
                 report.pdf_size = Some(stored.pdf_size);
             }
             Err(e) => {
-                tracing::error!(call_id = %ctx.call_id, "cannot store the received fax: {e}");
+                tracing::error!(call_id = %call_id, "cannot store the received fax: {e}");
                 report.store_error = Some(e);
             }
         }
     }
-    tracing::info!(call_id = %ctx.call_id, code = report.code, code_name = %report.code_name,
-        pages = report.pages, bit_rate = report.bit_rate, tsi = ?report.remote_ident,
-        tiff = ?report.tiff, partial = report.partial, "T.38 session ended");
+    let label = match media {
+        FaxMedia::T38 => "T.38",
+        FaxMedia::G711 => "G.711",
+    };
+    tracing::info!(call_id = %call_id, code = report.code, code_name = %report.code_name,
+        pages = report.pages, bit_rate = report.bit_rate, modem = ?report.modem,
+        tsi = ?report.remote_ident, tiff = ?report.tiff, partial = report.partial,
+        "{label} session ended");
     let outcome = match (end, result.code) {
         (End::MaxDuration, _) => SessionOutcome::MaxDuration,
         (_, ResultCode::Ok) if report.store_error.is_none() => {
@@ -368,7 +434,7 @@ async fn run_session(env: &T38SessionEnv, ctx: SessionContext) -> SessionOutcome
             ),
         }),
     };
-    *ctx.report
+    *sink
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(report);
     outcome

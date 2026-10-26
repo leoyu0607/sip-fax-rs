@@ -9,7 +9,7 @@ use sip_core::sdp::{
     Timing, UdpEc,
 };
 
-use crate::event::{T38Negotiated, T38Path};
+use crate::event::{AudioNegotiated, T38Negotiated, T38Path};
 use crate::trunk::Trunk;
 
 /// Local media settings shared by all calls.
@@ -17,7 +17,8 @@ use crate::trunk::Trunk;
 pub struct MediaCtx {
     /// Address for `c=` / `o=`.
     pub local_address: String,
-    /// Audio port in answers.
+    /// RTP port in answers. Per call when the server receives faxes over G.711: the controller
+    /// leases it from the port pool and sets it with [`MediaCtx::with_audio_port`].
     pub audio_port: u16,
     /// UDPTL port in answers and offers. Per call: the controller leases it from the port
     /// pool and sets it with [`MediaCtx::with_t38_port`].
@@ -32,13 +33,21 @@ impl MediaCtx {
             ..self.clone()
         }
     }
+
+    /// The same settings with the RTP port of one call.
+    pub fn with_audio_port(&self, audio_port: u16) -> MediaCtx {
+        MediaCtx {
+            audio_port,
+            ..self.clone()
+        }
+    }
 }
 
 /// What the answer accepted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Accepted {
     /// G.711 audio.
-    Audio,
+    Audio(Box<AudioNegotiated>),
     /// T.38.
     T38(Box<T38Negotiated>),
 }
@@ -135,16 +144,53 @@ fn accepted_of(
     path: T38Path,
 ) -> Accepted {
     let Some((idx, answered)) = answer.media.iter().enumerate().find(|(_, m)| m.port != 0) else {
-        return Accepted::Audio;
+        return Accepted::Audio(Box::new(describe_audio(offer, None, None, ctx, source)));
     };
+    let peer_m = offer.media.get(idx);
     if !answered.is_t38() {
-        return Accepted::Audio;
+        return Accepted::Audio(Box::new(describe_audio(
+            offer,
+            peer_m,
+            Some(answered),
+            ctx,
+            source,
+        )));
     }
-    match offer.media.get(idx) {
+    match peer_m {
         Some(peer_m) => Accepted::T38(Box::new(describe(
             offer, peer_m, answered, trunk, ctx, source, path,
         ))),
-        None => Accepted::Audio,
+        None => Accepted::Audio(Box::new(describe_audio(offer, None, None, ctx, source))),
+    }
+}
+
+/// The audio of an answer: the codec we send (the first G.711 format of our answer, PCMU
+/// when there is none) and where the peer wants RTP.
+fn describe_audio(
+    offer: &SessionDescription,
+    peer_m: Option<&MediaDescription>,
+    answered: Option<&MediaDescription>,
+    ctx: &MediaCtx,
+    source: IpAddr,
+) -> AudioNegotiated {
+    let law = answered
+        .into_iter()
+        .flat_map(|m| m.formats.iter())
+        .filter_map(|f| f.parse::<u8>().ok())
+        .find_map(sip_core::rtp::Law::from_payload_type)
+        .unwrap_or(sip_core::rtp::Law::Ulaw);
+    let peer_media = peer_m.map(|m| match offer.effective_connection(m) {
+        Some(Connection { address, .. }) if !address.trim().is_empty() => {
+            socket_text(address.trim(), m.port)
+        }
+        _ => socket_text(&source.to_string(), m.port),
+    });
+    AudioNegotiated {
+        codec: law.encoding_name().into(),
+        payload_type: law.payload_type(),
+        peer_media,
+        local_port: ctx.audio_port,
+        reason: None,
     }
 }
 
