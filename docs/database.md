@@ -119,6 +119,8 @@ password = "p@ss:w/rd#1"   # 或 password_file = "conf/db-password"（第一行�
 | `note_updated_by` | VARCHAR(64) | 是 | |
 | `note_updated_at` | 時間 | 是 | |
 | `created_at`、`updated_at` | 時間 | 否 | |
+| `modem` | VARCHAR(16) | 是 | 最後一個 DCS 的數據機：`v27ter`／`v29`／`v17`（migration 0003，M5e） |
+| `media` | VARCHAR(8) | 是 | 傳送方式：`t38` 或 `g711`（migration 0003；0.5 之前的紀錄是 NULL） |
 
 索引：`(started_at DESC, id DESC)`、`(is_read, started_at DESC)`、`(fax_status)`、`(ani)`、`(dnis)`、`(files_purged_at)`，另加 `(ended_at)` 供清整查詢使用。
 
@@ -191,7 +193,7 @@ M4a 起清整設定（`retention.*`）不再放在這裡：migration 0002 把它
 - 資料庫的版本**比程式新**時一律拒絕連線（`database schema version N is newer than supported version M`），避免舊版程式破壞新版資料。
 - `auto_migrate = false` 且資料庫版本較舊時拒絕連線，錯誤訊息會提示執行 `sip-faxd db migrate`。
 - **並行保護（M3b）**：migration 開始前先取得資料庫鎖（PostgreSQL `pg_advisory_lock`、MySQL/MariaDB `GET_LOCK('sipfaxd_migrate:<schema>')`、MSSQL `sp_getapplock`、SQLite 的 `BEGIN EXCLUSIVE`，最多等 60 秒），取得鎖之後才重新讀版本號；所以兩個實例同時第一次啟動時，只有一個會套用，另一個等它做完後發現沒事可做。鎖屬於連線，程式中途掛掉也不會留下鎖。
-- **失敗後可重跑（M3b）**：SQLite、PostgreSQL、MSSQL 的 DDL 有交易，migration 失敗會整份復原。MySQL/MariaDB 的 DDL 無法復原，所以它的 migration 檔每個陳述式都必須可重複執行（`CREATE TABLE IF NOT EXISTS`，索引寫在資料表定義裡；`mysql_migrations_are_safe_to_run_again` 測試會檢查），失敗後直接再跑一次即可。
+- **失敗後可重跑（M3b）**：SQLite、PostgreSQL、MSSQL 的 DDL 有交易，migration 失敗會整份復原。MySQL/MariaDB 的 DDL 無法復原，所以它的 migration 檔每個陳述式都必須可重複執行（`CREATE TABLE IF NOT EXISTS`，索引寫在資料表定義裡；只加欄位的 `ALTER TABLE` 寫成一個陳述式，重跑時的「Duplicate column name」視為已完成；`mysql_migrations_are_safe_to_run_again` 測試會檢查），失敗後直接再跑一次即可。
 - 手動指令：`sip-faxd db migrate`（輸出 `schema version 0 -> 1 (applied 0001)` 或 `already at schema version 1`）。
 
 ## 寫入流程與失敗處理（M3b）
@@ -200,7 +202,7 @@ M4a 起清整設定（`retention.*`）不再放在這裡：migration 0002 把它
 |---|---|---|
 | 來電對應到 trunk（`CallEvent::Started`） | INSERT | `fax_status = receiving`、`pages = 0`、`trunk`、`ani`／`dnis` 及來源、`started_at` |
 | T.30 每確認一頁（回 MCF／RTP，ECM 與 non-ECM 相同；`CallEvent::PageReceived`） | UPDATE `pages` | 只往前、只作用於 `receiving` 的紀錄 |
-| 通話結束（`CallEvent::Finished`） | 以 `fax_in::summary::classify` 的結果補齊 | `fax_status`、`hangup_*`、`sip_status`、`t30_code`、`duration_sec`、`ended_at`、`remote_ident`、`resolution`、`bit_rate`、`compression`、`ecm`、檔案路徑與大小；INSERT 若遺失，這一步會一併補上 |
+| 通話結束（`CallEvent::Finished`） | 以 `fax_in::summary::classify` 的結果補齊 | `fax_status`、`hangup_*`、`sip_status`、`t30_code`、`duration_sec`、`ended_at`、`remote_ident`、`resolution`、`bit_rate`、`compression`、`ecm`、`modem`、`media`、檔案路徑與大小；INSERT 若遺失，這一步會一併補上 |
 | 伺服器啟動 | 修正殘留的 `receiving` | 依頁數改成 `failed` 或 `partial`，`hangup_code = shutdown` |
 
 - 來源 IP 不在任何 trunk 白名單的電話（`unknown_source` 為 `drop` 或 `reject`）**不寫入**；`unknown_source = "log"` 的電話照常處理，`trunk` 為 `unknown`。

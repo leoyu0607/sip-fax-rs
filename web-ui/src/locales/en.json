@@ -199,6 +199,7 @@
       "fine": "Fine",
       "superfine": "Superfine"
     },
+    "media": "Transport",
     "bit_rate": "Rate (bit/s)",
     "compression": "Compression",
     "ecm": "Error correction (ECM)",

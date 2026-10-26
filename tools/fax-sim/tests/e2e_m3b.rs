@@ -514,6 +514,8 @@ async fn i05_cli_migrate_purge_and_backfill_after_a_call_with_the_database_down(
         tiff_size: row.tiff_size,
         pdf_path: row.pdf_path.clone(),
         pdf_size: row.pdf_size,
+        modem: None,
+        media: None,
     };
     db.finalize(row.id, &old).await.unwrap();
     let (code, out, _) = cli(&["purge", "--dry-run"]);

@@ -70,7 +70,7 @@ async fn k13_retention_settings_move_into_the_section_body(env: &Env) {
         .unwrap();
     st.set_setting("other.key", "keep me", None).await.unwrap();
     let rep = st.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (1, 2, vec![2]));
+    assert_eq!((rep.from, rep.to, rep.applied), (1, 3, vec![2, 3]));
     let s = purge::load_retention(st.as_ref() as &dyn FaxStore)
         .await
         .unwrap();

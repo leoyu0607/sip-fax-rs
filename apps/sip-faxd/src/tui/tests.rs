@@ -71,6 +71,8 @@ fn ff(status: FaxStatus, pages: i32) -> FaxFinal {
         tiff_size: Some(3),
         pdf_path: Some("faxes/a.pdf".into()),
         pdf_size: Some(3),
+        modem: None,
+        media: None,
     }
 }
 

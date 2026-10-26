@@ -167,6 +167,10 @@ export interface Fax {
   bit_rate: number | null;
   compression: string | null;
   ecm: boolean | null;
+  /** Modem of the last DCS: `v27ter`, `v29`, `v17` (0.5 and later). */
+  modem?: string | null;
+  /** `t38` or `g711` (0.5 and later). */
+  media?: string | null;
   has_tiff: boolean;
   has_pdf: boolean;
   tiff_size: number | null;

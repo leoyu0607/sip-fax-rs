@@ -185,6 +185,8 @@ fn ff(pages: i32) -> FaxFinal {
         tiff_size: Some(3),
         pdf_path: Some("faxes/a.pdf".into()),
         pdf_size: Some(3),
+        modem: None,
+        media: None,
     }
 }
 
@@ -363,7 +365,7 @@ async fn c11_output_has_the_rows_per_table_masks_the_password_and_tells_the_next
     let total: u64 = want.iter().map(|(_, n)| n).sum();
     assert!(
         text.contains(&format!(
-            "done: {total} rows from sqlite into sqlite (schema version 2)"
+            "done: {total} rows from sqlite into sqlite (schema version 3)"
         )),
         "{text}"
     );

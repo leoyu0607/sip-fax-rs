@@ -133,6 +133,14 @@ pub fn fax_final(r: &CallResult, data_dir: &Path) -> FaxFinal {
             .and_then(|f| f.pdf.as_deref())
             .map(|p| fit(&relative_to_data_dir(p, data_dir), 1024)),
         pdf_size: f.and_then(|f| size(f.pdf_size)),
+        modem: f.and_then(|f| f.modem.as_deref()).map(|s| fit(s, 16)),
+        media: f.map(|f| {
+            match f.media {
+                crate::event::FaxMedia::T38 => "t38",
+                crate::event::FaxMedia::G711 => "g711",
+            }
+            .to_string()
+        }),
     }
 }
 

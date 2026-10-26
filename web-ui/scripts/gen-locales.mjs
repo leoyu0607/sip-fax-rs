@@ -210,6 +210,7 @@ add('fax', [
   ['resolution_value.standard', '標準', 'Standard'],
   ['resolution_value.fine', '精細', 'Fine'],
   ['resolution_value.superfine', '超精細', 'Superfine'],
+  ['media', '傳送方式', 'Transport'],
   ['bit_rate', '速率（bit/s）', 'Rate (bit/s)'],
   ['compression', '壓縮', 'Compression'],
   ['ecm', '錯誤修正（ECM）', 'Error correction (ECM)'],

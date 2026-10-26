@@ -209,6 +209,8 @@ async fn stored_fax(dir: &Path, call_id: &str, started_hours_ago: i64) -> i64 {
         tiff_size: Some(19),
         pdf_path: Some(format!("faxes/2026/10/21/{call_id}.pdf")),
         pdf_size: Some(23),
+        modem: None,
+        media: None,
     };
     let (id, inserted) = st.upsert_finished(&new, &fin).await.unwrap();
     assert!(inserted);

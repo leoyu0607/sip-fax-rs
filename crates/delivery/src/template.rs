@@ -240,6 +240,8 @@ pub(crate) mod testutil {
             tiff_size: Some(1000),
             pdf_path: Some("faxes/42.pdf".into()),
             pdf_size: Some(2000),
+            modem: None,
+            media: None,
             files_purged_at: None,
             is_read: false,
             read_changed_by: None,

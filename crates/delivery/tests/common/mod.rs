@@ -137,6 +137,8 @@ impl Env {
                     tiff_size: Some(tiff_bytes(id).len() as i64),
                     pdf_path: Some(pdf),
                     pdf_size: Some(pdf_bytes(id).len() as i64),
+                    modem: None,
+                    media: None,
                 },
             )
             .await

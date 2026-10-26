@@ -178,6 +178,16 @@
     return hasKey(k) ? t(k) : f.hangup_code ?? '';
   }
 
+  /** `t38` / `g711` as written in the standards. */
+  function mediaName(m: string): string {
+    return ({ t38: 'T.38', g711: 'G.711' } as Record<string, string>)[m] ?? m;
+  }
+
+  /** `v27ter` / `v29` / `v17` as written in the standards. */
+  function modemName(m: string): string {
+    return ({ v27ter: 'V.27ter', v29: 'V.29', v17: 'V.17', v33: 'V.33' } as Record<string, string>)[m] ?? m;
+  }
+
   function onKey(e: KeyboardEvent) {
     if (!fax || !previews) return;
     const el = e.target as HTMLElement | null;
@@ -292,6 +302,7 @@
               <dt>{t('fax.hangup_label')}</dt><dd>{hangup(fax)}{fax.hangup_direction ? ` (${t(`fax.direction.${fax.hangup_direction}`)})` : ''}</dd>
               {#if fax.sip_status !== null}<dt>{t('fax.sip_status')}</dt><dd>{fax.sip_status}</dd>{/if}
               {#if fax.t30_code !== null}<dt>{t('fax.t30_code')}</dt><dd>{fax.t30_code}</dd>{/if}
+              {#if fax.media}<dt>{t('fax.media')}</dt><dd>{mediaName(fax.media)}{fax.modem ? ` · ${modemName(fax.modem)}` : ''}</dd>{/if}
               <dt>{t('fax.bit_rate')}</dt><dd>{fax.bit_rate ?? ''}</dd>
               <dt>{t('fax.compression')}</dt><dd>{fax.compression ?? ''}</dd>
               <dt>{t('fax.ecm')}</dt><dd>{fax.ecm === null ? '' : t(fax.ecm ? 'common.yes' : 'common.no')}</dd>

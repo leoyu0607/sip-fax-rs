@@ -241,12 +241,17 @@ fn every_backend_ships_the_same_migration_versions() {
         for m in ms {
             assert!(!crate::db::split_statements(m.sql).is_empty());
             let (first, others) = ("faxes", ["delivery_attempts", "settings"]);
-            let init = m.version == 1;
-            let tables: &[&str] = if init {
-                &[first, others[0], others[1]]
-            } else {
-                &["config_sections", "config_audit", "users", "sessions"]
+            let tables: &[&str] = match m.version {
+                1 => &[first, others[0], others[1]],
+                2 => &["config_sections", "config_audit", "users", "sessions"],
+                // 0003 only adds columns
+                _ => &[],
             };
+            if m.version == 3 {
+                for c in ["modem", "media"] {
+                    assert!(m.sql.contains(c), "{k:?} 0003 lacks {c}");
+                }
+            }
             for t in tables {
                 assert!(
                     m.sql.contains(&format!("CREATE TABLE {t} "))
@@ -270,8 +275,12 @@ fn mysql_migrations_are_safe_to_run_again() {
             // the DELETE only removes rows that are no longer needed.
             let guarded_move = (up.starts_with("INSERT INTO ") && up.contains("NOT EXISTS"))
                 || up.starts_with("DELETE FROM SETTINGS WHERE NAME LIKE ");
+            // 0003: one ALTER TABLE (atomic) that only adds columns; run again it fails with
+            // "Duplicate column name", which the runner takes as done
+            let add_columns = up.starts_with("ALTER TABLE ")
+                && up.split(',').all(|part| part.contains(" ADD COLUMN "));
             assert!(
-                up.starts_with("CREATE TABLE IF NOT EXISTS ") || guarded_move,
+                up.starts_with("CREATE TABLE IF NOT EXISTS ") || guarded_move || add_columns,
                 "migration {:04}_{}: not repeatable: {}",
                 m.version,
                 m.name,

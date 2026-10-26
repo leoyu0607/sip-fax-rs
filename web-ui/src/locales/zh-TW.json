@@ -199,6 +199,7 @@
       "fine": "精細",
       "superfine": "超精細"
     },
+    "media": "傳送方式",
     "bit_rate": "速率（bit/s）",
     "compression": "壓縮",
     "ecm": "錯誤修正（ECM）",

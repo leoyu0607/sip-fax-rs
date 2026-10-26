@@ -542,6 +542,8 @@ async fn p04_tiff_body(env: &Env) {
                 tiff_size: None,
                 pdf_path: None,
                 pdf_size: None,
+                modem: None,
+                media: None,
                 ..ff(T0 + 1000, FaxStatus::NoFax, 0)
             },
         )
