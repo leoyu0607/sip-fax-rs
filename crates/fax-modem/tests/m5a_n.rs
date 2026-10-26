@@ -649,29 +649,30 @@ fn n04_the_events_are_returned_15_ms_and_10_ms_after_the_truth() {
 }
 
 #[test]
-fn n04_the_threshold_is_minus_43_dbm0_and_the_end_minus_48() {
-    assert_eq!(ON_DBM0, -43.0);
+fn n04_the_threshold_is_minus_45_dbm0_and_the_end_minus_48() {
+    // T.30's -43 dBm0 with 2 dB of margin (ADR-069; it was -43 until the M5b review)
+    assert_eq!(ON_DBM0, -45.0);
     assert_eq!(OFF_DBM0, -48.0);
     let mut rng = Rng::new(SEEDS[1]);
-    // 1 dB below the threshold never starts, 1 dB above does (1650 Hz, 1 s)
-    for level in [-44.0, -45.0, -50.0, -60.0] {
+    // below the threshold never starts, -43 dBm0 and up do (1650 Hz, 1 s)
+    for level in [-46.0, -47.0, -50.0, -60.0] {
         let sig = burst(&mut rng, 800, 8000, 800, level, 1650.0, None);
         assert!(presence(&sig).is_empty(), "{level} dBm0 must not start");
     }
-    for level in [-42.0, -41.0] {
+    for level in [-44.0, -43.0, -42.0, -41.0] {
         let sig = burst(&mut rng, 800, 8000, 800, level, 1650.0, None);
         assert_eq!(presence(&sig).len(), 2, "{level} dBm0 must start");
     }
 }
 
 #[test]
-fn n04_hysteresis_a_signal_that_fades_between_43_and_48_stays_present() {
-    // 0.5 s at -38, then 1 s at -45 (between the two thresholds), then 0.5 s at -50 (below), then
-    // silence: one start, one end, at the transition to -50. (The first level is within 10 dB of
-    // -45: a deeper drop is an end of its own since M5e, ADR-066.)
+fn n04_hysteresis_a_signal_that_fades_between_45_and_48_stays_present() {
+    // 0.5 s at -38, then 1 s at -46.5 (between the two thresholds), then 0.5 s at -50 (below),
+    // then silence: one start, one end, at the transition to -50. (The first level is within
+    // 10 dB of -46.5: a deeper drop is an end of its own since M5e, ADR-066.)
     let mut sig = vec![0.0f64; 800];
     sig.extend(sine(1650.0, -38.0, 500, 0.0));
-    sig.extend(sine(1650.0, -45.0, 1000, 0.0));
+    sig.extend(sine(1650.0, -46.5, 1000, 0.0));
     let end_at = sig.len() as i64;
     sig.extend(sine(1650.0, -50.0, 500, 0.0));
     sig.extend(vec![0.0; 800]);
@@ -683,9 +684,9 @@ fn n04_hysteresis_a_signal_that_fades_between_43_and_48_stays_present() {
         (p as i64 - end_at).abs() <= 80,
         "end at {p}, the fade to -50 is at {end_at}"
     );
-    // a signal that never gets above -43 but stays between -43 and -48 never starts
+    // a signal that never gets above -45 but stays between -45 and -48 never starts
     let mut weak = vec![0.0f64; 800];
-    weak.extend(sine(1650.0, -45.0, 1000, 0.0));
+    weak.extend(sine(1650.0, -46.5, 1000, 0.0));
     assert!(presence(&to_i16(&weak)).is_empty());
 }
 

@@ -204,8 +204,8 @@ pub struct AudioEngine {
     result: Option<t30::T30Result>,
     log: VecDeque<String>,
     /// Signal events given to T.30 and the sample (on the clock) at which they were, for tests
-    /// and diagnostics.
-    signals: Vec<(u64, RxSignal)>,
+    /// and diagnostics; the last `max_log_lines`.
+    signals: VecDeque<(u64, RxSignal)>,
 }
 
 fn timer_index(t: Timer) -> usize {
@@ -258,7 +258,7 @@ impl AudioEngine {
             pages: Vec::new(),
             result: None,
             log: VecDeque::new(),
-            signals: Vec::new(),
+            signals: VecDeque::new(),
             cfg,
         }
     }
@@ -375,9 +375,9 @@ impl AudioEngine {
 
     /// Takes the signal events (CNG, V.21 preamble, end of signal) given to T.30 so far, each
     /// with the sample count of the engine's clock at which it was given (the end of the chunk
-    /// that showed it).
+    /// that showed it). Only the last `max_log_lines` are kept.
     pub fn drain_signals(&mut self) -> Vec<(u64, RxSignal)> {
-        std::mem::take(&mut self.signals)
+        self.signals.drain(..).collect()
     }
 
     /// Takes the diagnostic lines collected so far.
@@ -645,7 +645,10 @@ impl AudioEngine {
 
     fn feed(&mut self, event: Event) {
         if let Event::Signal(sig) = &event {
-            self.signals.push((self.now, *sig));
+            if self.signals.len() >= self.cfg.max_log_lines {
+                self.signals.pop_front();
+            }
+            self.signals.push_back((self.now, *sig));
         }
         let actions = self.t30.on_event(self.now / PER_MS, event);
         for a in actions {

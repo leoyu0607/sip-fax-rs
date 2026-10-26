@@ -8,8 +8,10 @@ use crate::level::{block_mean_square, dbm0, sine_amplitude};
 pub const CNG_HZ: f32 = 1100.0;
 /// T.30 answer tone: 2100 Hz, 2.6 to 4 s.
 pub const CED_HZ: f32 = 2100.0;
-/// The quietest signal that counts as present (T.30 / V.21 receive threshold).
-pub const ON_DBM0: f32 = -43.0;
+/// The quietest signal that counts as present. T.30 receivers must take signals down to
+/// −43 dBm0; the threshold is 2 dB under it so that a −43 dBm0 signal, whose blocks swing around
+/// its mean, turns on every time (M5b V04, ADR-069).
+pub const ON_DBM0: f32 = -45.0;
 /// Below this a present signal has ended (5 dB of hysteresis).
 pub const OFF_DBM0: f32 = -48.0;
 /// A present signal has also ended when it drops this far below its own level: on a line whose
@@ -205,7 +207,7 @@ pub enum Presence {
     Off(u64),
 }
 
-/// Tells when a signal starts (≥ −43 dBm0, and [`START_RISE_DB`] above the noise heard before,
+/// Tells when a signal starts (≥ −45 dBm0, and [`START_RISE_DB`] above the noise heard before,
 /// for 15 ms) and ends (< −48 dBm0, or [`END_DROP_DB`] below its own level, for 10 ms); the
 /// positions are those of the first block of the run, so within 5 ms of the truth.
 #[derive(Debug, Clone, Default)]

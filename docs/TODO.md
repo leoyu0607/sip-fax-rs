@@ -232,7 +232,7 @@
 - [x] [Any] M5b：`fax-modem::v21`（FSK 收送）、`fax-modem::hdlc`、`fax-in::audioengine` 的 phase B／D
   - 2026-10-23：`crates/fax-modem/src/{hdlc,v21}.rs`（HDLC 收送、FCS-16；V.21 相位連續 FSK 送、非同調收＋數位 PLL）、`crates/fax-in/src/audioengine.rs`（sans-IO，以樣本為時脈；CED、V.21 burst、TxComplete、半雙工、回應等對方訊號結束並在 75 ms 後才送；與 T.30 之間每個 octet 位元反轉）；`ReceivedPage::from_t30` 兩個引擎共用。單元測試：fax-modem 12 個（行涵蓋率 97.8%）、audioengine 2 個（答 CED＋CSI＋DIS；對方的 TSI＋DCS 經 V.21 送到 T.30）。高速收端（TCF、影像）在 M5c／M5d。
   - 留給 M5b 測試的 SpanDSP FFI（只在 `tools/`）：`fsk_tx`／`fsk_rx`、`hdlc_tx`，以及之後 M5c／M5d 用的 `v27ter_tx`／`v29_tx`
-- [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
+- [x] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
   - 2026-10-26 進度（Sonnet，審核退回後更新）：H01–H03、V01–V05 完成。V04：`V21Preamble` +19.7 ms、`NoSignal` +26.4 ms（SpanDSP 來源 +7.6／+11.1 ms）、回應時序 73.5 ms（ADR-069 之後），−43 dBm0 不回報前導（`ON_DBM0` 門檻，`#[ignore]`）。ADR-069 修好的 V03／V05 案例已取消 `#[ignore]`。`AudioEngine` 加 `drain_signals()` 觀測介面。待 Opus 審核，報告 `docs/test-reports/M5b.md`
 - [x] [Any] M5c：`fax-modem::v27ter` 收端（2026-10-24 完成；以下是開發過程的紀錄）
   - **交接狀態（2026-10-23，分支 `m5`）**：使用者要求開發停在這個階段、更新狀態讓其他 agent 接手。
@@ -270,7 +270,8 @@
     - [x] 文件：ARCHITECTURE、field-test、IT 手冊、CHANGELOG 中英、ADR-067
 - [x] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`（2026-10-26；待 Opus 審核）：J06 在 `crates/fax-in/tests/j06_rtp_pacing.rs`（虛擬時鐘，20 ms／+160／+1，落後時補送不丟），E 在 `tools/fax-sim/tests/e2e_m5e.rs`（E01–E03、E05–E08 通過；**E04 遺失 0.5 % 未達成**：seed 2 每次失敗，SpanDSP 對 SpanDSP 在同樣遺失下失敗率更高，計畫字面版留 `#[ignore]`）；M04 改成計畫的斷言；修了 1 個產品問題（`audio.log` 沒有 V.21 frame，需補 ADR-068，文字在報告 §3）；fax-sim 新增 `ReinviteBy::AudioThenT38`；fax-in 涵蓋率 93.78%；沒有跑 `scripts/ci-local.sh`
   - 2026-10-26 **Opus 審核通過**（報告 §9；ADR-068：`audio.log` 的 T.30 frame、E04 的門檻）
-- [ ] [Opus] 審核 M5a–M5e 測試報告（M5a、M5c、M5d、M5e 已通過；剩 M5b）
+- [x] [Opus] 審核 M5a–M5e 測試報告（全部通過）
+  - 2026-10-26 M5b 審核通過（報告 §9）；測試與審核找到的四個引擎缺陷由 Opus 修正（ADR-069：CED 後 75 ms 靜音、偵測器位置與引擎時鐘一致使回應真的等 75 ms、CED 前先聽線路雜訊、開啟門檻 −45 dBm0），M5d 的 M04 改為 10.5 dB
   - 2026-10-26 M5a 審核通過（報告 §9）；審核時修了 `ToneGenerator` 長度乘法溢位、`RtpPacket::encode` 的 extension 長度欄位截斷；同日補上 fuzz 目標 `rtp_decode`（sip-core）、`audio_rx`（新的 `crates/fax-in/fuzz`），已加入 nightly fuzz workflow
 - [ ] [Any] 發版（M5）
 

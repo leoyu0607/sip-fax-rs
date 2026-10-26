@@ -238,7 +238,6 @@ fn v04_the_answer_starts_75_ms_plus_or_minus_20_after_the_peer_signal_ends() {
 }
 
 #[test]
-#[ignore = "unmet: a V.21 signal at exactly -43 dBm0 is on the presence detector's turn-on threshold (ON_DBM0) and its preamble is not reported; see docs/test-reports/M5b.md"]
 fn v04_plan_minus_43_dbm0() {
     for snr in [None, Some(20.0)] {
         for seed in SEEDS {

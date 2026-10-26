@@ -4,7 +4,7 @@
 - 計畫：`docs/test-plans/M5.md` §1、§5（H01–H03、V01–V05）
 - 分支：`m5`
 - 範圍：H01–H03、V01–V05（V04 在 Opus 審核退回後補上）。
-- 狀態：待 Opus 審核
+- 狀態：Opus 審核通過（2026-10-26，見 §9）
 
 ## 1. 環境
 
@@ -56,7 +56,7 @@
 | V03 | `…::v03_spandsp_hears_the_tones_as_ones_and_zeros`、`v03_spandsp_receives_our_frames_through_noise_and_deviations` | 方向檢查（300 bit 的 1／0／1：SpanDSP 收到 300 個 1、155 個 0，沒有反相）；額外：同一個通道（SNR 20 dB，±100 ppm／±10 Hz）加在我方送端與 SpanDSP 自己的送端後面，SpanDSP 收端：兩者都 210／210 | 通過（Docker） |
 | V04 | `crates/fax-in/tests/m5b_v04.rs::v04_preamble_and_end_of_signal_times_are_within_30_ms`、`v04_a_short_preamble_still_reports_it_and_the_end` | 在 `AudioEngine` 層量（新增小的觀測介面 `AudioEngine::drain_signals()`：給 T.30 的 `Event::Signal`（CNG、`V21Preamble`、`NoSignal`）與當時的引擎時鐘，見 §3）。我方 `V21Tx` 的 burst（38 個前導 flag＋TSI＋DCS）在我方第一個 DIS 之後（約 6 s）進來，電平 −10／−30／−42 dBm0 × 無雜訊／SNR 20 dB × 3 seed（seed 也移動 20 ms 步長的相位）。參考：前導 ＝ 起點＋3 個 flag（80 ms），結束 ＝ 訊號最後一個樣本。**`V21Preamble` 相對 3 個 flag：+19.6 ～ +19.9 ms；`NoSignal` 相對訊號結束：+26.2 ～ +26.5 ms**（全部 < 30 ms，與電平、雜訊、seed 幾乎無關）；4 個 flag 的短前導同樣通過。事件時間是處理該封包結束的時刻（20 ms 一步），量化的 ≤ 20 ms 在數字裡 | 通過 |
 | V04 | `tools/fax-sim/tests/v04_spandsp.rs::v04_spandsp_burst_preamble_and_end_times_within_30_ms` | SpanDSP `hdlc_tx`＋`fsk_tx` 當來源（−10／−30／−42 dBm0 × 無雜訊／SNR 20 dB × 3 seed）：前導 **+7.5 ～ +7.8 ms**、結束 **+11.0 ～ +11.2 ms**（SpanDSP 的訊號起點有漸入，所以和我方來源差一些）；全部 < 30 ms | 通過（Docker） |
-| V04 | `…::v04_plan_minus_43_dbm0`（`#[ignore]`） | 計畫的 −43 dBm0：**引擎不回報 `V21Preamble`**（`NoSignal` 有）。−42.5、−42 dBm0 都正常。−43 dBm0 就是 `ON_DBM0`（偵測器的開啟門檻 −43 dBm0），訊號功率剛好在門檻上，區塊的功率在門檻上下跳，偵測器的「連續 3 個區塊」開啟條件不穩定，開啟後重設 HDLC，從沒有累積到 3 個 flag。見 §4 ① | **未達成**（`#[ignore]`） |
+| V04 | `…::v04_plan_minus_43_dbm0` | 計畫的 −43 dBm0：Sonnet 測試時引擎不回報 `V21Preamble`（開啟門檻 `ON_DBM0` 就是 −43 dBm0，見 §4 ①）。Opus 審核時把門檻降到 −45 dBm0（ADR-069），取消 `#[ignore]` 後通過 | 通過（審核修正後） |
 | V04（ADR-069 的回應時序） | `…::v04_the_answer_starts_75_ms_plus_or_minus_20_after_the_peer_signal_ends` | 對方 TSI＋DCS（V.27ter 4800）後 TCF（全 0，1.5 s），回音雜訊 −50 dBm0，3 seed：TCF 最後一個樣本到我方 CFR 第一個樣本 **73.6／73.5／73.4 ms**（T.30 5.3.2：75 ± 20 ms，即 55–95 ms）；DCS 之後我方沒有任何傳送（等 TCF）。這一項在 ADR-069 之前是壞的（回應在偵測到結束後立刻送出，偵測器位置與引擎時鐘不一致）；把測試放在這裡鎖住 | 通過 |
 | V05 | `m5b_v05.rs::v05_our_own_echo_is_never_a_frame` | 引擎在輸入端收到自己輸出的回音（−10 dB，延遲 0／10／20／40／60 ms，加 −50 dBm0 雜訊，3 seed，seed 也改變第一個步長的相位），整段包含 CED、DIS 與 T4 重送的 DIS：**日誌沒有任何 `V.21 rx` 或 `CNG heard`**，通話沒有結束，T.30 停在 `WaitCommand`（15 個組合） | 通過 |
 | V05 | `…::v05_listening_resumes_75_ms_after_our_signal_ends`、`v05_a_peer_that_starts_at_once_is_heard_too_with_a_normal_preamble` | 對方在**我方重送的 DIS**（第二次傳送）結束後剛好 75 ms 開始送 TSI＋DCS（前導只有 4 個 flag，沒有餘裕），回音延遲 0–60 ms：**15 個組合全部收到 TSI 與 DCS**。1 s 前導的對方在 0／30／60 ms 開始：也收到。另掃 0–140 ms（每 5 ms）：第二次傳送之後的每一個間隔都收到 | 通過 |
@@ -76,7 +76,7 @@
 
 ## 4. 與計畫不同之處、未達成的項目
 
-① **V04 在 −43 dBm0 不回報 `V21Preamble`（未修）**：計畫的電平範圍含 −43 dBm0，而引擎的偵測器開啟門檻 `ON_DBM0` 就是 −43 dBm0，剛好在門檻上的訊號功率因區塊的起伏時高時低，「連續 3 個區塊 ≥ −43」不穩定，偵測器開啟後又重設 HDLC，累積不到 3 個 flag；`NoSignal` 照樣回報。−42.5 dBm0 起正常（+19.7 ms）。V21Rx 本身在 −43 dBm0 沒問題（V01：210／210）。以 `#[ignore]` 的 `v04_plan_minus_43_dbm0` 保留計畫字面。這是門檻設計（−43 dBm0 是開啟門檻，不是「必須能收的最低電平」）；若要讓 −43 dBm0 也可用，可把開啟門檻降到 −45 dBm0（關閉門檻 −48 dBm0 之上），需連同 M5a 的 N 系列雜訊案例一起審視。
+① **V04 在 −43 dBm0 不回報 `V21Preamble`（Opus 審核時修正）**：引擎的偵測器開啟門檻 `ON_DBM0` 原本就是 −43 dBm0，剛好在門檻上的訊號因區塊的起伏時高時低，「連續 3 個區塊 ≥ −43」不穩定，開啟後又重設 HDLC，累積不到 3 個 flag；−42.5 dBm0 起正常。T.30 要求收端能收 −43 dBm0 的訊號，所以門檻改為 −45 dBm0（關閉門檻 −48 之上，ADR-069），`v04_plan_minus_43_dbm0` 取消 `#[ignore]`，M5a 的 N04 門檻與遲滯案例同步調整。
 
 ② **V04 的量測定義**：計畫「事件時間與實際差 < 30 ms」沒說明何謂「實際」。我的解讀：`V21Preamble` 的實際時間 ＝ 訊號起點＋3 個 flag（80 ms，`HdlcRx` 在第三個 flag 之後回報前導，所以這是最早可能的時間）；`NoSignal` 的實際時間 ＝ 訊號最後一個樣本；事件時間 ＝ 引擎處理完含該事件的 20 ms 封包的時鐘（和 T.30 實際收到事件的時間相同）。結果 +19.6～+19.9 ms 與 +26.2～+26.5 ms（SpanDSP 來源 +7.5 與 +11.0 ms）。偵測器本身要 15 ms 的連續區塊才開啟，結束要 10 ms，所以這些數字接近下限加封包量化。
 
@@ -114,3 +114,16 @@
 - 新增（V04）：`crates/fax-in/tests/m5b_v04.rs`、`tools/fax-sim/tests/v04_spandsp.rs`；`crates/fax-in/src/audioengine.rs` 加 `drain_signals()` 觀測介面。
 - 新增：`crates/fax-modem/tests/m5b_h.rs`、`m5b_h03_memory.rs`、`m5b_v.rs`；`crates/fax-modem/fuzz/`（`Cargo.toml`、`.gitignore`、`fuzz_targets/hdlc_deframe.rs`）；`crates/fax-in/tests/m5b_v05.rs`；`tools/fax-sim/tests/h_hdlc_spandsp.rs`、`v_v21_spandsp.rs`、`m5b_common/mod.rs`。
 - 修改：`tools/spandsp-sys/src/lib.rs`（FFI）；`Cargo.toml`（`exclude` 加 `crates/fax-modem/fuzz`）；`.github/workflows/fuzz.yml`（矩陣加 `hdlc_deframe`）；`docs/TODO.md`。
+
+## 9. Opus 審核（2026-10-26）
+
+**結論：通過。** 第一次交付漏做 V04（被誤列為不在範圍），退回後補齊。
+
+- **斷言品質**：抽查 H01（65 536 個 2 octet frame 與 SpanDSP 逐 bit 相同）、H02（400 次翻 bit 與 SpanDSP `hdlc_rx` 的好 frame 集合一致）、H03 記憶體上限（計數 allocator，並斷言計數器有在計）、V01–V03、V05 的對照案例（晚 1.5 s 的回音確實會被當成 DIS，證明測試能失敗）、V04 的時間量測。沒有空斷言；V02 還主動指出計畫條件對時脈迴圈不敏感，補了 ±2000 ppm 並以變異體證明。
+- **過度 mock**：沒有。HDLC／V.21 兩個方向都有 SpanDSP 對照，純 Rust 端另有獨立寫的第二來源。
+- **產品問題**：測試找到三個真實缺陷（CED 後沒有靜音、第一個 DIS 之後的 DCS 漏掉、−43 dBm0 不穩），審核時又找到一個（對方訊號結束到我方回應的 75 ms 沒有作用）。四個都由 Opus 修正，記在 ADR-069，對應的 `#[ignore]` 案例全部取消並通過；V04 的回應時序測試（73.4–73.6 ms）把最後一項鎖住。修正讓整通時間軸移動，M5d 的 M04 從 11 dB 改為 10.5 dB（第一個 TCF 原本就卡在 95 % 門檻邊）。
+- **`drain_signals()`**：Sonnet 為 V04 加的觀測介面原本是無上限的 `Vec`，正式的 G.711 session 從不取出，每通會一直累積；審核時改為與 `drain_log` 相同、只保留最後 `max_log_lines` 筆。
+- **§4 其他解讀**（V03 前導量法、V01 SNR 以全頻帶計、V04 「實際時間」取第 3 個 flag 與訊號最後一個樣本）：合理，接受。
+- **涵蓋率**：fax-modem 93.83 %（≥ 85 %）；CI 的 coverage job 持續把關。
+- **驗證**：審核修正後，Docker 的整個 `tools/` 測試（含 M01、M5d、V、V04、`e2e_m5e`）與主 workspace 的 fax-modem、fax-in 測試全部通過。
+
