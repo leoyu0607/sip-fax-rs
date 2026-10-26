@@ -466,7 +466,6 @@ fn ced_to_dis_gap_samples(audio: &[i16]) -> (usize, usize) {
 }
 
 #[test]
-#[ignore = "unmet: the engine's DIS follows the CED without the 75 ms of silence of T.30 5.3.2 (audioengine.rs queue_ced); see docs/test-reports/M5b.md section 4"]
 fn v03_extra_ced_is_followed_by_75_ms_of_silence() {
     let audio = engine_audio();
     let (gap, ced) = ced_to_dis_gap_samples(&audio);
@@ -477,16 +476,4 @@ fn v03_extra_ced_is_followed_by_75_ms_of_silence() {
         "{} ms of silence between CED and the first V.21 signal (T.30 5.3.2: 75 ms +- 20 ms)",
         gap / 8
     );
-}
-
-#[test]
-fn v03_extra_the_gap_between_ced_and_dis_is_recorded() {
-    let (gap, ced) = ced_to_dis_gap_samples(&engine_audio());
-    assert!(ced >= 2_900 * 8, "CED of {} ms", ced / 8);
-    eprintln!(
-        "V03 recorded: {} ms of silence between CED and the first DIS",
-        gap / 8
-    );
-    // as it is today: none (T.30 asks for 75 ms +- 20 ms; the ignored test above states it)
-    assert!(gap < 8 * 20, "{} ms", gap / 8);
 }

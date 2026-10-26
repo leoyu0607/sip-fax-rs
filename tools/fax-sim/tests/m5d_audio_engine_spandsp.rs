@@ -400,12 +400,14 @@ fn constant_snr(snr: f64, seed: u64) -> impl FnMut(&AudioEngine, u64, &mut [i16]
 /// three seeds: FTT, then 7200 (one seed, pages 13 and 26 bad lines) or 4800/2400 (two seeds,
 /// where the 7200 TCF is refused too); 12-14 dB pass the TCF but the page is rejected (the next
 /// test); 10 dB goes down to 2400 after four TCFs; 8 dB cannot be received at all (the last
-/// test). A fall-back needs the TCF to fail for the answer to be FTT, so 11 dB is the condition.
+/// test). A fall-back needs the TCF to fail for the answer to be FTT. Since the M5b review (75 ms
+/// of silence after CED, the turnaround counted on the engine's clock) the timing moved and 11 dB
+/// gave 95.6 % in seed 0 (CFR), so the condition is 10.5 dB: 92.9-94.4 % in the three seeds.
 #[test]
-fn m04_constant_snr_11_db_fails_the_9600_tcf_with_ftt_and_the_call_succeeds_lower() {
+fn m04_constant_snr_10_5_db_fails_the_9600_tcf_with_ftt_and_the_call_succeeds_lower() {
     for seed in 0..3u64 {
         let specs = vec![PageSpec::fine(300), PageSpec::fine(300)];
-        let mut up = constant_snr(11.0, 0x5D04_2000 + 11 * 16 + seed);
+        let mut up = constant_snr(10.5, 0x5D04_2000 + 11 * 16 + seed);
         let o = call_with(
             &Opts::new(specs.clone()).modems(sys::T30_SUPPORT_V29),
             &mut up,
@@ -414,7 +416,7 @@ fn m04_constant_snr_11_db_fails_the_9600_tcf_with_ftt_and_the_call_succeeds_lowe
         let tcfs: Vec<&String> = o.log.iter().filter(|l| l.starts_with("TCF:")).collect();
         let r = o.result.as_ref().unwrap();
         eprintln!(
-            "M04 constant 11 dB seed {seed}: {} TCF(s) {tcfs:?}; final {:?} {} bit/s, pages {}, bad lines {:?}; {} ms",
+            "M04 constant 10.5 dB seed {seed}: {} TCF(s) {tcfs:?}; final {:?} {} bit/s, pages {}, bad lines {:?}; {} ms",
             tcfs.len(),
             r.modem,
             r.bit_rate,
@@ -425,8 +427,7 @@ fn m04_constant_snr_11_db_fails_the_9600_tcf_with_ftt_and_the_call_succeeds_lowe
         // the 9600 TCF failed (FTT) ...
         assert!(tcfs.len() >= 2, "log {:#?}", o.log);
         assert!(
-            tcfs[0].contains("of 14696 bits zero")
-                && o.log.iter().any(|l| l.starts_with("V.21 tx FTT")),
+            tcfs[0].contains("(need 1440)") && o.log.iter().any(|l| l.starts_with("V.21 tx FTT")),
             "the first TCF is the 9600 one and is answered FTT; log {:#?}",
             o.log
         );

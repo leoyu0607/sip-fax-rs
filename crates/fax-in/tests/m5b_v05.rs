@@ -300,30 +300,27 @@ fn v05_after_the_first_transmission_a_peer_from_120_ms_on_is_heard() {
 }
 
 #[test]
-fn v05_after_the_first_transmission_a_peer_within_85_ms_is_missed_recorded() {
-    // The first signal the engine ever listens to has already begun when it starts to listen:
-    // `PresenceDetector` takes the first block it hears as the line's noise, so a signal
-    // "already on" is missed until it ends (documented in tone.rs). A peer that answers the
-    // first DIS within about 85 ms of its end (T.30 allows 75 ms +- 20 ms: 55 to 95 ms) loses its whole
-    // DCS; the DIS repeat on T4 is then answered normally (test above). Recorded as it is; the
-    // plan's literal case is the ignored test below.
+fn v05_after_the_first_transmission_a_peer_from_55_ms_on_is_heard() {
+    // The engine listens only once its CED and first DIS are out; the peer's DCS may already be
+    // on by then. Every gap T.30 allows (75 ms +- 20 ms) and beyond, every seed. (Before the M5b
+    // review the detector took the first block it heard as the line's noise and missed these.)
     let mut missed = Vec::new();
-    for gap_ms in (0..=100).step_by(5) {
-        let mut c = Call::new(SEEDS[0]);
-        c.delay = 40 * 8;
-        c.gap = gap_ms * 8;
-        c.burst = peer_burst(4);
-        if !c.run().heard_dcs() {
-            missed.push(gap_ms);
+    for seed in SEEDS {
+        for gap_ms in (0..=140).step_by(5) {
+            let mut c = Call::new(seed);
+            c.delay = 40 * 8;
+            c.gap = gap_ms * 8;
+            c.burst = peer_burst(4);
+            if !c.run().heard_dcs() {
+                missed.push((seed, gap_ms));
+            }
         }
     }
-    eprintln!("V05 first DIS, peer gaps (ms, step 5) whose DCS was not heard: {missed:?}");
-    assert!(missed.contains(&75), "{missed:?}");
-    assert!(!missed.contains(&100), "{missed:?}");
+    eprintln!("V05 first DIS, (seed, peer gap ms) whose DCS was not heard: {missed:?}");
+    assert!(missed.iter().all(|&(_, g)| g < 55), "{missed:?}");
 }
 
 #[test]
-#[ignore = "unmet: a peer 75 ms after our FIRST transmission is missed (the presence detector's first block is taken as noise); see docs/test-reports/M5b.md"]
 fn v05_plan_a_peer_75_ms_after_the_first_transmission_is_heard() {
     for seed in SEEDS {
         for delay_ms in [0usize, 20, 60] {

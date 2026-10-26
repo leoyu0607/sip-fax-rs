@@ -189,6 +189,8 @@ pub struct AudioEngine {
     peer_on: bool,
     /// Sample at which the peer's last signal ended.
     peer_off_at: u64,
+    /// Whether anything but silence was sent yet (before it the line's noise is learnt).
+    sent_signal: bool,
     /// Input is ignored before this sample (we are transmitting, or its echo).
     deaf_until: u64,
     // transmit
@@ -244,6 +246,7 @@ impl AudioEngine {
             lost_run: 0,
             peer_on: false,
             peer_off_at: 0,
+            sent_signal: false,
             deaf_until: 0,
             tx: V21Tx::new(cfg.tx_level_dbm0),
             queue: VecDeque::new(),
@@ -299,7 +302,9 @@ impl AudioEngine {
         }
         let transmitting =
             !self.queue.is_empty() || self.burst_ends.front().is_some_and(|e| *e > start);
-        if transmitting || tx.iter().any(|&s| s != 0) {
+        let sending = tx.iter().any(|&s| s != 0);
+        self.sent_signal |= sending;
+        if transmitting || sending {
             let guard = u64::from(self.cfg.echo_guard_ms) * PER_MS;
             self.deaf_until = self
                 .deaf_until
@@ -314,14 +319,23 @@ impl AudioEngine {
             self.burst_ends.pop_front();
             self.feed(Event::TxComplete);
         }
-        if let Some(rx) = rx {
-            if self.now > self.deaf_until && start < self.deaf_until {
+        // The presence detector's positions are on our clock (the turnaround counts from the
+        // end of the peer's signal): what is not heard is skipped. Before our first signal (the
+        // silence before CED) it hears the line, so that it knows the noise when the peer's
+        // first DCS may already be on as we start to listen.
+        let deaf = (self.deaf_until.saturating_sub(start) as usize).min(n);
+        match rx {
+            Some(rx) => {
+                let (unheard, heard) = rx.split_at(deaf.min(rx.len()));
+                if self.sent_signal {
+                    self.presence.skip(unheard.len());
+                } else {
+                    let _ = self.presence.feed(unheard);
+                }
                 // our echo is over: the receivers start fresh on what follows
-                let skip = (self.deaf_until - start) as usize;
-                self.listen(&rx[skip.min(rx.len())..]);
-            } else if start >= self.deaf_until {
-                self.listen(rx);
+                self.listen(heard);
             }
+            None => self.presence.skip(n),
         }
         self.run_timers();
         self.release_held_if_due();
@@ -543,7 +557,7 @@ impl AudioEngine {
             fax_modem::tone::CED_HZ,
             self.cfg.tx_level_dbm0,
             self.cfg.ced_ms,
-            0,
+            self.cfg.turnaround_ms,
         );
         let mut buf = vec![0i16; g.remaining() as usize];
         let n = g.fill(&mut buf);
@@ -909,7 +923,7 @@ mod tests {
     ) -> (Vec<Vec<u8>>, Vec<String>) {
         let mut e = AudioEngine::new(AudioConfig::default());
         e.start();
-        let _ = run(&mut e, &[], 6_000);
+        let _ = run(&mut e, &[], 5_000);
         let tsi = vec![0xFF, 0xC0, t30::fcf::TSI, b' ', b' ', b'1'];
         let mut dcs = vec![0xFF, 0xC8, t30::fcf::DCS];
         dcs.extend_from_slice(fif);

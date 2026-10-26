@@ -234,6 +234,14 @@ impl PresenceDetector {
         self.on
     }
 
+    /// `n` samples that were not heard (we were talking, or they were lost): positions stay on
+    /// the caller's clock; a partial block and a run in progress start over.
+    pub fn skip(&mut self, n: usize) {
+        self.pos += (self.block.len() + n) as u64;
+        self.block.clear();
+        self.run = 0;
+    }
+
     /// Feeds samples; returns the changes within them.
     pub fn feed(&mut self, samples: &[i16]) -> Vec<Presence> {
         let mut out = Vec::new();
@@ -395,5 +403,21 @@ mod tests {
     fn steady_noise_above_the_on_threshold_is_not_a_signal() {
         let mut d = PresenceDetector::new();
         assert!(d.feed(&noise(-30.0, 16_000, 5)).is_empty());
+    }
+
+    #[test]
+    fn skipped_samples_count_in_the_positions_and_the_noise_is_remembered() {
+        let mut d = PresenceDetector::new();
+        assert!(d.feed(&noise(-30.0, 803, 6)).is_empty());
+        d.skip(30_000);
+        // a signal right where listening resumes, 10 dB above the noise heard before
+        let mut s = sine(1650.0, -15.0, 500);
+        s.extend(noise(-30.0, 4000, 7));
+        let ev = d.feed(&s);
+        assert_eq!(ev[0], Presence::On(30_803));
+        assert!(
+            matches!(ev[1], Presence::Off(p) if p.abs_diff(30_803 + 4000) <= 40),
+            "{ev:?}"
+        );
     }
 }
