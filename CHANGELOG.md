@@ -5,6 +5,9 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Security
+- `sip-faxd db check`: a database error that carries the password alone (as written in the URL or decoded) shows `***` instead, not only when it carries the whole URL.
+- CI: the workflows run with a read-only token (only the release job may write); CodeQL moves to its own workflow and leaves test code out.
 
 ## [0.5.0-alpha] - 2026-10-27
 Milestone M5: faxes over G.711 when T.38 is not available.
@@ -116,6 +119,9 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 安全性
+- `sip-faxd db check`：資料庫錯誤訊息中單獨出現的密碼（URL 中的寫法或解碼後）也顯示成 `***`，不再只遮掉整段 URL。
+- CI：workflow 以唯讀權限執行（只有 release job 可以寫入）；CodeQL 改用自己的 workflow，不掃描測試程式碼。
 
 ### [0.5.0-alpha] - 2026-10-27
 里程碑 M5：建立不了 T.38 時改從 G.711 音訊接收傳真。
