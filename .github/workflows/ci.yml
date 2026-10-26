@@ -220,6 +220,16 @@ jobs:
           grep -q "test result: ok. 4 passed" m4f.log
           ! grep -q skipped m4f.log
 
+      # M6a: API keys at the level of the account service (K01, K04, K07-K09, K12) on this server; the store
+      # suite above already ran C01-C03, C05, D04, K12, K11, V01-V03 (view, change feed, the SQL and the
+      # read-only account of docs/integration.md) on it
+      - name: API keys on ${{ matrix.db }} (M6a K12)
+        env:
+          SIP_FAXD_TEST_DB: ${{ matrix.url }}
+        run: |
+          cargo test -p accounts --test m6a_keys -- --nocapture --test-threads=1 | tee m6a.log
+          grep -q "test result: ok. 5 passed" m6a.log
+
   # M4c: the web interface (spec docs/design/m4-web.md 6): lint, svelte-check, vitest with the
   # coverage gate, production build
   web-ui:
@@ -245,6 +255,8 @@ jobs:
 
   # M4c: Playwright (Chromium) against a real sip-faxd in the Rocky 9 test image, faxes sent by
   # SpanDSP (docs/test-plans/M4.md 6.2, 6.3: U08, U10-U19). scripts/e2e-web.sh builds everything.
+  # M6a (docs/test-plans/M6a.md): the API keys page (U01-U04) and the Node.js and Java examples run against
+  # the real sip-faxd over HTTPS (D02, D03), in web-ui/e2e/apikeys.spec.ts and examples.spec.ts.
   e2e-web:
     runs-on: ubuntu-latest
     steps:
@@ -258,6 +270,11 @@ jobs:
         working-directory: web-ui
       - run: npx playwright install --with-deps chromium
         working-directory: web-ui
+      # M6a D03: the Java example runs for real (examples/java, JDK 17 and its keytool)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - uses: actions/cache@v4
         with:
           path: target/docker

@@ -1608,3 +1608,63 @@ async fn c13_body(env: &Env) {
         assert_eq!(a.identity, b2.identity);
     }
 }
+
+// ---------------------------------------------------------------- M6a K11 (store level)
+copy_case!(
+    k11_a_copied_api_key_is_found_by_its_hash_in_the_target,
+    k11_body
+);
+async fn k11_body(src: &Env, dst: &Env) {
+    let make = |name: &str, n: u8, scopes: &str| NewApiKey {
+        name: name.into(),
+        token_hash: hex64(n),
+        prefix: format!("sfx_k11{n:05}"),
+        scopes: scopes.into(),
+        created_by: "root".into(),
+        expires_at: Some(t(T0 + 86_400_000 + 7)),
+    };
+    let a = src
+        .store
+        .api_key_create(&make("keep", 40, "fax:read,fax:write"))
+        .await
+        .unwrap();
+    let b = src
+        .store
+        .api_key_create(&make("gone", 41, "fax:read"))
+        .await
+        .unwrap();
+    src.store
+        .api_key_touch(a.id, t(T0 + 123), Some("192.0.2.1"))
+        .await
+        .unwrap();
+    src.store
+        .api_key_revoke(b.id, "root", t(T0 + 456))
+        .await
+        .unwrap();
+    let want = src.store.api_key_list().await.unwrap();
+    run_copy(src, dst).await.unwrap();
+    // the target finds each key by the hash, with every field as in the source
+    for k in &want {
+        let got = dst
+            .store
+            .api_key_get_by_hash(&k.token_hash)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("{} in the target", k.name));
+        assert_eq!(&got, k, "[{} -> {}]", src.label, dst.label);
+    }
+    assert_eq!(dst.store.api_key_list().await.unwrap(), want);
+    // names are still taken, ids go on above the copied ones
+    assert!(matches!(
+        dst.store
+            .api_key_create(&make("gone", 42, "fax:read"))
+            .await,
+        Err(crate::Error::Duplicate(_))
+    ));
+    let c = dst
+        .store
+        .api_key_create(&make("next", 43, "fax:read"))
+        .await
+        .unwrap();
+    assert!(c.id > a.id.max(b.id));
+}

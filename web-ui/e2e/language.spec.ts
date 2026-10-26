@@ -89,6 +89,7 @@ test('U17 switching zh-TW <-> en changes every visible text on every page', asyn
     [`#/faxes/${fax.id}`, 'fax'],
     ['#/status', 'status'],
     ['#/users', 'users'],
+    ['#/api-keys', 'api keys'],
     ['#/audit', 'audit'],
     ['#/account', 'account'],
     ...['sip', 'media', 'call', 'capture', 'trunks', 'trunk:gw', 'routes', 'delivery', 'retention'].map((s): [string, string] => [`#/settings/${encodeURIComponent(s)}`, `settings ${s}`]),

@@ -68,6 +68,13 @@ for be in "${BACKENDS[@]}"; do
   else
     echo "FAILED: $be m4f"; FAIL=1
   fi
+  # M6a K12: API keys at the account service on this server (the store suite above ran the rest of M6a)
+  echo "=== M6a (API keys, account service) on $be ==="
+  if SIP_FAXD_TEST_DB="$url" cargo test -p accounts --test m6a_keys -- --nocapture --test-threads=1 2>&1 | tee "target/db-matrix-$be-m6a.log" | tail -n 8; then
+    grep -q "test result: ok. 5 passed" "target/db-matrix-$be-m6a.log" && echo "PASSED: $be m6a" || { echo "FAILED: $be m6a"; FAIL=1; }
+  else
+    echo "FAILED: $be m6a"; FAIL=1
+  fi
 done
 if [ -z "${KEEP:-}" ]; then for n in "${STARTED[@]}"; do docker rm -f "$n" >/dev/null 2>&1; done; fi
 exit $FAIL
