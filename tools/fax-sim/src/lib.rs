@@ -4,10 +4,13 @@
 //! * [`spandsp`]: safe RAII wrappers over `spandsp-sys`.
 //! * [`sip_uac`]: a simulated gateway placing a call into `sip-faxd` through sip-core (M1d).
 //! * [`gateway`]: SpanDSP `t38_terminal` on a real UDP socket and clock (M2d); `sip_uac` uses it.
+//! * [`audio_gateway`]: SpanDSP's audio fax modem over RTP (G.711) on a real UDP socket and
+//!   clock (M5e); `sip_uac` uses it for [`sip_uac::ReinviteBy::Audio`].
 //! * [`engine_loopback`]: SpanDSP `t38_terminal` (caller) against our sans-IO engine (M2c).
 //! * [`t38_loopback`] / [`audio_loopback`]: deterministic in-process fax sessions
 //!   driven by a simulated clock (no sleeping).
 
+pub mod audio_gateway;
 pub mod audio_loopback;
 pub mod engine_loopback;
 pub mod gateway;

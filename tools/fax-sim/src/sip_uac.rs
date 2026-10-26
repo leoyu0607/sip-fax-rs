@@ -5,17 +5,22 @@
 //! Without [`UacConfig::fax`] the call only verifies the signalling (hold, BYE). With it, once
 //! T.38 is established the UAC behaves as a real gateway: SpanDSP's `t38_terminal` sends a TIFF
 //! over a real UDP socket ([`crate::gateway`]) and the call ends with the server's BYE (or ours).
+//!
+//! [`ReinviteBy::Audio`] (M5e) never switches to T.38: the server's T.38 re-INVITE, if any, is
+//! answered 488, and the fax goes over G.711 ([`crate::audio_gateway`]).
 
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::audio_gateway::{AudioNet, run_audio_fax};
 use crate::gateway::{FaxRun, FaxTx, run_fax};
 use t38::ErrorRecovery;
 
 use sip_core::endpoint::{DialogEvent, Endpoint, EndpointConfig, InviteOptions, ReinviteOutcome};
-use sip_core::message::SipUri;
+use sip_core::message::{SipUri, StatusCode};
+use sip_core::rtp::Law;
 use sip_core::sdp::negotiate::{AnswerPolicy, MediaPreference, OriginTracker, answer_offer};
 use sip_core::sdp::{
     Attribute, Connection, MediaDescription, SessionDescription, Timing, parse_sdp,
@@ -31,6 +36,9 @@ pub enum ReinviteBy {
     Server,
     /// No re-INVITE: the initial INVITE already offers T.38 (`m=image` only).
     InitialInvite,
+    /// No T.38 at all: the call stays on G.711 (the server's T.38 re-INVITE is answered 488)
+    /// and the fax goes over the audio.
+    Audio,
 }
 
 /// Parameters of one simulated call.
@@ -65,6 +73,9 @@ pub struct UacConfig {
     pub from_user: String,
     /// User part of the To and Request-URI (the called number; default `fax`).
     pub to_user: String,
+    /// [`ReinviteBy::Audio`]: the codec we offer and send (only that one, plus
+    /// telephone-event) and the network between us and the server.
+    pub audio: AudioNet,
 }
 
 impl UacConfig {
@@ -85,6 +96,7 @@ impl UacConfig {
             hangup: None,
             from_user: "gw".into(),
             to_user: "fax".into(),
+            audio: AudioNet::default(),
         }
     }
 }
@@ -112,8 +124,11 @@ pub struct UacReport {
     pub bye_status: u16,
     /// The server sent BYE (we answered it).
     pub peer_bye: bool,
-    /// The UDP port of our media socket (the port in our T.38 offer / answer).
+    /// The UDP port of our media socket (the port in our T.38 offer / answer, or our audio
+    /// offer for [`ReinviteBy::Audio`]).
     pub media_port: u16,
+    /// [`ReinviteBy::Audio`]: T.38 re-INVITEs of the server we answered 488.
+    pub t38_refused: u32,
     /// The fax transfer, when [`UacConfig::fax`] was set.
     pub fax: Option<FaxRun>,
 }
@@ -127,6 +142,28 @@ pub fn audio_offer(address: &str, port: u16) -> SessionDescription {
          a=ptime:20\r\na=sendrecv\r\n"
     );
     parse_sdp(text.as_bytes()).expect("static SDP parses")
+}
+
+/// The G.711 offer of [`ReinviteBy::Audio`]: one codec and telephone-event.
+pub fn audio_offer_with(address: &str, port: u16, law: Law) -> SessionDescription {
+    let (pt, name) = (law.payload_type(), law.encoding_name());
+    let text = format!(
+        "v=0\r\no=fax-sim 1523094871 1523094871 IN IP4 {address}\r\ns=SIP Media Capabilities\r\n\
+         c=IN IP4 {address}\r\nt=0 0\r\nm=audio {port} RTP/AVP {pt} 101\r\na=rtpmap:{pt} {name}/8000\r\n\
+         a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-15\r\na=ptime:20\r\na=sendrecv\r\n"
+    );
+    parse_sdp(text.as_bytes()).expect("static SDP parses")
+}
+
+/// The RTP address (`c=` and `m=audio` port) in an SDP.
+pub fn audio_remote(sdp: &SessionDescription) -> Option<SocketAddr> {
+    let m = sdp
+        .media
+        .iter()
+        .find(|m| m.media.eq_ignore_ascii_case("audio") && m.port != 0)?;
+    let c = sdp.effective_connection(m)?;
+    let ip: std::net::IpAddr = c.address.trim().parse().ok()?;
+    Some(SocketAddr::new(ip, m.port))
 }
 
 /// A gateway-style T.38 re-INVITE offer.
@@ -227,6 +264,7 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
     };
     let first_offer = match cfg.reinvite_by {
         ReinviteBy::InitialInvite => t38_offer(media_port),
+        ReinviteBy::Audio => audio_offer_with(&ip, media_port, cfg.audio.law),
         _ => audio_offer(&ip, 16384),
     };
     let mut opts = InviteOptions::new(
@@ -247,10 +285,14 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
         bye_status: 0,
         peer_bye: false,
         media_port,
+        t38_refused: 0,
         fax: None,
     };
     let remote: Option<SocketAddr>;
     match cfg.reinvite_by {
+        ReinviteBy::Audio => {
+            remote = report.initial_answer.as_ref().and_then(audio_remote);
+        }
         ReinviteBy::InitialInvite => {
             let a = report
                 .initial_answer
@@ -326,13 +368,17 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
     };
 
     // The gateway proper: SpanDSP sends the fax over the media socket.
-    let remote = remote.ok_or("the server's T.38 SDP has no usable address")?;
+    let remote = remote.ok_or("the server's SDP has no usable media address")?;
     let stop = cfg
         .hangup
         .clone()
         .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
     let stop2 = stop.clone();
-    let mut job = tokio::task::spawn_blocking(move || run_fax(&media, remote, &fax, &stop2));
+    let audio = (cfg.reinvite_by == ReinviteBy::Audio).then_some(cfg.audio);
+    let mut job = tokio::task::spawn_blocking(move || match audio {
+        Some(net) => run_audio_fax(&media, remote, &fax, net, &stop2),
+        None => run_fax(&media, remote, &fax, &stop2),
+    });
     let run = loop {
         tokio::select! {
             r = &mut job => break r.map_err(|e| format!("fax thread: {e}"))??,
@@ -341,7 +387,14 @@ async fn call(ep: &Endpoint, cfg: &UacConfig) -> Result<UacReport, String> {
                     report.peer_bye = true;
                     stop.store(true, Ordering::Relaxed);
                 }
-                Some(DialogEvent::ReInvite { .. }) => {} // dropped: answered 500
+                Some(DialogEvent::ReInvite { offer, responder }) => {
+                    if audio.is_some() && offer.is_some_and(|o| o.media.iter().any(|m| m.is_t38())) {
+                        // this gateway has no T.38: the fax stays on G.711
+                        report.t38_refused += 1;
+                        let _ = responder.reject(StatusCode::NOT_ACCEPTABLE_HERE).await;
+                    }
+                    // otherwise dropped: answered 500
+                }
                 Some(_) => {}
                 None => stop.store(true, Ordering::Relaxed),
             },
