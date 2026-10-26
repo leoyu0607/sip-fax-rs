@@ -7,7 +7,7 @@ crates/
   t38/          T.38 IFP（ASN.1 PER，v0–v3）+ UDPTL（redundancy / parity FEC）
   t30/          T.30 狀態機（接收端、non-ECM，M2c；ECM 在 M3）：純函式 `Receiver::on_event`，依賴 t4 解碼頁面
   t4/           MH/MR/MMR 解碼驗證、TIFF Class F 寫出、PDF（CCITTFaxDecode 直接嵌入）
-  fax-modem/    G.711 passthrough：CNG/CED、V.21 HDLC、V.27ter/V.29/V.17（後期）
+  fax-modem/    G.711 passthrough：CNG/CED、V.21 HDLC、V.27ter/V.29（不做 V.17，ADR-061）
   fax-in/       進線呼叫控制：SIP dialog ↔ T.38/音訊 ↔ T.30 ↔ 文件產出
   store/        DB 抽象（Repository trait）+ 各 DB 實作 + migrations
   delivery/     folder / email（lettre+rustls）/ webhook（reqwest+rustls），含重試佇列
@@ -43,10 +43,12 @@ tests/e2e/      端到端整合測試                           ← M1 起
 |---|---|
 | `config` | TOML 設定（`[sip]`、`[media]`、`[call]`、`[capture]`、`[[trunks]]`）；trunk 先套 preset（`generic`、`cht-cs210`）；未知鍵一律報錯。範例見 `conf/sip-faxd.toml.example` |
 | `trunk` | 來源 IP → trunk 對應（第一個符合者）、傳給 transport 的來源過濾（所有 trunk 聯集，`unknown_source` = drop / reject / log）|
-| `controller` | `FaxIn`：每通來電一個 task。依 `t38_policy`（auto / wait-peer / initiate / audio-only）回 G.711 或 T.38、接受對方 re-INVITE 或在 ACK 後 `initiate_after_secs` 發我方 re-INVITE；488/415/606 → BYE 並記錄 `g711_passthrough_unsupported`。per-trunk 相容旗標（未知 `Require`、`min_max_datagram`）|
+| `controller` | `FaxIn`：每通來電一個 task。依 `t38_policy`（auto / wait-peer / initiate / audio-only）回 G.711 或 T.38、接受對方 re-INVITE 或在 ACK 後 `initiate_after_secs` 發我方 re-INVITE；以音訊接通時立刻建 G.711 session 監聽，`audio-only`、對方拒絕 T.38（488/415/606、沒有可用 `m=image`、2xx 沒有 SDP）、`wait-peer` 逾時時改由它收傳真（M5e）；factory 沒有音訊 session（`hold`）時照舊 BYE 並記錄 `g711_passthrough_unsupported`。每通一個 pool 埠：UDPTL 用偶數埠，RTP 用下一個奇數埠。per-trunk 相容旗標（未知 `Require`、`min_max_datagram`）|
 | `media` | 以 trunk 政策產生 SDP answer／T.38 offer；SDP 寬容度（缺 RateManagement、c= 層級、MaxDatagram 下限）與警告 |
 | `session` | `FaxSession`／`FaxSessionFactory` trait、`SessionContext`（含 `report` 槽，session 結束前把 `FaxReport` 放進去）；`StubFaxSession` 只維持通話（`[call] fax_session = "hold"`，訊號測試用）|
 | `t38session`（M2d） | 真正的 `T38FaxSession`：在該通電話的 pool 埠綁 UDPTL socket，先送往 SDP 位址，第一個能解析的 UDPTL 封包「latch」對方實際位址（之後其他來源丟棄）；以 SDP 協商的 `udp_ec`／版本／rate management／`T38FaxMaxDatagram` 設定 `UdptlEngine`；tokio 以 `next_wakeup_ms` 喚醒、datagram 餵 `UdptlReceiver`（`Gap`／reorder flush 在引擎內）；T.30 完成、peer BYE（取消）或 `max_duration_secs` 結束；結束時寫 `<data_dir>/faxes/YYYY/MM/DD/<call-id>.tif|.pdf`（先寫 `.part` 再 rename；部分頁面也寫並標記 `partial`）|
+| `audiosession`（M5e） | `G711FaxSession`：在該通的 RTP 埠收送 G.711（PCMU／PCMA），第一個 RTP 封包 latch 對方位址；`sip_core::rtp::JitterBuffer` 依 timestamp 排序，每 20 ms 取一塊交給 `AudioEngine`（整塊缺失用 `process_lost`），回送一個 RTP 封包；落後時連續補跑不丟；`go` 之前只監聽、送靜音；寫檔與報告與 T.38 共用 `t38session::conclude`；`audio.log` |
+| `audioengine`（M5） | sans-IO 的 G.711 引擎：8 kHz PCM ⇄ t30 事件；CED、V.21 HDLC 收送，DCS 決定 V.27ter／V.29 收端；半雙工、訊號結束（絕對或相對，ADR-066）、遺失封包跳過 |
 | `event` | `CallEvent`、`CallResult`（trunk、T.38 協商參數、時間戳、結果／失敗原因、`fax: FaxReport`：T.30 結果碼、頁數、速率、解析度、編碼、TSI、每頁 bad lines、檔案路徑、`partial`、UDPTL 計數），M3 寫入 DB |
 | `capture` | 以訊息 tap 寫 `logs/calls/<call-id>/sip.log`、`udptl.log`（每個 UDPTL datagram 一行：時間、RX/TX、seq、hex）與 `result.json`；`keep = "failed"` 只留失敗通話；兩個日誌各有 `max_bytes_per_call` 上限 |
 | `t38engine`（M2c） | sans-IO 的 T.38 接收引擎：`T38Engine`（`start/advance/on_ifp/poll_output`，虛擬時鐘）把 IFP 轉成 t30 事件、把 t30 動作排成帶 SpanDSP 式 pacing 的 IFP 序列（指示重複 3 次、V.21 逐 octet 配合 300 bit/s），收到的頁面重新編成 MMR（`ReceivedPage`）；`UdptlEngine` 是 UDPTL 薄包裝（redundancy/FEC 送出，接收端補洞與 Gap 轉成壞 FCS）。socket 與 `T38FaxSession` 見 `t38session`（M2d）。引擎在對方已開始下一個訊號（V.21 preamble、training、frame、影像資料）時，把我方尚未播完的 burst 視為已送完（真實 gateway 在聽到最後一個 frame 就回應，早於我方模擬的 flag／FCS／100 ms 尾巴）|
@@ -57,7 +59,7 @@ tests/e2e/      端到端整合測試                           ← M1 起
 1. 收到 INVITE（通常是 audio），回 100，再回 200 並帶 G.711 SDP（PCMU/PCMA）。
 2. 等待 gateway 主動發 re-INVITE 切到 T.38。Sonus 和 AudioCodes 常見的做法就是由 gateway 發起。
 3. 如果在設定的秒數內沒收到，或偵測到 CNG（1100Hz，以 Goertzel 偵測），由我方發 re-INVITE 切到 T.38。
-4. 如果對方回 488 或 415，或逾時，改走 G.711 passthrough。在 fax-modem 完成之前，這種情況記錄為失敗並註明原因。
+4. 如果對方回 488、415 或 606（或 answer 沒有可用的 `m=image`），改走 G.711 passthrough：接通時就在監聽的 G.711 session 開始送 CED、DIS，以音訊收傳真（M5e）。re-INVITE 逾時仍記錄為失敗。
 5. T.30 接收完成後，依序執行：
    1. 寫出 TIFF/PDF
    2. 寫入 DB

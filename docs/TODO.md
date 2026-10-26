@@ -257,15 +257,16 @@
 - [x] [Sonnet] M5d 測試 B01–B07、B09、B10、M02–M08，報告 `docs/test-reports/M5d.md`（2026-10-25；Opus 審核通過，見報告 §9）：SpanDSP `v29_tx`／`v17_tx` 當送端，B 在 `tools/fax-sim/tests/b_v29_spandsp.rs`，M 在 `m5d_audio_engine_spandsp.rs`，B09 在 `crates/fax-modem/tests/m5d_b09.rs`；修了 1 個產品問題（Segment 3 擬合檢查，ADR-063）；B03 7200 長頁、M04 固定 SNR、M05 未達成，M07 不可測（音訊路徑沒有 ECM）
 - [x] [Opus] V.29 7200 在 SNR 17–19 dB 的長傳送（> 30 秒）會失去資料（M5d B03）（2026-10-25，ADR-065）：根因是 Segment 3 之後用等化器係數重心帶時脈，時脈沒有時脈偏差也會慢慢走（30 秒約 1 個 T/2），等化器把 tap 往兩側攤開來吸收，重心一直停在中心，最後崩潰；關掉重心時脈後 tap 就穩定。改為 Segment 3 時脈保持不動，Segment 4 起用 Gardner 二階迴路（kp 0.005、ki 1e-5，可用範圍 kp 0.002–0.01、ki 2e-6–1e-5）。洩漏（往 0 或往訓練後的係數）都試過，無效。SpanDSP 的 B03 長頁在 17／19 dB 拿掉 `#[ignore]` 後通過，B04 與單元測試全部通過，新增單元測試 `a_long_7200_transmission_at_17_db_stays_locked`
 - [ ] [Any] M5e：fax-in 整合（AudioSession、RTP 收送與 pacing、controller 政策、`audio.log`、DB／result.json 的數據機欄位）、fax-sim SIP UAC 的 G.711 模式
-  - 2026-10-26 進度（分支 `m5`，本機 commit，**尚未 push**：fax-sim 的部分還沒在 Docker 編譯過）：
+  - 2026-10-26 進度（分支 `m5`）：開發完成，ROADMAP 完成標準已達成（`tools/fax-sim/tests/e2e_m5e.rs` 的 `d01`：fax-sim 拒絕 T.38 後以 G.711 送 2 頁給 `sip-faxd serve`，V.29 9600 收下、libtiff／poppler 逐像素相同）。下一步：M5e 測試交 Sonnet（J06、E01–E08，寫在 `e2e_m5e.rs`）、M5b 測試、審核 M5a，然後發版。
     - [x] 引擎修正 ①④⑤⑥⑦（ADR-066，`6b86c39`）
     - [x] `fax_in::audiosession`（`G711FaxSession`：RTP socket、`JitterBuffer`、20 ms tick 落後時連續補跑、`process_lost`、送 RTP、`audio.log`）；`session.rs` 新增 `AudioContext`／`AudioFaxSession`、`FaxSessionFactory::receives_audio`／`create_audio`（`T38SessionFactory` 兩者都有，`hold` 沒有）；`t38session::conclude` 兩種 session 共用寫檔與報告（`9852c7b`）
-    - [x] controller：音訊來電另租一個 RTP 埠（同一個 `port_range`），接通就建 G.711 session 監聽；`audio-only` 立即接收、對方拒絕我方 T.38 re-INVITE（488／415／606、沒有可用 `m=image`、2xx 沒有 SDP）時改走 G.711、`wait-peer` 在 `initiate_after_secs` 內沒等到 T.38 也改走 G.711；之後 T.38 仍可接手。沒有音訊 session 的 factory（`hold`）維持舊行為（`g711_passthrough_unsupported`，SIPp 測試用這個）。`CallResult.audio`（codec、port、`reason`）、`FaxReport.media`（`t38`／`g711`）與 `rtp` 計數；`capture` 新增 `audio.log`
+    - [x] controller（ADR-067）：音訊來電的 RTP 用該通 UDPTL 偶數埠的下一個奇數埠（原本另租一個埠，`e2e_m2d` E04 因埠數減半回 503，改掉），接通就建 G.711 session 監聽；`audio-only` 立即接收、對方拒絕我方 T.38 re-INVITE（488／415／606、沒有可用 `m=image`、2xx 沒有 SDP）時改走 G.711、`wait-peer` 在 `initiate_after_secs` 內沒等到 T.38 也改走 G.711；之後 T.38 仍可接手。沒有音訊 session 的 factory（`hold`）維持舊行為（`g711_passthrough_unsupported`，SIPp 測試用這個）。`CallResult.audio`（codec、port、`reason`）、`FaxReport.media`（`t38`／`g711`）與 `rtp` 計數；`capture` 新增 `audio.log`
     - [x] DB：migration 0003 `faxes.modem`、`faxes.media`（MySQL 重跑時的「Duplicate column name」視為完成）；Web API、webhook、內容頁「傳送方式」（`ec62150`）
     - [x] 單元／整合測試：`crates/fax-in/tests/m5e_audio.rs`（audio-only 的 RTP 埠與 CED、488 後改走 G.711、T.38 接手監聽中的音訊）；`cargo test --workspace` 全過（Windows 上 `T4_ORACLE=skip`）
-    - [ ] fax-sim：`audio_gateway::run_audio_fax`（SpanDSP `fax_state` 經 RTP，可設遺失與抖動）、`sip_uac::ReinviteBy::Audio`（`--mode audio --codec pcmu|pcma`，伺服器的 T.38 re-INVITE 回 488）——**已寫、未編譯**，要在 Docker 跑 `scripts/e2e-docker.sh` 確認，並以它實際送一份傳真給 `sip-faxd serve`（ROADMAP 完成標準）
-    - [ ] SpanDSP 測試更新待 Docker 驗證：`m5d_audio_engine_spandsp.rs` 的 M05 改用 `process_lost`（通過後拿掉 `m05_..._plan` 的 `#[ignore]`）、M07 改為「ECM 被關掉後照常收下」、M04 固定雜訊在新的結束偵測下可能可以改成計畫的斷言
-    - [ ] 文件：ARCHITECTURE（audiosession、port 分配）、field-test（G.711 試接）、IT 手冊（`t38_policy` 與 G.711、`port_range` 容量減半）、CHANGELOG 中英
+    - [x] fax-sim：`audio_gateway::run_audio_fax`（SpanDSP `fax_state` 經 RTP，`AudioNet` 可設 codec 與送出抖動，`FaxTx::loss_permille` 雙向遺失）、`sip_uac::ReinviteBy::Audio`（`--mode audio --codec pcmu|pcma`，伺服器的 T.38 re-INVITE 回 488，`UacReport::t38_refused`）；Docker 驗證通過
+    - [x] SpanDSP 測試：M05 計畫版通過（3 頁全收、第 2 頁 4 條壞行、SpanDSP 成功），拿掉 `#[ignore]`、刪掉舊的「現況紀錄」；M07 改為「ECM 被關掉後照常收下」；`e2e_m3b` I05 的 migration 數改成 3。Docker 全部 e2e 通過（`E2E_ONLY="--no-fail-fast"`）
+    - [ ] M04 固定雜訊（`m04_constant_noise_that_fails_9600_is_recorded`）在新的結束偵測下可能可以改成計畫的斷言（降速後收下），交給 M5e 測試時一併看
+    - [x] 文件：ARCHITECTURE、field-test、IT 手冊、CHANGELOG 中英、ADR-067
 - [ ] [Sonnet] M5e 測試 J06、E01–E08，報告 `docs/test-reports/M5e.md`
 - [ ] [Opus] 審核 M5a–M5e 測試報告
 - [ ] [Any] 發版（M5）

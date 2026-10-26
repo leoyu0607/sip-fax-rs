@@ -125,7 +125,7 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd
 4. 如果完全沒有接到電話：附上 `tcpdump -i any -w cs210.pcap udp port 5060` 的擷取。
 
 ## 7. 已知限制（alpha）
-- 只支援 T.38。如果 CS210 拒絕 T.38、要求 G.711，這一版會掛斷，並在 `result.json` 記錄失敗原因。G.711 passthrough 在 M5 才會做。
+- T.38 優先。CS210 拒絕 T.38 時，0.5 起改從 G.711 音訊接收（最高 9600 bit/s，不使用 ECM），`result.json` 的 `audio.reason` 記錄原因，`logs/calls/<call-id>/audio.log` 記錄音訊上的 T.30 過程。G.711 只和 SpanDSP 互通驗證過，還沒有和真實 gateway 測過；防火牆要開放整個 `port_range`（RTP 用偶數 UDPTL 埠的下一個奇數埠）。
 - ECM 預設關閉。發送端要求 ECM 時，傳送會以 non-ECM 完成。ECM 只和 SpanDSP 互通驗證過，還沒有和真實 gateway 測過。
 - 紀錄也可以直接用 SQLite 工具查詢 `data/sip-faxd.db`（欄位說明見壓縮檔內的 `docs/database.md`）。
 - localTCF 時不會送 CFR。這是跟 SpanDSP 一致的行為，但還沒有用 CS210 驗證過，這正是這次試接要確認的項目之一。

@@ -9,12 +9,16 @@ All notable changes to this project are documented here. Versions follow [Semant
 - `ctutils` (via `hmac` / `digest`, used for webhook signatures) updated to 0.4.4 ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385): constant-time masks could compile to branches). 0.4.1 and earlier ship 0.4.2.
 
 ### Added
+- **Faxes over G.711** (milestone M5): when a call cannot get T.38 the fax is received on the audio, with our own V.21, V.27ter (2400 / 4800) and V.29 (7200 / 9600) receivers; V.17 is not offered, so a G.711 fax runs at 9600 bit/s at most. It happens with `t38_policy = "audio-only"`, when the gateway refuses our T.38 re-INVITE (488 / 415 / 606, no usable `m=image`, a 2xx without SDP), and with `wait-peer` when no T.38 re-INVITE came within `initiate_after_secs`; a T.38 re-INVITE later still takes over. ECM is not used on the audio path. Calls that used to fail with `g711_passthrough_unsupported` now receive the fax.
+- `result.json`: `audio` (codec, RTP port, why the fax went over audio), `fax.media` (`t38` / `g711`) and `fax.rtp` counters; `logs/calls/<call-id>/audio.log` (frames, modem changes, signal events).
+- Database (migration 0003, applied at start): `faxes.modem` and `faxes.media`; shown on the fax page ("Transport") and sent in the webhook.
 - Web interface: "Today" on the status page (faxes received today, unread, deliveries failed and given up) and the free disk space of the data directory; `GET /api/v1/faxes/counts?since=` and `storage` in `GET /api/v1/status`.
 - Web interface: previous / next fax buttons on the fax page, in the order of the list.
 - Web interface: leaving a page with an unsaved note or settings asks first.
 - Web interface: the password can be shown on the sign-in page.
 
 ### Changed
+- RTP of a call answered on audio uses the odd port right after the call's UDPTL port: open the whole `port_range` (even and odd ports) in the firewall. `[media] audio_port` is only used with `fax_session = "hold"`.
 - Web interface: the live-updates dot is gone; a notice appears only when the live updates have been down for a few seconds.
 - Web interface: an empty fax list says whether there are no faxes yet or none that match the filter (with a button to clear it); the note column takes the room left in the list; the fields of a form all have the same width.
 
@@ -112,12 +116,16 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 - `ctutils`（經由 `hmac`／`digest`，用於 Webhook 簽章）更新到 0.4.4（[RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)：常數時間的遮罩可能被編譯成分支）。0.4.1 以前的版本使用 0.4.2。
 
 #### 新增
+- **G.711 傳真**（里程碑 M5）：通話建立不了 T.38 時，改從音訊接收傳真，使用自行實作的 V.21、V.27ter（2400／4800）與 V.29（7200／9600）收端；不宣告 V.17，所以 G.711 傳真最高 9600 bit/s。適用情況：`t38_policy = "audio-only"`；gateway 拒絕我方的 T.38 re-INVITE（488／415／606、沒有可用的 `m=image`、2xx 沒有 SDP）；`wait-peer` 在 `initiate_after_secs` 內沒等到 T.38 re-INVITE。之後對方再發 T.38 re-INVITE 仍會切到 T.38。音訊路徑不使用 ECM。以前以 `g711_passthrough_unsupported` 失敗的來電，現在可以收下傳真。
+- `result.json`：`audio`（codec、RTP 埠、改走音訊的原因）、`fax.media`（`t38`／`g711`）與 `fax.rtp` 計數；`logs/calls/<call-id>/audio.log`（V.21 frame、數據機切換、訊號事件）。
+- 資料庫（migration 0003，啟動時自動套用）：`faxes.modem`、`faxes.media`；傳真內容頁顯示「傳送方式」，Webhook 也會帶上。
 - Web 介面：系統狀態頁的「今日概況」（今天收到、未讀、投遞失敗與已放棄）與存檔目錄所在磁碟的剩餘空間；`GET /api/v1/faxes/counts?since=`、`GET /api/v1/status` 的 `storage`。
 - Web 介面：傳真內容頁的「上一份／下一份」，依列表順序。
 - Web 介面：備註或設定還沒儲存就要離開這一頁時會先詢問。
 - Web 介面：登入頁可以顯示輸入的密碼。
 
 #### 變更
+- 以音訊接通的來電，RTP 使用該通 UDPTL 埠的下一個奇數埠：防火牆要開放整個 `port_range`（偶數與奇數埠）。`[media] audio_port` 只在 `fax_session = "hold"` 時使用。
 - Web 介面：拿掉即時連線的圓點，只在連線中斷超過幾秒時顯示提示。
 - Web 介面：傳真列表空的時候說明是還沒有傳真、還是篩選不到（附「清除篩選」）；備註欄占用列表剩下的寬度；表單欄位寬度一致。
 

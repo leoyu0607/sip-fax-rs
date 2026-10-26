@@ -548,3 +548,10 @@ M5c／M5d 測試報告 §5 留下的設計問題，在接上 RTP 之前於 `fax-
 - **⑤ 音訊路徑沒有 ECM**：`AudioEngine::new` 一律把 `t30.ecm`、`t30.mmr` 設為 false，trunk 開了 ECM 也一樣（只影響 G.711，T.38 照舊）。
 - **⑥ DCS 指定沒有收端的數據機**（例如 V.17）：引擎記下 DCS 的 V.21 結束後的下一段訊號就是 TCF，TCF 一結束就以「沒有資料的 TCF」交給 T.30，T.30 立刻回 FTT，對方降速；以前要等 T2（6 秒）。
 - **⑦ V.29 的 Segment 4 不算進 TCF**：收端輸出的位元從 Segment 4（48 個符號的擾碼 1）開始，引擎在 `Trained` 之後丟掉這 192／144 bit。9600 全 0 TCF 的 1 從約 3% 降到 0.5% 以下，T.30 5% 門檻的餘裕從 1.9% 變成約 4.5%。收端本身不變（SpanDSP 的 B 測試仍以 Segment 4 開頭比對）。
+
+## ADR-067：G.711 接進 fax-in 的做法（2026-10-26，M5e）
+- **每通一個 pool 埠**：UDPTL 仍用 pool 的偶數埠，RTP 用它的下一個奇數埠（pool 不會發出奇數埠）。原本試過另租一個偶數埠給 RTP，同時通話數減半，`e2e_m2d` 的 E04（5 埠 5 通）回 503，所以改用奇數埠。代價：RTP 不在偶數埠（RFC 3550 是 SHOULD），我方不送 RTCP；防火牆要開整個範圍。`[media] audio_port` 只剩 `fax_session = "hold"` 使用。
+- **接通就監聽**：以音訊接通的來電立刻建 G.711 session，在 `go` 之前只聽（CNG、V.21）並送靜音 RTP，`go` 時才啟動 T.30（CED、DIS）。T.38 建立時取消它；只監聽過的 session 不留報告。
+- **何時 `go`**：`audio-only` 接通時；`auto`／`initiate` 在我方 T.38 re-INVITE 被拒（488／415／606、answer 沒有可用 `m=image`、2xx 沒有 SDP）時；`wait-peer` 在 `initiate_after_secs` 內沒等到對方的 T.38 re-INVITE 時（ADR-061 沒寫到 `wait-peer`，這裡定案：不然這種 trunk 遇到不發 re-INVITE 的對方就一定失敗；送出的 CED 也常是 gateway 切 T.38 的觸發）。`go` 之後對方發 T.38 re-INVITE 仍接受並由 T.38 接手。re-INVITE 逾時或 5xx 仍記為失敗。
+- **沒有音訊 session 的 factory**（`hold`、測試用的 factory）維持 M5 之前的行為：不另配 RTP 埠、`g711_passthrough_unsupported`。
+- **紀錄**：`CallResult.audio`（codec、RTP 埠、`reason`）、`FaxReport.media` 與 `rtp` 計數、`audio.log`；DB migration 0003 加 `faxes.modem`、`faxes.media`（MySQL 的 `ADD COLUMN` 不能重跑，寫成單一陳述式，重跑時的 1060「Duplicate column name」視為完成）。

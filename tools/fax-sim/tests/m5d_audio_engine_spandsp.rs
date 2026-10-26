@@ -471,46 +471,14 @@ fn describe_m05(o: &Outcome, at: u64) -> String {
     )
 }
 
-/// What happens today: the receiver gives up the carrier at the gap (`CarrierLost`), T.30 ends
-/// the page there, and the call fails after the first page (T2 expired). Recorded and held: the
-/// call ends, the first page is intact, nothing is accepted that is not right.
-#[test]
-fn m05_a_lost_packet_in_the_middle_of_a_page_what_happens() {
-    let (o, specs, at) = lost_packet_in_page_two();
-    eprintln!("M05: {}", describe_m05(&o, at));
-    assert!(o.engine_done, "engine not done; log {:#?}", o.log);
-    assert!(!o.pages.is_empty());
-    assert_page_exact(&o, 0, &specs[0]);
-    // the damaged transmission is never reported as a clean success
-    let r = o.result.as_ref().unwrap();
-    let clean = r.code.is_ok()
-        && o.pages.len() == specs.len()
-        && o.pages
-            .iter()
-            .zip(&specs)
-            .all(|(p, s)| p.bad_lines == 0 && p.height == s.height);
-    assert!(
-        !clean,
-        "a lost packet left no trace: {}",
-        describe_m05(&o, at)
-    );
-    // today the call fails after the first page
-    assert_eq!(
-        r.code,
-        t30::ResultCode::T2ExpiredCommand,
-        "{}",
-        describe_m05(&o, at)
-    );
-    assert_eq!(o.pages.len(), 1, "{}", describe_m05(&o, at));
-}
-
 /// The plan: the damaged page has bad lines, T.30 answers MCF (or RTN), the other pages are
-/// pixel exact. NOT met (docs/test-reports/M5d.md section 4).
+/// pixel exact. Met since M5e: the engine is told the block is lost and the receivers skip it
+/// (`AudioEngine::process_lost`, ADR-066); before, the gap ended the carrier and the call.
 #[test]
-#[ignore = "unmet: a lost packet inside a page ends the call (docs/test-reports/M5d.md)"]
 fn m05_a_lost_packet_in_the_middle_of_a_page_plan() {
     let (o, specs, at) = lost_packet_in_page_two();
     let desc = describe_m05(&o, at);
+    eprintln!("M05: {desc}");
     assert!(o.engine_done, "{desc}");
     assert_eq!(o.pages.len(), 3, "{desc}");
     assert_page_exact(&o, 0, &specs[0]);
