@@ -276,6 +276,7 @@
 - [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
+- [x] [Any] 發佈 v0.6.0-alpha（M6a，2026-10-27）：版本 0.6.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（0.6.0 與從 0.5.0 升級）、兩份手冊的適用版本；`m6a` 以 merge commit 合進 main 後在 main 打 tag
 - [x] [Any] M6a 串接介面（ADR-070，2026-10-27 使用者提出：同事的 Java／Node.js 程式從別台讀傳真狀態、取檔與縮圖）：API 金鑰（權限逐把選擇 `fax:read`／`fax:write`）、`GET /faxes/changes` 增量查詢、view `fax_records`（migration 0004）、`docs/integration.md`、`docs/openapi.yaml`、`examples/java`、`examples/node`；完成後發 v0.6.0-alpha（使用者決定一次做完）
   - [x] ADR-070、測試計畫 `docs/test-plans/M6a.md`（分支 `m6a`）
   - [x] ① store：migration 0004（`api_keys`、view `fax_records`、索引 `idx_faxes_updated`；MySQL 重跑時 `Duplicate key name` 視為已完成）、`AdminStore::api_key_*`、`FaxStore::changes`、`db copy` 複製 `api_keys`（2026-10-27）

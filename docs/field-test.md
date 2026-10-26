@@ -1,6 +1,11 @@
-# 現場試接指南（v0.5.0-alpha）
+# 現場試接指南（v0.6.0-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
+
+0.6.0 新增的功能（M6a）：
+- **給其他系統的串接介面**：管理員在 Web「API 金鑰」頁（或 `./sip-faxd apikey create`）建立金鑰，其他系統的程式就能以 API 讀取傳真、下載 PDF／TIFF 與每頁縮圖，或查詢資料庫 view `fax_records`。說明在壓縮檔內的 `docs/integration.md`，範例在 `examples/`。這次試接不需要用到。
+
+**從 0.5.0 升級**：停止舊版，把新版解壓到新目錄，再把舊目錄的 `conf/sip-faxd.toml`、`conf/secret.key`、`data/` 複製過去後啟動。第一次啟動會自動建立 `api_keys` 資料表與 view `fax_records`（migration 0004）。
 
 0.5.0 新增的功能（M5）：
 - **G.711 傳真**：CS210 或 gateway 不接受 T.38 時，改從 G.711 音訊（PCMU／PCMA）接收，最高 9600 bit/s（V.27ter、V.29），不使用 ECM。`result.json` 的 `audio.reason` 記錄為什麼改走音訊，`logs/calls/<call-id>/audio.log` 記錄音訊上的 T.30 過程；Web 傳真內容頁的「傳送方式」顯示 T.38 或 G.711。G.711 目前只和 SpanDSP 互通驗證過，**這次試接若遇到 G.711 來電，請回傳 `audio.log`、`sip.log` 與 `result.json`**。
@@ -42,8 +47,8 @@
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.5.0-linux-x86_64.tar.gz
-cd sip-fax-rs-0.5.0-linux-x86_64
+tar xzf sip-fax-rs-0.6.0-linux-x86_64.tar.gz
+cd sip-fax-rs-0.6.0-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```

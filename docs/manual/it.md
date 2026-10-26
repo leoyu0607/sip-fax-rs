@@ -1,6 +1,6 @@
 # sip-fax IT 安裝維運手冊
 
-適用版本：v0.5.0-alpha
+適用版本：v0.6.0-alpha
 
 sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳真來電以 SIP 送進來，sip-fax 以 T.38 接收，存成 TIFF 與 PDF、寫入資料庫，並可投遞到資料夾、Email 或 Webhook。座席人員以 Web 介面查看。這份手冊給負責安裝與維運的人員；座席的操作請見《座席使用手冊》（`agent.md`）。
 
@@ -19,8 +19,8 @@ sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳
 ## 2. 安裝
 
 ```sh
-tar xzf sip-fax-rs-0.5.0-linux-x86_64.tar.gz -C /opt
-mv /opt/sip-fax-rs-0.5.0-linux-x86_64 /opt/sip-fax
+tar xzf sip-fax-rs-0.6.0-linux-x86_64.tar.gz -C /opt
+mv /opt/sip-fax-rs-0.6.0-linux-x86_64 /opt/sip-fax
 cd /opt/sip-fax
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 useradd --system --home /opt/sip-fax --shell /sbin/nologin sipfax

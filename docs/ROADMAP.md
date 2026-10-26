@@ -29,3 +29,4 @@
 | v0.4.0-alpha | 2026-10-23 | M4e／M4f：`db copy` 換資料庫、`[database]` 分欄位與 `db check`、設定檔只留啟動設定；Web 的外觀切換（明亮／深色）、已執行時間每秒更新 |
 | v0.4.1-alpha | 2026-10-23 | Web 介面改善：帳號選單、未讀數、整列可點、簡短時間、傳真內容的資訊欄、需要重啟的設定標記、新增帳號表單、儲存列與帳號列表的版面修正 |
 | v0.5.0-alpha | 2026-10-27 | M5：G.711 傳真（V.21、V.27ter、V.29，最高 9600，不用 ECM）；`faxes.modem`／`media`（migration 0003）；Web 的今日概況、上一份／下一份、離開前提醒 |
+| v0.6.0-alpha | 2026-10-27 | M6a：給其他系統的串接介面（API 金鑰、`GET /faxes/changes` 增量查詢、資料庫 view `fax_records`、串接指南、OpenAPI、Java／Node 範例） |

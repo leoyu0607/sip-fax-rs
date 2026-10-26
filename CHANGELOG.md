@@ -5,6 +5,10 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.6.0-alpha] - 2026-10-27
+Milestone M6a: other systems read the faxes (API keys, change feed, database view).
+
 ### Added
 - **Integration with other systems** (milestone M6a): API keys, made by an administrator on the new web page "API keys" or with `sip-faxd apikey create|list|revoke`. A program sends `Authorization: Bearer sfx_...` and reads the faxes, their PDF / TIFF and every page as PNG; a key created with "write" may also set the read flag and the note (recorded as `api:<name>`). Keys work on the fax routes only, can expire, are revoked at once and only their hash is stored.
 - `GET /api/v1/faxes/changes`: every new or changed fax once, oldest change first, with a position to continue from.
@@ -125,6 +129,10 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.6.0-alpha] - 2026-10-27
+里程碑 M6a：其他系統讀取傳真（API 金鑰、增量查詢、資料庫 view）。
+
 #### 新增
 - **與其他系統串接**（里程碑 M6a）：API 金鑰，由管理員在新的 Web「API 金鑰」頁或以 `sip-faxd apikey create|list|revoke` 建立。程式帶 `Authorization: Bearer sfx_...` 讀取傳真、PDF／TIFF 與每頁 PNG；建立時勾選「回寫」的金鑰另外可以標記已讀與修改備註（記為 `api:<名稱>`）。金鑰只能用在傳真相關的路由，可設到期日，撤銷立即生效，資料庫只存雜湊。
 - `GET /api/v1/faxes/changes`：新進與有變動的傳真，每個變動一次，最舊的在前，附接續的位置。
