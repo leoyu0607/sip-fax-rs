@@ -210,6 +210,21 @@
 ## M5 — G.711 passthrough
 > 2026-10-23 使用者決定（ADR-061）：只做 V.27ter 與 V.29（最高 9600），不做 V.17；`auto` 時對方直接送 CNG 仍先試 T.38，被拒才 G.711。分期 M5a–M5e，M5e 完成即發版。
 - [x] [Opus] 撰寫 docs/test-plans/M5.md（2026-10-23）
+- **交接狀態（2026-10-26，分支 `m5`，最後 commit `0bbb99e`，ci-local 通過）**：使用者要求更新狀態，由另一位 agent 接手。
+  - 完成：M5a（開發＋測試）、M5b（開發）、M5c（V.27ter，開發＋測試＋審核）、M5d（V.29，開發＋測試＋審核）。本階段的決策記在 ADR-062～065：062 是 V.27ter 收端修正；063 是 V.29 Segment 3 擬合檢查；064 是 V.27ter 4800 損傷案例的門檻改為計畫 SNR＋2 dB；065 是 V.29 資料段時脈改回 Gardner 二階迴路。音訊引擎的 DIS 只宣告 V.27ter＋V.29。
+  - 建議接手順序：
+    ① M5e 開發，含下方「M5e 設計待辦」①③④⑤⑥⑦。其中 ⑤ 音訊 session 強制 `t30.ecm = false`，不做的話 ECM 的對方一定失敗；④ 和 M04 的結束偵測，是 `m05_a_lost_packet_in_the_middle_of_a_page_plan`（`#[ignore]`）要通過的前提。
+    ② M5e 測試交 Sonnet（J06、E01–E08）。
+    ③ M5b 測試交 Sonnet（H01–H03、V01–V05）。
+    ④ Opus 審核 `docs/test-reports/M5a.md`。
+    M5e 完成即發版（走 CLAUDE.md 的發版檢查清單）。
+  - 試行說明：2026-10-24～25 使用者在該 session 試行「開發切小任務給 Haiku、Opus 審核」。結論：表格、串接這類規格明確的工作，Haiku 做得穩；需要設計判斷的除錯，Haiku 做不好，最後都由 Opus 自己做。這只是那個 session 的授權，CLAUDE.md 的「Subagent 只用在測試」沒有改。接手者照 CLAUDE.md 做，除非使用者另外指示。
+  - 操作注意：
+    - 背景跑 `scripts/ci-local.sh` 時要自己抓結束碼（`…; rc=$?; …; exit $rc`）。若最後一個指令是 `tail` 之類，回報的 exit 0 不是 ci-local 的結果。
+    - 改 `tools/` 下的檔案要另外在 `tools/` 裡跑 `cargo fmt --all`，根目錄的 fmt 不涵蓋它。
+    - SpanDSP 測試只跑部分時：`E2E_ONLY="--test b_v29_spandsp --test m5d_audio_engine_spandsp" E2E_SKIP_CHECKS=1 scripts/e2e-docker.sh --test-threads=1`。
+    - rtk hook 會過濾 `git log` 等輸出，要看原始輸出時用 `rtk proxy git …`。
+
 - [x] [Any] M5a：`sip-core::rtp`（G.711 編解碼、`RtpPacket`，從 sipress 抽取並修正 decode）、jitter buffer、`fax-modem::tone`（CNG 偵測、CED 產生、能量偵測）
   - 2026-10-23：`crates/sip-core/src/rtp/{g711,packet,jitter}.rs`（G.711 依規格重寫，sipress 的有誤，見 sipress-extraction.md）、`crates/fax-modem/src/{level,goertzel,tone}.rs`；單元測試 fax-modem 5 個（行涵蓋率 98.6%）、sip-core rtp 11 個；CI coverage 納入 `fax-modem ≥ 85%`。下一步：Sonnet 依計畫補 G01–G05、J01–J05、J07、N01–N04（含 SpanDSP 對照：`alaw_to_linear`／`ulaw_to_linear`、`modem_connect_tones_rx`）
 - [x] [Sonnet] M5a 測試 G01–G04、J01–J05、J07、N01–N04，報告 `docs/test-reports/M5a.md`（待 Opus 審核；G05、J06 延到 M5e）
@@ -218,7 +233,7 @@
   - 2026-10-23：`crates/fax-modem/src/{hdlc,v21}.rs`（HDLC 收送、FCS-16；V.21 相位連續 FSK 送、非同調收＋數位 PLL）、`crates/fax-in/src/audioengine.rs`（sans-IO，以樣本為時脈；CED、V.21 burst、TxComplete、半雙工、回應等對方訊號結束並在 75 ms 後才送；與 T.30 之間每個 octet 位元反轉）；`ReceivedPage::from_t30` 兩個引擎共用。單元測試：fax-modem 12 個（行涵蓋率 97.8%）、audioengine 2 個（答 CED＋CSI＋DIS；對方的 TSI＋DCS 經 V.21 送到 T.30）。高速收端（TCF、影像）在 M5c／M5d。
   - 留給 M5b 測試的 SpanDSP FFI（只在 `tools/`）：`fsk_tx`／`fsk_rx`、`hdlc_tx`，以及之後 M5c／M5d 用的 `v27ter_tx`／`v29_tx`
 - [ ] [Sonnet] M5b 測試 H01–H03、V01–V05，報告 `docs/test-reports/M5b.md`
-- [~] [Any] M5c：`fax-modem::v27ter` 收端（2026-10-23 進行中，交接如下）
+- [x] [Any] M5c：`fax-modem::v27ter` 收端（2026-10-24 完成；以下是開發過程的紀錄）
   - **交接狀態（2026-10-23，分支 `m5`）**：使用者要求開發停在這個階段、更新狀態讓其他 agent 接手。
   - 規格來源：ITU-T V.27 ter（1988 Blue Book）與 V.27 Appendix I（擾碼器），從 itu.int 免費下載（`T-REC-V.27ter-198811`、`T-REC-V.27-198811`）；清潔室實作，不參考 SpanDSP 原始碼（ADR-061）。
   - 已完成：`crates/fax-modem/src/dsp.rs`（複數、RRC、三次內插、二階迴路）；`crates/fax-modem/src/v27ter.rs` 的擾碼器（1 + x⁻⁶ + x⁻⁷ 加 8／9／12 位元的重複樣式保護：連續 33 個位置等於 8、9 或 12 位元前的位元就反轉下一位）、測試用發送端（`#[cfg(test)] testtx`，Segment 3／4／5 與 Table 4 逐項相同：暫存器 `0011110`，字串第一個字元是最新的位元，輸出 `1 ⊕ b6 ⊕ b7`，Segment 4 每三位取第一位）、收端（下變頻 1800 Hz、RRC 匹配濾波 α = 0.5、T/2 三次內插＋Gardner 時脈、T/2 等化器 15 taps（NLMS，初始中心 tap 必須在偶數索引）、決策導向二階載波迴路、Segment 3 鎖定、Segment 4 以 0°／180° 訓練、第一個非 0°／180° 的變化是 Segment 5、差分解碼、解擾）。
