@@ -1,4 +1,3 @@
-
 use chrono::{TimeZone, Utc};
 use store::{FaxRecord, FaxStatus, HangupDirection};
 

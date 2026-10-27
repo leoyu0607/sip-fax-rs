@@ -1,4 +1,3 @@
-
 //! F01..F05 (configuration side of M3f).
 use super::*;
 use delivery::DeliveryConfig;
