@@ -195,8 +195,15 @@ test('U33 the status page shows today at a glance and the free disk space', asyn
     expect(counts.since).toBeGreaterThan(0);
     await expect(page.locator('#stat-today')).toHaveText(String(counts.since));
     await expect(page.locator('#stat-unread')).toHaveText(String(counts.unread));
-    await expect(page.locator('#stat-failed')).toHaveText(String(counts.deliveries.failed));
-    await expect(page.locator('#stat-giving-up')).toHaveText(String(counts.deliveries.giving_up));
+    // the deliveries are retried in the background, so the counts can move while the test reads
+    // them: compare the page with a fresh answer of the API until both agree
+    await expect
+      .poll(async () => {
+        const now = (await (await page.request.get('/api/v1/faxes/counts')).json()) as typeof counts;
+        const shown = [await page.locator('#stat-failed').textContent(), await page.locator('#stat-giving-up').textContent()];
+        return shown.join('/') === `${now.deliveries.failed}/${now.deliveries.giving_up}`;
+      })
+      .toBe(true);
     // the disk of the data directory (the server runs on Linux)
     await expect(page.locator('#disk-free')).toContainText('%');
     await expect(page.locator('meter.disk')).toBeVisible();
