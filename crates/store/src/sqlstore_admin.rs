@@ -21,6 +21,8 @@ const USER_KINDS: &[Kind] = &[I, S, S, S, S, S, B, B, T, T, T];
 const SESSION_COLS: &str =
     "id, token_hash, user_id, created_at, last_seen_at, expires_at, ip, user_agent";
 const SESSION_KINDS: &[Kind] = &[I, S, I, T, T, T, S, S];
+const API_KEY_COLS: &str = "id, name, token_hash, prefix, scopes, created_by, created_at, expires_at, revoked_at, revoked_by, last_used_at, last_used_ip";
+const API_KEY_KINDS: &[Kind] = &[I, S, S, S, S, S, T, T, T, S, T, S];
 
 fn read_config(v: Vec<Val>) -> ConfigRow {
     let mut r = RowReader::new(v);
@@ -77,7 +79,31 @@ fn read_session(v: Vec<Val>) -> SessionRow {
     }
 }
 
+fn read_api_key(v: Vec<Val>) -> ApiKeyRow {
+    let mut r = RowReader::new(v);
+    ApiKeyRow {
+        id: r.i64(),
+        name: r.str(),
+        token_hash: r.str(),
+        prefix: r.str(),
+        scopes: r.str(),
+        created_by: r.str(),
+        created_at: r.time(),
+        expires_at: r.opt_time(),
+        revoked_at: r.opt_time(),
+        revoked_by: r.opt_str(),
+        last_used_at: r.opt_time(),
+        last_used_ip: r.opt_str(),
+    }
+}
+
 impl SqlStore {
+    async fn one_api_key(&self, where_sql: &str, params: &[Val]) -> Result<Option<ApiKeyRow>> {
+        let sql = format!("SELECT {API_KEY_COLS} FROM api_keys WHERE {where_sql}");
+        let rows = self.raw().query(&sql, params, API_KEY_KINDS).await?;
+        Ok(rows.into_iter().next().map(read_api_key))
+    }
+
     async fn audit(&self, section: &str, by: &str, a: &ConfigAudit) -> Result<()> {
         check_len("action", &a.action, 16)?;
         self.raw()
@@ -415,6 +441,67 @@ impl AdminStore for SqlStore {
             &[user_id.into()],
         )
         .await
+    }
+
+    async fn api_key_create(&self, k: &NewApiKey) -> Result<ApiKeyRow> {
+        check_len("name", &k.name, 48)?;
+        check_len("token_hash", &k.token_hash, 64)?;
+        check_len("prefix", &k.prefix, 16)?;
+        check_len("scopes", &k.scopes, 64)?;
+        check_len("created_by", &k.created_by, 64)?;
+        let id = self
+            .raw()
+            .insert_id(
+                "INSERT INTO api_keys (name, token_hash, prefix, scopes, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                &[
+                    k.name.as_str().into(),
+                    k.token_hash.as_str().into(),
+                    k.prefix.as_str().into(),
+                    k.scopes.as_str().into(),
+                    k.created_by.as_str().into(),
+                    tv(self.now()),
+                    otv(k.expires_at),
+                ],
+            )
+            .await?;
+        self.one_api_key("id = ?", &[id.into()])
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("api key {id}")))
+    }
+
+    async fn api_key_get_by_hash(&self, token_hash: &str) -> Result<Option<ApiKeyRow>> {
+        self.one_api_key("token_hash = ?", &[token_hash.into()])
+            .await
+    }
+
+    async fn api_key_list(&self) -> Result<Vec<ApiKeyRow>> {
+        let sql = format!("SELECT {API_KEY_COLS} FROM api_keys ORDER BY name");
+        let rows = self.raw().query(&sql, &[], API_KEY_KINDS).await?;
+        Ok(rows.into_iter().map(read_api_key).collect())
+    }
+
+    async fn api_key_revoke(&self, id: i64, by: &str, at: DateTime<Utc>) -> Result<bool> {
+        check_len("revoked_by", by, 64)?;
+        Ok(self
+            .raw()
+            .execute(
+                "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL",
+                &[tv(trunc_ms(at)), by.into(), id.into()],
+            )
+            .await?
+            > 0)
+    }
+
+    async fn api_key_touch(&self, id: i64, at: DateTime<Utc>, ip: Option<&str>) -> Result<()> {
+        // an address that does not fit is cut, not refused: it is no reason to fail a request
+        let ip: Option<String> = ip.map(|i| i.chars().take(64).collect());
+        self.raw()
+            .execute(
+                "UPDATE api_keys SET last_used_at = ?, last_used_ip = ? WHERE id = ?",
+                &[tv(trunc_ms(at)), ip.into(), id.into()],
+            )
+            .await?;
+        Ok(())
     }
 
     async fn redeliver(&self, fax_id: i64, at: DateTime<Utc>) -> Result<Vec<i64>> {

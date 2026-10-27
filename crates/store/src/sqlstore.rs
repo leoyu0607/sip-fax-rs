@@ -340,6 +340,36 @@ impl FaxStore for SqlStore {
         self.one_fax("id = ?", &[id.into()]).await
     }
 
+    async fn changes(
+        &self,
+        from: ChangesFrom,
+        until: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<FaxRecord>> {
+        let mut conds = vec!["updated_at <= ?".to_string()];
+        let mut params: Vec<Val> = vec![tv(until)];
+        match from {
+            ChangesFrom::Start => {}
+            ChangesFrom::After(c) => {
+                conds.push("(updated_at > ? OR (updated_at = ? AND id > ?))".into());
+                params.push(tv(c.updated_at()));
+                params.push(tv(c.updated_at()));
+                params.push(c.id.into());
+            }
+            ChangesFrom::Since(t) => {
+                conds.push("updated_at >= ?".into());
+                params.push(tv(t));
+            }
+        }
+        let (top, lim) = self.limit(limit.clamp(1, MAX_PAGE));
+        let sql = format!(
+            "SELECT {top} {FAX_COLS} FROM faxes WHERE {} ORDER BY updated_at, id {lim}",
+            conds.join(" AND ")
+        );
+        let rows = self.be.query(&sql, &params, FAX_KINDS).await?;
+        rows.into_iter().map(read_fax).collect()
+    }
+
     async fn get_by_call_id(&self, call_id: &str) -> Result<Option<FaxRecord>> {
         self.one_fax("call_id = ?", &[call_id.into()]).await
     }

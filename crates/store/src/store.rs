@@ -37,6 +37,15 @@ pub trait FaxStore: crate::admin::AdminStore + Send + Sync {
     async fn get_by_call_id(&self, call_id: &str) -> Result<Option<FaxRecord>>;
     /// Filtered, keyset-paginated listing, newest first (`started_at DESC, id DESC`).
     async fn list(&self, filter: &ListFilter, page: PageRequest) -> Result<Page<FaxRecord>>;
+    /// The change feed (M6a, ADR-070): records by `(updated_at, id)` ascending, from `from`,
+    /// changed no later than `until` (the caller leaves a settling margin, so that a write
+    /// still in flight with an earlier time is not skipped), at most `limit` (1 to 200).
+    async fn changes(
+        &self,
+        from: ChangesFrom,
+        until: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<FaxRecord>>;
     /// Number of unread records (any status), for the badge of the web interface.
     async fn count_unread(&self) -> Result<u64>;
     /// Number of records with `started_at >= since` (any status): "received today" of the status

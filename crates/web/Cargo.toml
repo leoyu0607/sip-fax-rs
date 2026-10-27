@@ -44,3 +44,6 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = ["c
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 async-trait = { workspace = true }
 fax-in = { path = "../fax-in" }
+oas3 = "0.22.0"
+serde_norway = "0.9.42"
+tracing-subscriber.workspace = true

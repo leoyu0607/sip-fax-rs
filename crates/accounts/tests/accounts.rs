@@ -761,6 +761,7 @@ fn a11_the_permission_matrix_matches_the_specification() {
         (Capability::ManageUsers, false, true),
         (Capability::ViewAudit, false, true),
         (Capability::ViewStatus, true, true),
+        (Capability::ManageApiKeys, false, true),
     ];
     assert_eq!(
         matrix.len(),

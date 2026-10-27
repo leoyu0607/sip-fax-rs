@@ -26,8 +26,8 @@ pub mod store;
 mod tests;
 
 pub use admin::{
-    AdminStore, ConfigAudit, ConfigAuditRow, ConfigRow, NewSession, NewUser, SessionRow, UserRow,
-    UserUpdate,
+    AdminStore, ApiKeyRow, ConfigAudit, ConfigAuditRow, ConfigRow, NewApiKey, NewSession, NewUser,
+    SessionRow, UserRow, UserUpdate,
 };
 pub use check::{CheckReport, check_url};
 pub use clock::{Clock, ManualClock, SystemClock};

@@ -150,6 +150,24 @@ pub(crate) const TABLES: &[Table] = &[
             ("user_agent", S),
         ],
     },
+    Table {
+        name: "api_keys",
+        identity: true,
+        cols: &[
+            ("id", I),
+            ("name", S),
+            ("token_hash", S),
+            ("prefix", S),
+            ("scopes", S),
+            ("created_by", S),
+            ("created_at", T),
+            ("expires_at", T),
+            ("revoked_at", T),
+            ("revoked_by", S),
+            ("last_used_at", T),
+            ("last_used_ip", S),
+        ],
+    },
 ];
 
 /// The names of the copied tables, in copy order.

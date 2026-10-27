@@ -287,7 +287,7 @@ pub fn valid_username(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
     let d = digest::digest(&digest::SHA256, data);
     d.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -297,7 +297,7 @@ pub fn csrf_for(token: &str) -> String {
     sha256_hex(format!("sipfax-csrf:{token}").as_bytes())
 }
 
-fn new_token() -> String {
+pub(crate) fn new_token() -> String {
     let mut b = [0u8; 32];
     SystemRandom::new()
         .fill(&mut b)
@@ -308,7 +308,7 @@ fn new_token() -> String {
 /// Accounts, login and sessions.
 pub struct AuthService {
     src: Arc<dyn StoreSource>,
-    clock: Arc<dyn Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
     cfg: AuthConfig,
     guard: LoginGuard,
     /// A hash to verify against when the account does not exist (same cost, same time).
@@ -329,7 +329,7 @@ impl AuthService {
         }
     }
 
-    async fn store(&self) -> Result<Arc<dyn FaxStore>, store::Error> {
+    pub(crate) async fn store(&self) -> Result<Arc<dyn FaxStore>, store::Error> {
         self.src.store().await
     }
 

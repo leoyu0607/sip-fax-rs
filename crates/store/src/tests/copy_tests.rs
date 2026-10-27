@@ -162,8 +162,26 @@ const SESSIONS: Spec = Spec {
         ("user_agent", S),
     ],
 };
+const API_KEYS: Spec = Spec {
+    name: "api_keys",
+    identity: true,
+    cols: &[
+        ("id", I),
+        ("name", S),
+        ("token_hash", S),
+        ("prefix", S),
+        ("scopes", S),
+        ("created_by", S),
+        ("created_at", T),
+        ("expires_at", T),
+        ("revoked_at", T),
+        ("revoked_by", S),
+        ("last_used_at", T),
+        ("last_used_ip", S),
+    ],
+};
 /// Copy order (parents first), the same as `store::copy`.
-const SPECS: [&Spec; 7] = [
+const SPECS: [&Spec; 8] = [
     &FAXES,
     &DELIVERIES,
     &SETTINGS,
@@ -171,6 +189,7 @@ const SPECS: [&Spec; 7] = [
     &AUDIT,
     &USERS,
     &SESSIONS,
+    &API_KEYS,
 ];
 
 // ---------------------------------------------------------------- value helpers
@@ -618,6 +637,59 @@ fn session_rows() -> Vec<(bool, Row)> {
     ]
 }
 
+fn api_key_rows() -> Vec<(bool, Row)> {
+    vec![
+        (
+            true,
+            vec![
+                s("erp"),
+                s(&hex64(21)),
+                s("sfx_AbCdEfGh"),
+                s("fax:read"),
+                s("admin"),
+                tm(70_000),
+                nt(),
+                nt(),
+                ns(),
+                tm(70_500),
+                s("198.51.100.7"),
+            ],
+        ),
+        (
+            false,
+            vec![
+                s("gone"),
+                s(&hex64(22)),
+                s("sfx_gone0000"),
+                s("fax:read"),
+                s("admin"),
+                tm(70_000),
+                nt(),
+                nt(),
+                ns(),
+                nt(),
+                ns(),
+            ],
+        ),
+        (
+            true,
+            vec![
+                s(&"k".repeat(48)),
+                s(&hex64(23)),
+                s("sfx_-_x9ZZ12"),
+                s("fax:read,fax:write"),
+                s(&"c".repeat(64)),
+                tm(71_000),
+                tm(71_000 + 86_400_000),
+                tm(72_000),
+                s(&fill("撤銷者", 64)),
+                nt(),
+                s(&fill("2001:db8::", 64)),
+            ],
+        ),
+    ]
+}
+
 fn seed_rows() -> Vec<Vec<(bool, Row)>> {
     vec![
         fax_rows(),
@@ -627,6 +699,7 @@ fn seed_rows() -> Vec<Vec<(bool, Row)>> {
         audit_rows(),
         user_rows(),
         session_rows(),
+        api_key_rows(),
     ]
 }
 
@@ -994,6 +1067,18 @@ async fn c03_body(src: &Env, dst: &Env) {
         .await
         .unwrap();
     assert!(session > max(6), "session id {session} > {}", max(6));
+    let key = st
+        .api_key_create(&NewApiKey {
+            name: "after".into(),
+            token_hash: hex64(24),
+            prefix: "sfx_after000".into(),
+            scopes: "fax:read".into(),
+            created_by: "t".into(),
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(key.id > max(7), "api key id {} > {}", key.id, max(7));
     // the copied rows are as they were, the new ones are added
     let after = dump(dst.store.raw()).await;
     for (n, spec) in SPECS.iter().enumerate() {
@@ -1035,6 +1120,7 @@ async fn c04_body(src: &Env, dst: &Env) {
         "config_audit",
         "users",
         "sessions",
+        "api_keys",
     ];
     for planted in plants {
         match planted {
@@ -1112,6 +1198,18 @@ async fn c04_body(src: &Env, dst: &Env) {
                     .unwrap();
                 }
             }
+            "api_keys" => {
+                st.api_key_create(&NewApiKey {
+                    name: "planted".into(),
+                    token_hash: hex64(6),
+                    prefix: "sfx_planted0".into(),
+                    scopes: "fax:read".into(),
+                    created_by: "t".into(),
+                    expires_at: None,
+                })
+                .await
+                .unwrap();
+            }
             _ => unreachable!(),
         }
         let first_nonempty = counts(dst.store.raw())
@@ -1162,6 +1260,8 @@ async fn c04_body(src: &Env, dst: &Env) {
 async fn at_version_one(env: &Env) {
     let be = env.store.raw();
     for stmt in [
+        "DROP VIEW fax_records",
+        "DROP TABLE api_keys",
         "DROP TABLE sessions",
         "DROP TABLE users",
         "DROP TABLE config_audit",
@@ -1436,7 +1536,8 @@ async fn c13_body(env: &Env) {
         }
         BackendKind::Postgres => be
             .query(
-                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()",
+                // the view fax_records (0004) is not a table and is not copied
+                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )
@@ -1444,7 +1545,7 @@ async fn c13_body(env: &Env) {
             .unwrap(),
         BackendKind::Mysql => be
             .query(
-                "SELECT CAST(table_name AS CHAR), CAST(column_name AS CHAR) FROM information_schema.columns WHERE table_schema = DATABASE()",
+                "SELECT CAST(table_name AS CHAR), CAST(column_name AS CHAR) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )
@@ -1452,7 +1553,7 @@ async fn c13_body(env: &Env) {
             .unwrap(),
         BackendKind::Mssql => be
             .query(
-                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = SCHEMA_NAME()",
+                "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = SCHEMA_NAME() AND table_name <> 'fax_records'",
                 &[],
                 &[S, S],
             )
@@ -1506,4 +1607,64 @@ async fn c13_body(env: &Env) {
         assert_eq!(a.cols, b2.cols, "kinds and order of {}", a.name);
         assert_eq!(a.identity, b2.identity);
     }
+}
+
+// ---------------------------------------------------------------- M6a K11 (store level)
+copy_case!(
+    k11_a_copied_api_key_is_found_by_its_hash_in_the_target,
+    k11_body
+);
+async fn k11_body(src: &Env, dst: &Env) {
+    let make = |name: &str, n: u8, scopes: &str| NewApiKey {
+        name: name.into(),
+        token_hash: hex64(n),
+        prefix: format!("sfx_k11{n:05}"),
+        scopes: scopes.into(),
+        created_by: "root".into(),
+        expires_at: Some(t(T0 + 86_400_000 + 7)),
+    };
+    let a = src
+        .store
+        .api_key_create(&make("keep", 40, "fax:read,fax:write"))
+        .await
+        .unwrap();
+    let b = src
+        .store
+        .api_key_create(&make("gone", 41, "fax:read"))
+        .await
+        .unwrap();
+    src.store
+        .api_key_touch(a.id, t(T0 + 123), Some("192.0.2.1"))
+        .await
+        .unwrap();
+    src.store
+        .api_key_revoke(b.id, "root", t(T0 + 456))
+        .await
+        .unwrap();
+    let want = src.store.api_key_list().await.unwrap();
+    run_copy(src, dst).await.unwrap();
+    // the target finds each key by the hash, with every field as in the source
+    for k in &want {
+        let got = dst
+            .store
+            .api_key_get_by_hash(&k.token_hash)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("{} in the target", k.name));
+        assert_eq!(&got, k, "[{} -> {}]", src.label, dst.label);
+    }
+    assert_eq!(dst.store.api_key_list().await.unwrap(), want);
+    // names are still taken, ids go on above the copied ones
+    assert!(matches!(
+        dst.store
+            .api_key_create(&make("gone", 42, "fax:read"))
+            .await,
+        Err(crate::Error::Duplicate(_))
+    ));
+    let c = dst
+        .store
+        .api_key_create(&make("next", 43, "fax:read"))
+        .await
+        .unwrap();
+    assert!(c.id > a.id.max(b.id));
 }

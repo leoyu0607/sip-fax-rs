@@ -5,6 +5,16 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+
+## [0.6.0-alpha] - 2026-10-27
+Milestone M6a: other systems read the faxes (API keys, change feed, database view).
+
+### Added
+- **Integration with other systems** (milestone M6a): API keys, made by an administrator on the new web page "API keys" or with `sip-faxd apikey create|list|revoke`. A program sends `Authorization: Bearer sfx_...` and reads the faxes, their PDF / TIFF and every page as PNG; a key created with "write" may also set the read flag and the note (recorded as `api:<name>`). Keys work on the fax routes only, can expire, are revoked at once and only their hash is stored.
+- `GET /api/v1/faxes/changes`: every new or changed fax once, oldest change first, with a position to continue from.
+- Database view `fax_records` (migration 0004, applied at start): the stable shape of a fax record for read-only database accounts.
+- `docs/integration.md` (Traditional Chinese), `docs/openapi.yaml` (also at `/api/v1/openapi.yaml`), examples in `examples/java` and `examples/node`.
+
 ### Security
 - `sip-faxd db check`: a database error that carries the password alone (as written in the URL or decoded) shows `***` instead, not only when it carries the whole URL.
 - CI: the workflows run with a read-only token (only the release job may write); CodeQL moves to its own workflow and leaves test code out.
@@ -119,6 +129,16 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+
+### [0.6.0-alpha] - 2026-10-27
+里程碑 M6a：其他系統讀取傳真（API 金鑰、增量查詢、資料庫 view）。
+
+#### 新增
+- **與其他系統串接**（里程碑 M6a）：API 金鑰，由管理員在新的 Web「API 金鑰」頁或以 `sip-faxd apikey create|list|revoke` 建立。程式帶 `Authorization: Bearer sfx_...` 讀取傳真、PDF／TIFF 與每頁 PNG；建立時勾選「回寫」的金鑰另外可以標記已讀與修改備註（記為 `api:<名稱>`）。金鑰只能用在傳真相關的路由，可設到期日，撤銷立即生效，資料庫只存雜湊。
+- `GET /api/v1/faxes/changes`：新進與有變動的傳真，每個變動一次，最舊的在前，附接續的位置。
+- 資料庫 view `fax_records`（migration 0004，啟動時自動套用）：傳真紀錄對外的固定格式，給唯讀的資料庫帳號查詢。
+- `docs/integration.md`、`docs/openapi.yaml`（服務也在 `/api/v1/openapi.yaml` 提供）、範例 `examples/java`、`examples/node`。
+
 #### 安全性
 - `sip-faxd db check`：資料庫錯誤訊息中單獨出現的密碼（URL 中的寫法或解碼後）也顯示成 `***`，不再只遮掉整段 URL。
 - CI：workflow 以唯讀權限執行（只有 release job 可以寫入）；CodeQL 改用自己的 workflow，不掃描測試程式碼。

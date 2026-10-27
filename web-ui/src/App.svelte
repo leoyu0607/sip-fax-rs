@@ -14,6 +14,7 @@
   import FaxDetail from './routes/FaxDetail.svelte';
   import Settings from './routes/Settings.svelte';
   import Users from './routes/Users.svelte';
+  import ApiKeys from './routes/ApiKeys.svelte';
   import Audit from './routes/Audit.svelte';
   import StatusPage from './routes/Status.svelte';
   import Account from './routes/Account.svelte';
@@ -143,6 +144,7 @@
         ? [
             { page: 'settings', label: 'nav.settings', link: href({ page: 'settings', section: null }) },
             { page: 'users', label: 'nav.users', link: href({ page: 'users' }) },
+            { page: 'apikeys', label: 'nav.apikeys', link: href({ page: 'apikeys' }) },
             { page: 'audit', label: 'nav.audit', link: href({ page: 'audit' }) },
           ]
         : []),
@@ -242,6 +244,8 @@
       <Settings section={router.route.section} />
     {:else if page === 'users'}
       <Users />
+    {:else if page === 'apikeys'}
+      <ApiKeys />
     {:else if page === 'audit'}
       <Audit />
     {:else if page === 'status'}

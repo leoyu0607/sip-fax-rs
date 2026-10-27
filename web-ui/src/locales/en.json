@@ -18,7 +18,8 @@
     "logout": "Sign out",
     "theme": "Theme",
     "unread": "{count} unread",
-    "menu_of": "Account menu of {name}"
+    "menu_of": "Account menu of {name}",
+    "apikeys": "API keys"
   },
   "live": {
     "on": "Live updates connected",
@@ -97,7 +98,12 @@
     "bad_role": "Unknown role",
     "username_taken": "The user name is taken",
     "last_admin": "The last administrator cannot be disabled, demoted or deleted",
-    "bad_locale": "Unsupported language"
+    "bad_locale": "Unsupported language",
+    "invalid_api_key": "The API key is not valid (it may be revoked or expired)",
+    "name_taken": "A key with this name exists (names of revoked keys are not reused)",
+    "already_revoked": "This key is revoked already",
+    "bad_name": "The name must be 1-48 characters of lower case letters, digits, \".\", \"_\" or \"-\"",
+    "bad_expiry": "The expiry must be after today"
   },
   "validation": {
     "unknown": "Not valid ({code})",
@@ -322,6 +328,40 @@
     "created": "Account {name} created",
     "delete_confirm": "Delete the account {name}?",
     "delete_of": "Delete {name}"
+  },
+  "apikeys": {
+    "title": "API keys",
+    "intro": "Let other systems (an ERP, a custom program) read the faxes, their files and thumbnails over the API. Calls carry the HTTP header Authorization: Bearer <key>. See docs/integration.md.",
+    "new": "New key",
+    "name": "Name",
+    "name_help": "Usually the system that uses it, such as erp. Lower case letters, digits, \".\", \"_\" or \"-\", at most 48; the name of a revoked key cannot be used again.",
+    "write": "May also mark faxes read and edit notes",
+    "write_help": "Without it the key only reads. No key can change settings, accounts or deliveries.",
+    "expires": "Expires",
+    "expires_help": "The last day the key works (until the end of that day). Empty: it does not expire until it is revoked.",
+    "create": "Create",
+    "created": "Key {name} created",
+    "created_once": "Copy it now and keep it safe: it cannot be shown again once closed (only its hash is stored). If it is lost, revoke it and create a new one.",
+    "key": "Key",
+    "copy": "Copy",
+    "copied": "Copied",
+    "done": "I have saved it, close",
+    "prefix": "Starts with",
+    "scopes": "Permissions",
+    "scope_read": "Read only",
+    "scope_write": "Read + read flag / notes",
+    "state": "State",
+    "active": "Active",
+    "revoked": "Revoked",
+    "expired": "Expired",
+    "never": "Never",
+    "last_used": "Last used",
+    "created_by": "Created by",
+    "revoke": "Revoke",
+    "revoke_of": "Revoke {name}",
+    "revoke_confirm": "Revoke the key {name}? The system that uses it loses access at once, and this cannot be undone.",
+    "none": "No keys yet.",
+    "until": "until {day}"
   },
   "account": {
     "title": "My account",

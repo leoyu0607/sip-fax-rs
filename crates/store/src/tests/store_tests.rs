@@ -35,11 +35,12 @@ async fn s01_migration_body(env: &Env) {
         ("faxes", 0),
         ("settings", 0),
         ("delivery_attempts", 0),
-        ("schema_migrations", 3),
+        ("schema_migrations", 4),
         ("config_sections", 0),
         ("config_audit", 0),
         ("users", 0),
         ("sessions", 0),
+        ("api_keys", 0),
     ] {
         assert_eq!(
             count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await,
@@ -64,7 +65,7 @@ async fn s01_migration_body(env: &Env) {
     };
     assert_eq!(
         count_rows(env, idx_sql).await,
-        7,
+        8,
         "{}",
         lbl(env, "index count")
     );
@@ -117,6 +118,8 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     // Drop everything, then connect with auto_migrate = false: clear "outdated" error.
     let be = env.store.raw();
     for stmt in [
+        "DROP VIEW fax_records",
+        "DROP TABLE api_keys",
         "DROP TABLE sessions",
         "DROP TABLE users",
         "DROP TABLE config_audit",
@@ -141,7 +144,7 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
     let rep = env.store.migrate().await.unwrap();
     assert_eq!(
         (rep.from, rep.to, rep.applied.clone()),
-        (0, 3, vec![1, 2, 3])
+        (0, 4, vec![1, 2, 3, 4])
     );
     connect_with(&env.url, o).await.unwrap();
 }
@@ -149,6 +152,8 @@ async fn s01b_empty_db_and_auto_migrate_off_body(env: &Env) {
 async fn drop_everything(env: &Env) {
     let be = env.store.raw();
     for stmt in [
+        "DROP VIEW fax_records",
+        "DROP TABLE api_keys",
         "DROP TABLE sessions",
         "DROP TABLE users",
         "DROP TABLE config_audit",
@@ -192,10 +197,10 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
         assert_eq!(rep.to, latest_version(env.store.backend()), "{rep:?}");
         if !rep.applied.is_empty() {
             applied_by += 1;
-            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1, 2, 3]));
+            assert_eq!((rep.from, rep.applied.clone()), (0, vec![1, 2, 3, 4]));
         } else {
             assert_eq!(
-                rep.from, 3,
+                rep.from, 4,
                 "a loser starts from the version the winner wrote"
             );
         }
@@ -203,9 +208,9 @@ async fn s01c_concurrent_first_start_body(env: &Env) {
     assert_eq!(applied_by, 1, "exactly one instance applies the migration");
     assert_eq!(
         count_rows(env, "SELECT COUNT(*) FROM schema_migrations").await,
-        3
+        4
     );
-    assert_eq!(env.store.schema_version().await.unwrap(), 3);
+    assert_eq!(env.store.schema_version().await.unwrap(), 4);
 }
 
 fn probe_sql(kind: BackendKind) -> &'static str {
@@ -333,7 +338,7 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
     );
     // the real migration then runs through (the same statements again, then the rest)
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (0, 3, vec![1, 2, 3]));
+    assert_eq!((rep.from, rep.to, rep.applied), (0, 4, vec![1, 2, 3, 4]));
     for tbl in ["faxes", "settings", "delivery_attempts"] {
         count_rows(env, &format!("SELECT COUNT(*) FROM {tbl}")).await;
     }
@@ -342,21 +347,24 @@ async fn s01e_mysql_rerun_after_partial_init_body(env: &Env) {
         "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'faxes' AND index_name LIKE 'idx_faxes_%'",
     )
     .await;
-    assert_eq!(idx, 7);
+    assert_eq!(idx, 8);
     // running the whole file a second time is harmless as well
     for stmt in &stmts {
         env.store.raw().execute(stmt, &[]).await.unwrap();
     }
-    // 0003 added its columns but the run died before recording the version: the next run
-    // meets "Duplicate column name" and counts it as done
+    // 0003 and 0004 ran but the run died before recording their versions: the next run meets
+    // "Duplicate column name" (0003) and "Duplicate key name" (0004's index) and counts them as
+    // done; 0004's table and view are made again harmlessly
     env.store
         .raw()
-        .execute("DELETE FROM schema_migrations WHERE version = 3", &[])
+        .execute("DELETE FROM schema_migrations WHERE version >= 3", &[])
         .await
         .unwrap();
     let rep = env.store.migrate().await.unwrap();
-    assert_eq!((rep.from, rep.to, rep.applied), (2, 3, vec![3]));
+    assert_eq!((rep.from, rep.to, rep.applied), (2, 4, vec![3, 4]));
     count_rows(env, "SELECT COUNT(modem) + COUNT(media) FROM faxes").await;
+    count_rows(env, "SELECT COUNT(*) FROM api_keys").await;
+    count_rows(env, "SELECT COUNT(has_pdf) FROM fax_records").await;
 }
 
 // ---------------------------------------------------------------- S02

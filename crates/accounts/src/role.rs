@@ -71,11 +71,13 @@ pub enum Capability {
     ViewAudit,
     /// Version, uptime, calls in progress, registrations, pending restart.
     ViewStatus,
+    /// Create, list and revoke API keys (M6a).
+    ManageApiKeys,
 }
 
 impl Capability {
     /// Every capability (for table-driven tests and documentation).
-    pub const ALL: [Capability; 9] = [
+    pub const ALL: [Capability; 10] = [
         Capability::ViewFaxes,
         Capability::EditFaxMeta,
         Capability::ViewDeliveries,
@@ -85,5 +87,6 @@ impl Capability {
         Capability::ManageUsers,
         Capability::ViewAudit,
         Capability::ViewStatus,
+        Capability::ManageApiKeys,
     ];
 }

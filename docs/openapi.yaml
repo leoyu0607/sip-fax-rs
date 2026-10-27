@@ -1,0 +1,324 @@
+openapi: 3.1.0
+info:
+  title: sip-fax-rs fax API
+  version: 0.6.0
+  summary: Read the received faxes, their files and page images (API keys, M6a).
+  description: |
+    The part of the sip-faxd REST API that other systems use with an API key
+    (`Authorization: Bearer sfx_...`, created by an administrator on the web page "API keys" or
+    with `sip-faxd apikey create`). A key without `fax:write` only reads. See
+    `docs/integration.md` for the walk-through (Traditional Chinese).
+
+    * Times are RFC 3339 in UTC with milliseconds (`2026-10-27T08:30:00.123Z`).
+    * Errors are `{"error": {"code": "...", "message": "..."}}`; `code` is fixed, `message`
+      is English for logs.
+    * The server speaks HTTPS on port 8443 by default; without a configured certificate it
+      uses a self-signed one (see the integration guide for trusting it).
+  license:
+    name: Proprietary
+servers:
+  - url: https://fax.example.com:8443/api/v1
+security:
+  - apiKey: []
+tags:
+  - name: faxes
+paths:
+  /faxes:
+    get:
+      tags: [faxes]
+      operationId: listFaxes
+      summary: The faxes, newest first, with filters (keyset pagination).
+      description: For following new and changed faxes use `/faxes/changes` instead.
+      parameters:
+        - { name: is_read, in: query, schema: { type: boolean } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/FaxStatus' } }
+        - { name: from, in: query, description: '`started_at` at or after (RFC 3339).', schema: { type: string, format: date-time } }
+        - { name: to, in: query, description: '`started_at` before (RFC 3339).', schema: { type: string, format: date-time } }
+        - { name: ani, in: query, description: Calling number starts with this., schema: { type: string } }
+        - { name: dnis, in: query, description: Called number starts with this., schema: { type: string } }
+        - { name: trunk, in: query, schema: { type: string } }
+        - { name: q, in: query, description: 'Text in ANI, DNIS, remote ident or note (case insensitive).', schema: { type: string } }
+        - { name: cursor, in: query, description: '`next_cursor` of the previous page.', schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Fax' } }
+                  next_cursor: { type: [string, 'null'], description: 'Pass as `cursor` for the next page; null at the end.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /faxes/changes:
+    get:
+      tags: [faxes]
+      operationId: faxChanges
+      summary: New and changed faxes, oldest change first (the change feed).
+      description: |
+        Call it periodically and pass the `next` of the previous answer as `after`: every
+        change is seen once, and a fax that changes again (the reception finishes, it is marked
+        read, its note changes) comes again. Changes of the last 2 seconds are held back so that
+        none is skipped. Without `after` and `since` the feed starts with the oldest fax.
+      parameters:
+        - { name: after, in: query, description: '`next` of the previous answer.', schema: { type: string, pattern: '^-?[0-9]+\.[0-9]+$' } }
+        - { name: since, in: query, description: 'Start with the changes at or after this time (instead of `after`).', schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        '200':
+          description: The changes (possibly none).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Fax' } }
+                  next: { type: string, description: 'Always present: pass it as `after` the next time.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /faxes/counts:
+    get:
+      tags: [faxes]
+      operationId: faxCounts
+      summary: The number of unread faxes (and of faxes since a time).
+      parameters:
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unread]
+                properties:
+                  unread: { type: integer }
+                  since: { type: integer, description: Faxes with `started_at` at or after `since`. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /faxes/{id}:
+    get:
+      tags: [faxes]
+      operationId: getFax
+      summary: One fax.
+      parameters: [{ $ref: '#/components/parameters/FaxId' }]
+      responses:
+        '200':
+          description: The fax.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fax' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /faxes/{id}/file.pdf:
+    get:
+      tags: [faxes]
+      operationId: getFaxPdf
+      summary: The fax as PDF.
+      parameters: [{ $ref: '#/components/parameters/FaxId' }]
+      responses:
+        '200':
+          description: The PDF (`Content-Disposition` carries a file name).
+          content:
+            application/pdf:
+              schema: { type: string, contentMediaType: application/pdf }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Purged' }
+  /faxes/{id}/file.tif:
+    get:
+      tags: [faxes]
+      operationId: getFaxTiff
+      summary: The fax as TIFF (as received, every page).
+      parameters: [{ $ref: '#/components/parameters/FaxId' }]
+      responses:
+        '200':
+          description: The TIFF.
+          content:
+            image/tiff:
+              schema: { type: string, contentMediaType: image/tiff }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Purged' }
+  /faxes/{id}/pages/{page}.png:
+    get:
+      tags: [faxes]
+      operationId: getFaxPage
+      summary: One page as PNG, full size or as a thumbnail.
+      description: Made on first use and kept until the files are purged; `ETag` / `If-None-Match` work.
+      parameters:
+        - { $ref: '#/components/parameters/FaxId' }
+        - { name: page, in: path, required: true, description: 'Page number, from 1.', schema: { type: integer, minimum: 1 } }
+        - { name: kind, in: query, schema: { type: string, enum: [full, thumb], default: full } }
+      responses:
+        '200':
+          description: The PNG.
+          content:
+            image/png:
+              schema: { type: string, contentMediaType: image/png }
+        '304': { description: Not modified (the `If-None-Match` matched). }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Purged' }
+  /faxes/{id}/read:
+    put:
+      tags: [faxes]
+      operationId: setFaxRead
+      summary: Mark read or unread (needs `fax:write`).
+      description: Recorded as `api:<key name>` in `read_changed_by`.
+      parameters: [{ $ref: '#/components/parameters/FaxId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [read]
+              additionalProperties: false
+              properties:
+                read: { type: boolean }
+      responses:
+        '200':
+          description: The fax after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fax' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /faxes/{id}/note:
+    put:
+      tags: [faxes]
+      operationId: setFaxNote
+      summary: Replace the note (needs `fax:write`).
+      description: |
+        Optimistic lock: send the `note_updated_at` you last saw (`null` if the note was never
+        edited); if someone changed it since, the answer is 409 `conflict` and nothing changes.
+        Recorded as `api:<key name>` in `note_updated_by`.
+      parameters: [{ $ref: '#/components/parameters/FaxId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, expected_updated_at]
+              additionalProperties: false
+              properties:
+                text: { type: string, maxLength: 4000 }
+                expected_updated_at: { type: [string, 'null'], format: date-time }
+      responses:
+        '200':
+          description: The fax after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fax' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: 'An API key: `sfx_` and 43 base64url characters.'
+  parameters:
+    FaxId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+  schemas:
+    FaxStatus:
+      type: string
+      enum: [receiving, received, partial, failed, no_fax]
+      description: |
+        `receiving` while the call is on (pages grows); then `received` (every page),
+        `partial` (some pages), `failed` (no page) or `no_fax` (the call had no fax signal).
+    Fax:
+      type: object
+      required: [id, call_id, trunk, started_at, fax_status, pages, ecm, has_tiff, has_pdf, is_read, created_at, updated_at]
+      properties:
+        id: { type: integer }
+        call_id: { type: string, description: SIP Call-ID. }
+        trunk: { type: string }
+        ani: { type: [string, 'null'], description: Calling number. }
+        ani_source: { type: [string, 'null'], description: 'pai, rpid, from or anonymous.' }
+        dnis: { type: [string, 'null'], description: Called number. }
+        dnis_source: { type: [string, 'null'] }
+        remote_ident: { type: [string, 'null'], description: Station id (TSI) of the sending fax machine. }
+        started_at: { type: string, format: date-time }
+        answered_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time }
+        duration_sec: { type: [integer, 'null'] }
+        hangup_direction: { type: [string, 'null'], enum: [remote, local, system, null] }
+        hangup_code: { type: [string, 'null'] }
+        hangup_text: { type: [string, 'null'] }
+        sip_status: { type: [integer, 'null'] }
+        t30_code: { type: [integer, 'null'] }
+        fax_status: { $ref: '#/components/schemas/FaxStatus' }
+        pages: { type: integer }
+        resolution: { type: [string, 'null'] }
+        bit_rate: { type: [integer, 'null'] }
+        compression: { type: [string, 'null'] }
+        ecm: { type: boolean }
+        modem: { type: [string, 'null'], description: 'v27ter, v29 or v17.' }
+        media: { type: [string, 'null'], description: 't38 or g711.' }
+        has_tiff: { type: boolean, description: The TIFF can be downloaded. }
+        has_pdf: { type: boolean, description: The PDF can be downloaded. }
+        tiff_size: { type: [integer, 'null'] }
+        pdf_size: { type: [integer, 'null'] }
+        files_purged_at: { type: [string, 'null'], format: date-time, description: The files were deleted by the retention policy. }
+        is_read: { type: boolean }
+        read_changed_by: { type: [string, 'null'] }
+        read_changed_at: { type: [string, 'null'], format: date-time }
+        note: { type: [string, 'null'] }
+        note_updated_by: { type: [string, 'null'] }
+        note_updated_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            fields: { type: object }
+  responses:
+    BadRequest:
+      description: '`bad_request`: an unknown or malformed parameter.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: '`invalid_api_key`: no, a wrong, a revoked or an expired key.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: '`forbidden`: the key lacks `fax:write`.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: '`not_found`: no such fax, page or file.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: '`conflict`: the note was changed by someone else.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Purged:
+      description: '`purged`: the files were deleted by the retention policy (the record stays).'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unprocessable:
+      description: '`too_long` and other refused values.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unavailable:
+      description: '`unavailable`: the database does not answer; try again later.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

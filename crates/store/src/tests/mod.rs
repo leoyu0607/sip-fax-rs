@@ -6,6 +6,7 @@
 mod admin_tests;
 mod check_tests;
 mod copy_tests;
+mod m6a_tests;
 mod preview_tests;
 mod purge_tests;
 mod store_tests;

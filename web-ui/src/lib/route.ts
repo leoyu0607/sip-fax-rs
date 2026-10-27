@@ -5,13 +5,14 @@ export type Route =
   | { page: 'fax'; id: number }
   | { page: 'settings'; section: string | null }
   | { page: 'users' }
+  | { page: 'apikeys' }
   | { page: 'audit' }
   | { page: 'status' }
   | { page: 'account' }
   | { page: 'not_found' };
 
 /** The pages only an administrator sees (spec 2.1). */
-export const ADMIN_PAGES: ReadonlySet<Route['page']> = new Set(['settings', 'users', 'audit']);
+export const ADMIN_PAGES: ReadonlySet<Route['page']> = new Set(['settings', 'users', 'apikeys', 'audit']);
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '').replace(/^\/+/, '').replace(/\/+$/, '');
@@ -26,6 +27,8 @@ export function parseRoute(hash: string): Route {
       if (rest.length === 0) return { page: 'settings', section: null };
       if (rest.length === 1) return { page: 'settings', section: rest[0] ?? null };
       return { page: 'not_found' };
+    case 'api-keys':
+      return rest.length === 0 ? { page: 'apikeys' } : { page: 'not_found' };
     case 'users':
     case 'audit':
     case 'status':
@@ -42,6 +45,8 @@ export function href(r: Route): string {
       return `#/faxes/${r.id}`;
     case 'settings':
       return r.section === null ? '#/settings' : `#/settings/${encodeURIComponent(r.section)}`;
+    case 'apikeys':
+      return '#/api-keys';
     case 'not_found':
       return '#/';
     default:

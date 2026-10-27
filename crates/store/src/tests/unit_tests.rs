@@ -279,8 +279,18 @@ fn mysql_migrations_are_safe_to_run_again() {
             // "Duplicate column name", which the runner takes as done
             let add_columns = up.starts_with("ALTER TABLE ")
                 && up.split(',').all(|part| part.contains(" ADD COLUMN "));
+            // 0004: an ALTER TABLE that only adds one index ("Duplicate key name" when run again,
+            // taken as done) and a view that replaces itself
+            let add_index = up.starts_with("ALTER TABLE ")
+                && up.matches(" ADD ").count() == 1
+                && up.contains(" ADD INDEX ");
+            let view = up.starts_with("CREATE OR REPLACE VIEW ");
             assert!(
-                up.starts_with("CREATE TABLE IF NOT EXISTS ") || guarded_move || add_columns,
+                up.starts_with("CREATE TABLE IF NOT EXISTS ")
+                    || guarded_move
+                    || add_columns
+                    || add_index
+                    || view,
                 "migration {:04}_{}: not repeatable: {}",
                 m.version,
                 m.name,

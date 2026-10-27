@@ -276,6 +276,17 @@
 - [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
+- [x] [Any] 發佈 v0.6.0-alpha（M6a，2026-10-27）：版本 0.6.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（0.6.0 與從 0.5.0 升級）、兩份手冊的適用版本；`m6a` 以 merge commit 合進 main 後在 main 打 tag
+- [x] [Any] M6a 串接介面（ADR-070，2026-10-27 使用者提出：同事的 Java／Node.js 程式從別台讀傳真狀態、取檔與縮圖）：API 金鑰（權限逐把選擇 `fax:read`／`fax:write`）、`GET /faxes/changes` 增量查詢、view `fax_records`（migration 0004）、`docs/integration.md`、`docs/openapi.yaml`、`examples/java`、`examples/node`；完成後發 v0.6.0-alpha（使用者決定一次做完）
+  - [x] ADR-070、測試計畫 `docs/test-plans/M6a.md`（分支 `m6a`）
+  - [x] ① store：migration 0004（`api_keys`、view `fax_records`、索引 `idx_faxes_updated`；MySQL 重跑時 `Duplicate key name` 視為已完成）、`AdminStore::api_key_*`、`FaxStore::changes`、`db copy` 複製 `api_keys`（2026-10-27）
+  - [x] ② accounts／web：`accounts::apikey`（建立、列表、撤銷、驗證，最後使用每分鐘最多寫一次）、`Capability::ManageApiKeys`、web 的 `Caller`（session 或 Bearer 金鑰，只有 `/faxes` 路由接受；有 `Authorization` 時只看金鑰）、`GET /faxes/changes`（安定期 2 秒）、`/api-keys`、`/api/v1/openapi.yaml`；新錯誤碼 `invalid_api_key` 等加進 `api-codes.json`；開發冒煙測試 `crates/web/tests/apikeys.rs`
+  - [x] ③ CLI `sip-faxd apikey create|list|revoke`（時間以本地時間顯示；`--expires YYYY-MM-DD` 到當天結束）；Web「API 金鑰」頁（`web-ui/src/routes/ApiKeys.svelte`，金鑰只顯示一次、可複製）
+  - [x] ④ `docs/integration.md`、`docs/openapi.yaml`、`examples/`（Java `FaxClient`／`FaxDbReader`、Node `fax-client.mjs`，已對真的服務手動跑過 API 範例）、README 兩份、`database.md`、CHANGELOG
+  - 接手要點：測試計畫 D02／D03 需要在 CI 跑範例（Node 在 `e2e-web` job 已有；Java 要 `setup-java`）；V03 的唯讀帳號 SQL 要在 `db-matrix` 中照文件執行。
+  - [x] [Sonnet] M6a 測試，報告 `docs/test-reports/M6a.md`
+    - 2026-10-27 Sonnet 完成 K01–K12、C01–C05、V01–V03、D01–D04、U01–U04，全數通過（四種伺服器 DB 本機實跑；Playwright 與 Node／Java 範例本機實跑）；涵蓋率 accounts 94.1 %、store 87.5 %、web 95.9 %；未改產品程式碼；與計畫不同處見報告 §4（Bearer 大小寫、空值參數、回傳形狀 `items`）；CI 全綠（run 40419100087，含四種 db-matrix、e2e-web 的 D02/D03 與 U01–U04）；待 Opus 審核，尚未打勾
+    - 2026-10-27 **Opus 審核通過**（報告 §9）；審核時把列表的到期日改為顯示最後可用的那一天（`i18n.lastDay`）。下一步：發 v0.6.0-alpha
 - [x] [Any] CodeQL 審視（2026-10-27，v0.5.0-alpha 之後）：89 個 alert 中 78 個是誤報（測試的固定帳密、RFC 測試向量、登入計時用的假雜湊、印出使用者名稱），已在 GitHub 標為 false positive 並附原因；改為進階設定（`.github/workflows/codeql.yml`＋`.github/codeql/codeql-config.yml`，不掃 `tests/`、`tools/`、fuzz、web-ui e2e），GitHub 的預設設定要關掉；`ci.yml`、`fuzz.yml` 最上層 `permissions: contents: read`（10 個 alert）；`db check` 的 `mask_secrets` 連單獨出現的密碼也遮掉
 - [ ] [Any] M5 計畫 §1 的 criterion 效能量測（每個收端處理 1 秒音訊 < 50 ms，x86_64 musl release）
 - [ ] [Any] G.711：頁面 training 遺失時，等影像訊號結束就回 RTN，不等 T2 逾時（ADR-068，M5e E04）

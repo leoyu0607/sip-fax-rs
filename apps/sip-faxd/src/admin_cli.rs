@@ -1,5 +1,5 @@
 //! The administration subcommands (M4a, docs/design/m4-web.md section 7.4): `user ...`,
-//! `fax ...` and `config import / export`. They talk to the database directly (the service does
+//! `apikey ...` (M6a), `fax ...` and `config import / export`. They talk to the database directly (the service does
 //! not have to run) and record `cli:<operating system user>` as the operator.
 
 use std::io::{BufRead, Write};
@@ -263,6 +263,154 @@ async fn run_user(cfg: &AppConfig, db: &Arc<Db>, action: UserAction) -> ExitCode
                 ExitCode::SUCCESS
             }
             Err(e) => fail(e),
+        },
+    }
+}
+
+// ------------------------------------------------------------------------ apikey
+
+/// `sip-faxd apikey ...` (M6a, ADR-070): keys for other systems that read the faxes over the API.
+#[derive(Subcommand)]
+pub enum ApiKeyAction {
+    /// Create a key; it is printed once and cannot be shown again.
+    Create {
+        /// Name of the key, usually the system that uses it (a-z, 0-9, `.`, `_`, `-`).
+        name: String,
+        /// The key may also mark faxes read or unread and edit the note.
+        #[arg(long)]
+        write: bool,
+        /// Last day of validity (`YYYY-MM-DD`, local time, valid until the end of that day) or
+        /// an RFC 3339 time. Without it the key is valid until it is revoked.
+        #[arg(long)]
+        expires: Option<String>,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+    /// List the keys (never the keys themselves), revoked ones included.
+    List {
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+    /// Revoke a key: it stops working at once and cannot be enabled again.
+    Revoke {
+        /// Name of the key.
+        name: String,
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+}
+
+/// A time in the local time zone (the expiry is given in local time too).
+fn local_ts(t: DateTime<Utc>) -> String {
+    t.with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
+/// `YYYY-MM-DD` (valid until the end of that local day) or an RFC 3339 time.
+pub fn parse_expiry(s: &str) -> Result<DateTime<Utc>, String> {
+    if let Ok(t) = DateTime::parse_from_rfc3339(s) {
+        return Ok(t.to_utc());
+    }
+    let day = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .map_err(|_| format!("--expires: {s:?} is not YYYY-MM-DD or an RFC 3339 time"))?;
+    let next = day
+        .succ_opt()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .ok_or_else(|| format!("--expires: {s:?} is out of range"))?;
+    next.and_local_timezone(chrono::Local)
+        .earliest()
+        .map(|t| t.to_utc())
+        .ok_or_else(|| format!("--expires: {s:?} is not a valid local time"))
+}
+
+/// Entry point of `sip-faxd apikey ...`.
+pub fn apikey(action: ApiKeyAction) -> ExitCode {
+    let arg = match &action {
+        ApiKeyAction::Create { config, .. }
+        | ApiKeyAction::List { config }
+        | ApiKeyAction::Revoke { config, .. } => ConfigArg {
+            config: config.config.clone(),
+        },
+    };
+    crate::with_runtime(&crate::config_path(&arg), |cfg| async move {
+        let db = Arc::new(Db::new(&cfg, &crate::exe_dir()));
+        let code = run_apikey(&cfg, &db, action).await;
+        db.close().await;
+        code
+    })
+}
+
+async fn run_apikey(cfg: &AppConfig, db: &Arc<Db>, action: ApiKeyAction) -> ExitCode {
+    if let Err(e) = db.store().await {
+        return fail(format!("database {}: {e}", mask_url(&cfg.database.url)));
+    }
+    let auth = auth_service(db);
+    let by = cli_operator();
+    match action {
+        ApiKeyAction::Create {
+            name,
+            write,
+            expires,
+            ..
+        } => {
+            let expires_at = match expires.as_deref().map(parse_expiry).transpose() {
+                Ok(e) => e,
+                Err(e) => return fail(e),
+            };
+            match auth.create_api_key(&name, write, expires_at, &by).await {
+                Ok(c) => {
+                    println!(
+                        "API key {} created ({}{}):",
+                        c.info.name,
+                        c.info.scopes.join(", "),
+                        c.info
+                            .expires_at
+                            .map_or(String::new(), |e| format!(", valid until {}", local_ts(e)))
+                    );
+                    println!("{}", c.key);
+                    println!("Keep it now: it is not stored and cannot be shown again.");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(format!("{e} ({})", e.code())),
+            }
+        }
+        ApiKeyAction::List { .. } => match auth.list_api_keys().await {
+            Ok(list) => {
+                let now = Utc::now();
+                println!(
+                    "{:<24} {:<13} {:<19} {:<8} {:<19} {:<19} CREATED BY",
+                    "NAME", "PREFIX", "SCOPES", "STATUS", "EXPIRES", "LAST USED"
+                );
+                for k in list {
+                    let status = if k.revoked_at.is_some() {
+                        "revoked"
+                    } else if k.active(now) {
+                        "active"
+                    } else {
+                        "expired"
+                    };
+                    println!(
+                        "{:<24} {:<13} {:<19} {:<8} {:<19} {:<19} {}",
+                        k.name,
+                        k.prefix,
+                        k.scopes.join(","),
+                        status,
+                        k.expires_at.map_or("-".to_string(), local_ts),
+                        k.last_used_at.map_or("-".to_string(), local_ts),
+                        k.created_by
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(e),
+        },
+        ApiKeyAction::Revoke { name, .. } => match auth.revoke_api_key(&name, &by).await {
+            Ok(k) => {
+                println!("API key {} revoked", k.name);
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(format!("{e} ({})", e.code())),
         },
     }
 }

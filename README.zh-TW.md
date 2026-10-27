@@ -9,7 +9,7 @@
 - 預設使用 **T.38**，以 **G.711 passthrough** 為備援
 - 結果存入資料庫，並可透過 Email、Webhook 或資料夾投遞
 
-> **狀態：** alpha，現場試接中（最新版：[v0.5.0-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.5.0-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（MH/MR/MMR、最高 14400 bit/s；ECM 已支援但預設關閉），並輸出成 TIFF 與 PDF。gateway 不接受 T.38 時，改**從 G.711 接收**（PCMU／PCMA，V.27ter 與 V.29，最高 9600 bit/s，不使用 ECM；已和 SpanDSP 互通驗證，尚未和真實 gateway 測過）。每通電話都會**記錄到資料庫**（預設 SQLite；也支援 PostgreSQL、MySQL/MariaDB、MSSQL；`sip-faxd db check` 測試連線，`sip-faxd db copy` 把全部資料搬到另一個資料庫），包含 ANI/DNIS、掛線原因與狀態；檔案與紀錄依設定的天數自動清整；傳真可以**投遞**到資料夾、Email 或 Webhook，失敗會持久化重試。執行檔內建 **Web 介面**（HTTPS，port 8443，繁體中文與英文）：即時列出收進來的傳真、預覽與下載、已讀與備註，管理員可以修改設定（存在資料庫，不必重啟就套用；設定檔只留啟動設定）與帳號；也可以用 `sip-faxd start|stop|status|logs` 與 TUI 在終端機管理服務。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
+> **狀態：** alpha，現場試接中（最新版：[v0.6.0-alpha](https://github.com/leoyu0607/sip-fax-rs/releases/tag/v0.6.0-alpha)）。**已能透過 T.38 接收傳真**，並已用真實的 AudioCodes gateway 驗證：`sip-faxd serve` 接聽來電、切換到 T.38、接收多頁傳真（MH/MR/MMR、最高 14400 bit/s；ECM 已支援但預設關閉），並輸出成 TIFF 與 PDF。gateway 不接受 T.38 時，改**從 G.711 接收**（PCMU／PCMA，V.27ter 與 V.29，最高 9600 bit/s，不使用 ECM；已和 SpanDSP 互通驗證，尚未和真實 gateway 測過）。每通電話都會**記錄到資料庫**（預設 SQLite；也支援 PostgreSQL、MySQL/MariaDB、MSSQL；`sip-faxd db check` 測試連線，`sip-faxd db copy` 把全部資料搬到另一個資料庫），包含 ANI/DNIS、掛線原因與狀態；檔案與紀錄依設定的天數自動清整；傳真可以**投遞**到資料夾、Email 或 Webhook，失敗會持久化重試。執行檔內建 **Web 介面**（HTTPS，port 8443，繁體中文與英文）：即時列出收進來的傳真、預覽與下載、已讀與備註，管理員可以修改設定（存在資料庫，不必重啟就套用；設定檔只留啟動設定）與帳號；也可以用 `sip-faxd start|stop|status|logs` 與 TUI 在終端機管理服務。**其他系統**可以用 API 金鑰經 API 讀取傳真、檔案與每頁影像，或查詢資料庫 view `fax_records`（[docs/integration.md](docs/integration.md)）。詳見 [CHANGELOG.md](CHANGELOG.md) 與 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能（規劃中）
 
@@ -134,6 +134,15 @@ trust_server_certificate = true
 | `sip-faxd purge [--dry-run]` | 立刻執行清整；`--dry-run` 只計數、不刪除 |
 | `sip-faxd db check [--url URL [--password-stdin]]` | 測試連線：伺服器版本、資料表版本；不做任何修改 |
 | `sip-faxd db copy --to URL`（或 `--to-config 檔案`） | 換資料庫，也可以換成另一種（例如 SQLite 改用 SQL Server）：全部資料表連同 id 複製到空的資料庫；服務必須先停止 |
+
+## 與其他系統串接
+
+其他系統（ERP、客製程式）可以用兩種方式讀取傳真，說明在 [docs/integration.md](docs/integration.md)：
+
+- **API 加 API 金鑰**：管理員在 Web 介面的「API 金鑰」頁或以 `sip-faxd apikey create <名稱> [--write] [--expires YYYY-MM-DD]`（另有 `list`、`revoke`）建立金鑰。程式帶 `Authorization: Bearer sfx_...` 就能列出傳真、以 `GET /api/v1/faxes/changes` 增量取得新進與有變動的傳真（每個變動一次）、下載 PDF／TIFF 與每頁的 PNG（原圖或縮圖）；建立時加 `--write` 的金鑰另外可以標記已讀、修改備註。金鑰只能用在傳真相關的路由，可以設到期日、撤銷立即生效，資料庫只存雜湊。OpenAPI 規格在 [docs/openapi.yaml](docs/openapi.yaml)，服務也在 `/api/v1/openapi.yaml` 提供。
+- **資料庫 view `fax_records`**：傳真紀錄對外的固定格式（之後只增加欄位），給唯讀的資料庫帳號查詢；各種資料庫建立唯讀帳號的 SQL 在串接指南中。
+
+不需要任何套件的範例：[examples/java](examples/java)（JDK 17 以上）、[examples/node](examples/node)（Node.js 18 以上）。
 
 ## 投遞
 

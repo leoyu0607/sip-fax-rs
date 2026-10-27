@@ -165,6 +165,14 @@ M4a 起清整設定（`retention.*`）不再放在這裡：migration 0002 把它
 
 `id`、`token_hash`（token 的 SHA-256 十六進位，唯一；token 本身不存）、`user_id`（外鍵）、`created_at`、`last_seen_at`（閒置 8 小時從這裡算）、`expires_at`（絕對上限，登入後 7 天）、`ip`、`user_agent`（截斷）。重新啟動後仍有效。CSRF token 由 session token 推導（SHA-256），不存。
 
+## `api_keys`（M6a，migration 0004）
+
+`id`、`name`（唯一，小寫；撤銷後也不能重用）、`token_hash`（金鑰的 SHA-256 十六進位，唯一；金鑰本身不存）、`prefix`（金鑰前 12 個字元，列表用來辨認）、`scopes`（`fax:read` 或 `fax:read,fax:write`）、`created_by`、`created_at`、`expires_at`、`revoked_at`、`revoked_by`、`last_used_at`、`last_used_ip`（每把最多每分鐘寫一次）。金鑰只能撤銷、不會刪除。`db copy` 會一併複製。設計見 ADR-070。
+
+## view `fax_records`（M6a，migration 0004）
+
+傳真紀錄**對外**的固定格式，給其他系統的唯讀帳號查詢：`faxes` 的欄位扣掉檔案路徑，另加 `has_tiff`、`has_pdf`（有檔案且尚未清整）。之後的版本只增加欄位、不改名、不刪除。欄位表、增量查詢與建立唯讀帳號的 SQL 見 `docs/integration.md` 第 5 節。另加索引 `idx_faxes_updated (updated_at, id)` 供增量查詢（API 的 `GET /faxes/changes` 也用它）。
+
 ## `delivery_attempts`
 
 投遞（資料夾、Email、Webhook）的嘗試紀錄（M3c 實作、M3f 接進 `sip-faxd serve`）。**每次嘗試一列**：第一次嘗試是 `attempt = 1`、`pending`、`next_try_at` = 現在；成功就改成 `done`；暫時性失敗時，該列改成 `failed`（保留 `last_error`），並新增 `attempt + 1` 的 `pending` 列（`next_try_at` 依 1、5、15、60 分鐘、之後每 4 小時退避）；用盡 `max_attempts` 的那一列改成 `giving_up`；永久性失敗（HTTP 4xx 除 408/425/429、SMTP 5xx、設定或來源檔案錯誤）只把該列改成 `failed`，不再排下一次。同一份傳真同一個 `target` 只會建立一次（冪等）。重新啟動後，`pending` 列繼續執行；啟動時 `[delivery] catch_up_hours` 內已結束、還沒有任何列的 `received`／`partial` 傳真會補建。投遞失敗不會改 `faxes` 的任何欄位。

@@ -152,6 +152,11 @@ enum Command {
         #[command(subcommand)]
         action: admin_cli::UserAction,
     },
+    /// API keys for other systems that read the faxes (create, list, revoke).
+    Apikey {
+        #[command(subcommand)]
+        action: admin_cli::ApiKeyAction,
+    },
     /// Received faxes.
     Fax {
         #[command(subcommand)]
@@ -291,6 +296,7 @@ fn main() -> ExitCode {
             admin_cli::config_export(&cfg, &exe_dir(), include_secrets).await
         }),
         Some(Command::User { action }) => admin_cli::user(action),
+        Some(Command::Apikey { action }) => admin_cli::apikey(action),
         Some(Command::Fax { action }) => admin_cli::fax(action),
         Some(Command::Serve(arg)) => serve(&config_path(&arg.config), arg.daemonized),
         Some(Command::Start {
