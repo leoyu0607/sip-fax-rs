@@ -822,12 +822,4 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::CommandFactory;
-
-    #[test]
-    fn cli_definition_is_valid() {
-        Cli::command().debug_assert();
-    }
-}
+mod tests;

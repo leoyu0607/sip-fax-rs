@@ -37,6 +37,7 @@ scripts/package.sh x86_64-unknown-linux-musl   # 產生 dist/*.tar.gz
   4. 審核通過後才勾選里程碑。
 - **Subagent 只用在測試**（2026-10-22 使用者決定，為了節省額度）：功能開發、修 bug、整合、文件都由主 session 直接做，不要派 subagent（包括 Explore、Plan、general-purpose 等）。只有上面測試治理流程的第 2 步才派**一個** Sonnet subagent，prompt 要精簡、範圍明確；不要同時開多個 subagent，也不要用 Workflow 平行展開。
 - **每完成一個階段就 commit 並 push** 工作分支，並在 `docs/TODO.md` 對應段落記下進度與接手要點，讓另一個 agent 隨時能接手。
+- **測試不寫在產品原始檔裡**（2026-10-27 使用者決定，ADR-072）：單元測試寫在 `foo.rs` 旁的 `foo/tests.rs`，原檔只留 `#[cfg(test)] mod tests;`（`lib.rs`／`main.rs`／`mod.rs` 的放在同目錄的 `tests.rs`）；測試輔助用 `*_tests.rs`、`testutil.rs`、`testtx.rs`；整合測試放 crate 的 `tests/`。`scripts/check-test-layout.sh`（CI lint）會擋下寫在原檔內的測試模組。這樣源碼掃描可以依檔名排除全部測試程式碼。
 - 協定解析器（SIP parser、IFP/PER、UDPTL、T.4）需要有 proptest 屬性測試和 cargo-fuzz 目標。
 - `sip-core` **不可依賴**任何 fax crate，因為它未來會拆成獨立專案。
 - 全面使用 rustls，禁止引入 OpenSSL 或 native-tls（`deny.toml` 會擋）。
