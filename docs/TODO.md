@@ -204,7 +204,7 @@
 - [x] [Any] `CHANGELOG.md` 補上 M4a（設定存 DB、帳號、`config`／`user`／`fax` CLI）與 TUI，中英兩段（v0.3.0-alpha）
 - [x] [Opus] 座席使用手冊 `docs/manual/agent.md`（2026-10-22，v0.3.0-alpha；Web 為主，附 TUI 按鍵）
 - [x] [Opus] IT 安裝維運手冊 `docs/manual/it.md`（2026-10-22，v0.3.0-alpha：安裝、設定、gateway、資料庫、Web 與憑證、防火牆、systemd、log、帳號、投遞、清整、備份還原、升級、疑難排解）
-- [ ] [Any] release 時把兩份手冊轉成 PDF；正式 release 的 PDF 要含截圖
+- [x] [Any] release 時把兩份手冊轉成 PDF；正式 release 的 PDF 要含截圖（2026-10-27：`scripts/docs-pdf.sh`（pandoc＋Playwright Chromium）產生 `docs/pdf/` 的串接指南、座席使用手冊、IT 安裝維運手冊，含截圖與目錄；每次發版截圖更新後重跑）
   - 截圖已可自動產生：`scripts/e2e-web.sh --config playwright.shots.config.ts`（`web-ui/e2e/manual.shots.ts`，Docker 裡真的 sip-faxd 與 SpanDSP 傳真），輸出到 `docs/manual/images/`；介面改了就重跑
 
 ## M5 — G.711 passthrough
