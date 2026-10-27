@@ -5,6 +5,8 @@ English | [繁體中文](#繁體中文)
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/); `-alpha` releases are field-test builds.
 
 ## [Unreleased]
+### Fixed
+- A call failed when SIP listened on a wildcard address (`0.0.0.0`) and no advertised address was set: the answer carried `Contact: <sip:0.0.0.0:...>` and `c=IN IP4 0.0.0.0`, so the gateway could neither acknowledge it nor send T.38, and hung up after 10 s (field test with an AudioCodes Mediant 1000). Each call now uses the local address towards its peer in that case; setting the advertised address is still recommended (behind NAT or with several networks the guess can be wrong), and the web interface reminds administrators to set it.
 
 ## [0.6.0-alpha] - 2026-10-27
 Milestone M6a: other systems read the faxes (API keys, change feed, database view).
@@ -129,6 +131,8 @@ Milestone M4: the web interface, accounts, settings in the database, service man
 ## 繁體中文
 
 ### [Unreleased]
+#### 修正
+- SIP 監聽萬用位址（`0.0.0.0`）又沒有設定對外位址時，來電會失敗：回應中的 `Contact: <sip:0.0.0.0:...>` 與 `c=IN IP4 0.0.0.0` 讓 gateway 無法回 ACK、也無法送 T.38，10 秒後掛斷（AudioCodes Mediant 1000 試接）。現在這種情況下每通電話自動使用連往對方的本機位址；仍建議填寫對外位址（在 NAT 後方或有多張網卡時自動選的可能不對），Web 介面會提醒管理員設定。
 
 ### [0.6.0-alpha] - 2026-10-27
 里程碑 M6a：其他系統讀取傳真（API 金鑰、增量查詢、資料庫 view）。

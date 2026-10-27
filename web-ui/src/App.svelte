@@ -107,17 +107,27 @@
 
   // no trunk yet (a new installation): every call is refused, say so on every page
   let trunks = $state<number | null>(null);
+  // no address to advertise (ADR-071): calls work through the address towards each peer, but
+  // behind NAT or with several networks that guess is wrong; the administrator is asked to set it
+  let advertisedMissing = $state(false);
   $effect(() => {
     if (!signedIn) {
       trunks = null;
+      advertisedMissing = false;
       return;
     }
     get<Status>('/status')
-      .then((s) => (trunks = s.service.trunks.length))
+      .then((s) => {
+        trunks = s.service.trunks.length;
+        advertisedMissing = s.service.advertised_missing === true;
+      })
       .catch(() => undefined);
     return onEvent((e) => {
-      const d = e.data as { trunks?: unknown[] } | undefined;
-      if (e.type === 'status.changed' && Array.isArray(d?.trunks)) trunks = d.trunks.length;
+      const d = e.data as { trunks?: unknown[]; advertised_missing?: boolean } | undefined;
+      if (e.type === 'status.changed' && Array.isArray(d?.trunks)) {
+        trunks = d.trunks.length;
+        advertisedMissing = d.advertised_missing === true;
+      }
     });
   });
 
@@ -229,6 +239,13 @@
       {:else}
         {t('setup.no_trunk_agent')}
       {/if}
+    </div>
+  {/if}
+  {#if advertisedMissing && session.isAdmin}
+    <div class="notice restart setup-banner advertised-banner" role="status">
+      <span aria-hidden="true">⚠</span>
+      {t('setup.advertised_missing')}
+      <a href={href({ page: 'settings', section: 'sip' })}>{t('setup.go_sip')}</a>
     </div>
   {/if}
   <main id="main">

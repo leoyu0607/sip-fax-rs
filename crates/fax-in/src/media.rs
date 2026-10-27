@@ -41,6 +41,16 @@ impl MediaCtx {
             ..self.clone()
         }
     }
+
+    /// The same settings for a call with `peer`: a wildcard address (`0.0.0.0`, `::`, nothing
+    /// advertised and no `[media] address`) becomes the local address towards the peer, which
+    /// could not send its media to the wildcard (ADR-071).
+    pub fn for_peer(&self, peer: std::net::SocketAddr) -> MediaCtx {
+        MediaCtx {
+            local_address: sip_core::net::concrete_host(&self.local_address, peer),
+            ..self.clone()
+        }
+    }
 }
 
 /// What the answer accepted.

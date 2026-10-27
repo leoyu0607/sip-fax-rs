@@ -186,10 +186,10 @@ impl EpInner {
         h.push("Accept", "application/sdp");
     }
 
-    /// Our Contact for a call on `kind`.
-    pub(crate) fn contact_for(&self, kind: TransportKind) -> NameAddr {
-        let (host, port) = self.layer.transport().sent_by(kind);
-        let mut u = SipUri::new(net::uri_host(host));
+    /// Our Contact for a call with `peer` on `kind`.
+    pub(crate) fn contact_for(&self, kind: TransportKind, peer: SocketAddr) -> NameAddr {
+        let (host, port) = self.layer.transport().sent_by_to(kind, peer);
+        let mut u = SipUri::new(net::uri_host(&host));
         u.user = self.cfg.contact_user.clone();
         u.port = Some(port);
         if kind == TransportKind::Tcp {
@@ -604,8 +604,10 @@ impl IncomingCall {
             return Err(CallError::Cancelled);
         }
         let mut r = Response::for_request(&self.request, StatusCode::RINGING, Some(&self.to_tag));
-        r.headers
-            .push("Contact", self.ep.contact_for(self.transport).to_string());
+        r.headers.push(
+            "Contact",
+            self.ep.contact_for(self.transport, self.source).to_string(),
+        );
         self.tx.respond(r).await.map_err(|_| CallError::Closed)
     }
 
@@ -642,7 +644,7 @@ impl IncomingCall {
             return Err(CallError::Cancelled);
         }
         let ep = self.ep.clone();
-        let contact = ep.contact_for(self.transport);
+        let contact = ep.contact_for(self.transport, self.source);
         let dialog = uas::dialog_from_invite(
             &self.request,
             &self.to_tag,
@@ -790,12 +792,12 @@ impl Endpoint {
     pub async fn invite(&self, opts: InviteOptions) -> Result<DialogHandle, InviteError> {
         let ep = &self.inner;
         let kind = opts.transport;
-        let contact = ep.contact_for(kind);
+        let contact = ep.contact_for(kind, opts.target);
         let call_id = format!(
             "{:016x}{:08x}@{}",
             rand::random::<u64>(),
             rand::random::<u32>(),
-            ep.layer.transport().sent_by(kind).0
+            ep.layer.transport().sent_by_to(kind, opts.target).0
         );
         let mut from = NameAddr::new(Uri::Sip(opts.from.clone()));
         from.set_tag(random_tag());

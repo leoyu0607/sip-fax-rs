@@ -36,6 +36,7 @@ pub fn recorder_events(bus: Arc<EventBus>) -> WrittenHook {
 /// # Errors
 /// The certificate cannot be used or the address cannot be bound; the message names the file
 /// or the address.
+#[allow(clippy::too_many_arguments)]
 pub async fn start(
     cfg: &AppConfig,
     base: &Path,
@@ -44,6 +45,7 @@ pub async fn start(
     hub: Arc<Hub>,
     events: Arc<EventBus>,
     store: Arc<dyn StoreSource>,
+    advertised_missing: bool,
 ) -> Result<Option<WebServer>, String> {
     let w = &cfg.web;
     if !w.enabled {
@@ -89,7 +91,7 @@ pub async fn start(
         }
     };
     let https = tls.is_some();
-    let status: Arc<dyn StatusSource> = Arc::new(HubStatus(hub));
+    let status: Arc<dyn StatusSource> = Arc::new(HubStatus(hub, advertised_missing));
     let pending = config.clone();
     // (lives as long as the process)
     events::watch_status(
@@ -123,7 +125,7 @@ pub async fn start(
 }
 
 /// `GET /status` reads what the control socket's `status` answers.
-struct HubStatus(Arc<Hub>);
+struct HubStatus(Arc<Hub>, bool);
 
 impl StatusSource for HubStatus {
     fn status(&self) -> ServiceStatus {
@@ -143,6 +145,7 @@ impl StatusSource for HubStatus {
                     registration: t.registration,
                 })
                 .collect(),
+            advertised_missing: self.1,
         }
     }
 }
@@ -318,6 +321,7 @@ mod tests {
             f.hub.clone(),
             Arc::new(EventBus::new()),
             f.src.clone(),
+            false,
         )
         .await
     }

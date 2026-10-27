@@ -251,6 +251,8 @@ export interface ServiceStatus {
   listen: string[];
   active_calls: number;
   trunks: TrunkState[];
+  /** No address to advertise is set (each call uses the address towards its peer). */
+  advertised_missing?: boolean;
 }
 
 export interface Status {

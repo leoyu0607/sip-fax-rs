@@ -260,7 +260,7 @@ impl TransactionLayer {
         if req.method == Method::Ack {
             return Err(TransactionError::AckHasNoTransaction);
         }
-        self.inner.transport.stamp_request(&mut req, kind);
+        self.inner.transport.stamp_request(&mut req, kind, dest);
         let mut via = req.headers.top_via().map_err(|_| TransactionError::NoVia)?;
         if via.branch().is_none() {
             via.set_param("branch", Some(new_branch()));

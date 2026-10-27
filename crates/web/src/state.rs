@@ -42,6 +42,9 @@ pub struct ServiceStatus {
     pub active_calls: usize,
     /// The trunks and their registration.
     pub trunks: Vec<TrunkState>,
+    /// SIP listens on a wildcard address and no address to advertise is set: each call uses
+    /// the local address towards its peer (ADR-071); the web interface asks to set one.
+    pub advertised_missing: bool,
 }
 
 /// Where `GET /status` gets the service's state from (`sip-faxd` connects its control hub).

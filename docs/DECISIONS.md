@@ -577,3 +577,9 @@ M5c／M5d 測試報告 §5 留下的設計問題，在接上 RTP 之前於 `fax-
 - **增量查詢**：`GET /api/v1/faxes/changes?after=<cursor>&limit=`，依 `(updated_at, id)` 由舊到新，回傳 `next` cursor；同事每隔一段時間帶上一次的 cursor 呼叫，就能拿到新進與有變動的傳真（接收中、完成、已讀、備註）。只回傳 `updated_at` 早於現在 2 秒的列，避免與正在寫入的交易競態而漏掉；第一次可用 `since=<RFC 3339>` 從某個時間開始。
 - **資料庫 view `fax_records`**（migration 0004，四種 DB）：對外只承諾這個 view 的欄位（不含檔案路徑），之後的版本只增加欄位、不改名、不刪除；內部的 `faxes` 表可以照常改。另加 `faxes (updated_at, id)` 索引供增量查詢。文件附四種 DB 建立「只能讀這個 view」帳號的 SQL。檔案與縮圖一律走 API（路徑只在伺服器本機有效）。
 - **文件與範例**：`docs/integration.md`（繁中）、`docs/openapi.yaml`（OpenAPI 3.1，服務也在 `/api/v1/openapi.yaml` 提供，不需登入）、`examples/java`（JDK 17 以上，只用內建 `HttpClient`，單檔可直接 `java FaxClient.java` 執行；JDBC 讀 view 的範例）、`examples/node`（Node 18 以上，只用內建 `fetch`）。自簽憑證約兩年更新一次、指紋會變，串接時建議在 `[web]` 設定公司自己的憑證；文件說明 Java 匯入 truststore、Node 用 `NODE_EXTRA_CA_CERTS`。
+
+## ADR-071：沒有設定對外位址時，改用連往對方的本機位址（2026-10-27，AudioCodes 試接）
+- **現場問題**：v0.6.0 對接 AudioCodes Mediant 1000（INVITE 一開始就帶 T.38）。SIP 監聽 `0.0.0.0:7080`、沒有設定 `[sip] advertised` 與 `[media] address`，於是 200 OK 的 `Contact` 與 SDP 的 `c=` 都是 `0.0.0.0`：gateway 送不出 ACK（我方重送 200 OK）、也不知道 T.38 往哪送（我方收到 0 個 UDPTL 封包），10 秒後以 Q.850 cause 102 掛斷。設定對外位址並重啟後，同一台 gateway 以 V.17 12000 正常送頁面。以前只有 `config check` 與啟動 log 提醒，現場很容易漏掉。
+- **決定**：監聽位址是萬用位址（`0.0.0.0`、`::`）而且兩者都沒設定時，**每個訊息依對方決定位址**：以連往對方的 UDP socket（`connect` 不送封包）取得本機位址（`sip_core::net::local_ip_towards`、`concrete_host`），用在 Contact、我方請求的 Via、INVITE 的 Call-ID、註冊的 Contact，以及 SDP 的 `c=`／`o=`（`MediaCtx::for_peer`）。有設定時一律照設定，行為不變。
+- **限制**：在 NAT 後方（對方看到的是公網位址）或多張網卡而路由與實際不同時，自動選到的位址可能不對，所以仍建議填寫；Web 介面在沒有設定時對管理員顯示提醒（`/status` 的 `advertised_missing`），`config check` 的警告也改寫為說明這個行為。
+

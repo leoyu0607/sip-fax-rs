@@ -862,11 +862,8 @@ impl FaxInConfig {
                 _ => "no [[trunks]] defined: every inbound call will be dropped or rejected".to_string(),
             });
         }
-        if self.sip.bind.ip().is_unspecified()
-            && self.sip.advertised.is_none()
-            && self.media.address.is_none()
-        {
-            w.push("[sip] bind is a wildcard address and neither [sip] advertised nor [media] address is set: our SDP and Contact will contain the wildcard address; set `advertised`".to_string());
+        if self.advertises_wildcard() {
+            w.push("[sip] bind is a wildcard address and neither [sip] advertised nor [media] address is set: every call uses the local address towards its peer, which is wrong behind NAT or with several networks; set `advertised`".to_string());
         }
         for t in &self.trunks {
             if t.compat.accept_unknown_require {
@@ -895,6 +892,14 @@ impl FaxInConfig {
             v.push(TransportName::Udp);
         }
         dedup(v)
+    }
+
+    /// SIP listens on a wildcard address and neither `[sip] advertised` nor `[media] address`
+    /// is set: each call then uses the local address towards its peer (ADR-071).
+    pub fn advertises_wildcard(&self) -> bool {
+        self.sip.bind.ip().is_unspecified()
+            && self.sip.advertised.is_none()
+            && self.media.address.is_none()
     }
 
     /// Host part used for SDP `c=` / `o=`.

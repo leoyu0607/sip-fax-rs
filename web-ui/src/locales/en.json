@@ -261,7 +261,9 @@
   "setup": {
     "no_trunk_admin": "No trunk is configured: every call is refused.",
     "go_trunks": "Go to Settings → Trunks",
-    "no_trunk_agent": "No line is configured yet, faxes cannot be received: contact your administrator."
+    "no_trunk_agent": "No line is configured yet, faxes cannot be received: contact your administrator.",
+    "advertised_missing": "The SIP \"advertised address\" is not set: every call now uses the local address towards its peer. Behind NAT or with several networks this can be wrong; set it and restart.",
+    "go_sip": "Go to Settings → SIP"
   },
   "status": {
     "title": "Status",

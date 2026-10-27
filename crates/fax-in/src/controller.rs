@@ -605,8 +605,11 @@ fn registration_config(t: &Trunk, endpoint: &Endpoint) -> Option<RegistrationCon
         None => SipUri::parse(&format!("sip:{user}@{host}")).ok()?,
     };
     let kind = t.cfg.transport.kind();
-    let (chost, cport) = endpoint.transactions().transport().sent_by(kind);
-    let mut contact = SipUri::new(sip_core::net::uri_host(chost));
+    let (chost, cport) = endpoint
+        .transactions()
+        .transport()
+        .sent_by_to(kind, registrar);
+    let mut contact = SipUri::new(sip_core::net::uri_host(&chost));
     contact.user = Some(user.clone());
     contact.port = Some(cport);
     if kind == TransportKind::Tcp {
@@ -851,7 +854,7 @@ async fn drive(
         let _ = call.reject(StatusCode::SERVICE_UNAVAILABLE).await;
         return failed(FailureReason::NoMediaPort);
     };
-    let mut media_ctx = sh.media.with_t38_port(lease.port());
+    let mut media_ctx = sh.media.with_t38_port(lease.port()).for_peer(source);
     // RTP, when the server receives faxes over G.711, uses the odd port right after the call's
     // (even) UDPTL port: the pool never hands it out, so one lease covers both.
     let rtp_port = sh.audio.then(|| lease.port().saturating_add(1));

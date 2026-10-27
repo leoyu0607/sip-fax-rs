@@ -262,6 +262,7 @@ mod tests {
             listen: vec![],
             active_calls: 0,
             trunks: vec![],
+            advertised_missing: false,
         })));
         let bus = Arc::new(EventBus::new());
         let (mut rx, _, _) = bus.attach(None);
