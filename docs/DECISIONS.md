@@ -586,7 +586,7 @@ M5c／M5d 測試報告 §5 留下的設計問題，在接上 RTP 之前於 `fax-
 ## ADR-072：測試程式碼與產品原始檔分開（2026-10-27，使用者決定）
 - **起因**：送 Fortify 源碼掃描時，30 個 Critical「寫死的密碼」全部是單元測試裡的範例連線字串（例如 `mssql://sa:p@db/fax`），位置在產品原始檔內的 `#[cfg(test)] mod tests { ... }`。測試和產品程式碼在同一個檔案，掃描時無法以檔案排除。
 - **決定**：測試程式碼一律放在獨立檔案。`foo.rs` 的單元測試在 `foo/tests.rs`，原檔只留 `#[cfg(test)] mod tests;`；`lib.rs`、`main.rs`、`mod.rs` 的放在同目錄的 `tests.rs`；同一檔案有多個測試模組時各自一個檔案（`*_tests.rs`）；測試輔助與測試用發送端是 `testutil.rs`、`testtx.rs`；整合測試照舊在 crate 的 `tests/`。測試模組仍是原模組的子模組，能存取私有項目，行為不變。
-- **一次搬移**：71 個產品原始檔的 76 個測試模組（含 `settings.rs` 的三個、`template.rs` 的 `testutil`、`v27ter.rs`／`v29.rs` 的 `testtx`）搬到獨立檔案；搬移前後 `cargo test --workspace --all-targets -- --list` 的 1294 個測試名稱完全相同。仍留在產品檔內的只有少數 `#[cfg(test)]` 的單一欄位或函式（例如 V.27ter／V.29 收端的除錯追蹤、`Preview::in_flight`），不含任何測試資料。
+- **一次搬移**：69 個產品原始檔的 74 個測試模組（另有 2 個原本就是獨立檔案）（含 `settings.rs` 的三個、`template.rs` 的 `testutil`、`v27ter.rs`／`v29.rs` 的 `testtx`）搬到獨立檔案；搬移前後 `cargo test --workspace --all-targets -- --list` 的 1294 個測試名稱完全相同。仍留在產品檔內的只有少數 `#[cfg(test)]` 的單一欄位或函式（例如 V.27ter／V.29 收端的除錯追蹤、`Preview::in_flight`），不含任何測試資料。
 - **防止回退**：`scripts/check-test-layout.sh` 在 CI 的 lint job 與 `ci-local.sh` 執行，產品原始檔中出現以 `test` 為條件的 `mod X { ... }` 就失敗。
 - **源碼掃描包**：排除 `**/tests.rs`、`**/*_tests.rs`、`**/testutil.rs`、`**/testtx.rs`、`crates/*/tests/`、`apps/*/tests/`、`crates/store/src/tests/` 即可去掉全部測試程式碼。
 
