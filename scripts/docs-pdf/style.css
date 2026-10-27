@@ -1,0 +1,112 @@
+/* Print style of the PDF manuals (scripts/docs-pdf.sh). */
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm 16mm;
+}
+html {
+  font-family: "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", "PingFang TC", sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.6;
+  color: #1f2328;
+}
+body {
+  margin: 0;
+}
+header#title-block-header {
+  border-bottom: 2px solid #1f6feb;
+  margin-bottom: 1.2em;
+  padding-bottom: 0.6em;
+}
+h1.title {
+  font-size: 22pt;
+  margin: 0 0 0.2em;
+}
+p.subtitle,
+p.date {
+  margin: 0.1em 0;
+  color: #57606a;
+}
+nav#TOC {
+  page-break-after: always;
+}
+nav#TOC > ul {
+  padding-left: 1.2em;
+}
+nav#TOC a {
+  color: inherit;
+  text-decoration: none;
+}
+h1,
+h2,
+h3 {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+h2 {
+  font-size: 15pt;
+  border-bottom: 1px solid #d0d7de;
+  padding-bottom: 0.2em;
+  margin-top: 1.6em;
+}
+h3 {
+  font-size: 12.5pt;
+  margin-top: 1.3em;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 9.5pt;
+  page-break-inside: auto;
+}
+tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+th,
+td {
+  border: 1px solid #d0d7de;
+  padding: 0.3em 0.5em;
+  vertical-align: top;
+  text-align: left;
+}
+th {
+  background: #f6f8fa;
+}
+code {
+  font-family: Consolas, "Cascadia Mono", "Noto Sans Mono CJK TC", monospace;
+  font-size: 9pt;
+  background: #f6f8fa;
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+pre {
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  padding: 0.6em 0.8em;
+  white-space: pre-wrap;
+  word-break: break-all;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+pre code {
+  background: none;
+  padding: 0;
+}
+img {
+  max-width: 100%;
+  border: 1px solid #d0d7de;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+a {
+  color: #0969da;
+}
+blockquote {
+  margin: 0.8em 0;
+  padding: 0.2em 1em;
+  border-left: 4px solid #d0d7de;
+  color: #57606a;
+}

@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*"]
 exclude = ["tools", "crates/sip-core/fuzz", "crates/t38/fuzz", "crates/t4/fuzz", "crates/t30/fuzz", "crates/fax-in/fuzz", "crates/fax-modem/fuzz"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.94"

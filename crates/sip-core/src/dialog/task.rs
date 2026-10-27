@@ -450,7 +450,7 @@ impl DialogTask {
         self.ep
             .layer
             .transport()
-            .stamp_request(&mut req, built.hop.transport);
+            .stamp_request(&mut req, built.hop.transport, dest);
         self.send_to(req.clone(), dest, built.hop.transport).await;
         if self.acks.len() >= 8
             && let Some(oldest) = self.acks.keys().min().copied()

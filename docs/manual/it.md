@@ -1,6 +1,6 @@
 # sip-fax IT 安裝維運手冊
 
-適用版本：v0.6.0-alpha
+適用版本：v0.6.1-alpha
 
 sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳真來電以 SIP 送進來，sip-fax 以 T.38 接收，存成 TIFF 與 PDF、寫入資料庫，並可投遞到資料夾、Email 或 Webhook。座席人員以 Web 介面查看。這份手冊給負責安裝與維運的人員；座席的操作請見《座席使用手冊》（`agent.md`）。
 
@@ -19,8 +19,8 @@ sip-fax 是收傳真用的 SIP 伺服器：VoIP gateway 或電信交換機把傳
 ## 2. 安裝
 
 ```sh
-tar xzf sip-fax-rs-0.6.0-linux-x86_64.tar.gz -C /opt
-mv /opt/sip-fax-rs-0.6.0-linux-x86_64 /opt/sip-fax
+tar xzf sip-fax-rs-0.6.1-linux-x86_64.tar.gz -C /opt
+mv /opt/sip-fax-rs-0.6.1-linux-x86_64 /opt/sip-fax
 cd /opt/sip-fax
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 useradd --system --home /opt/sip-fax --shell /sbin/nologin sipfax
@@ -76,7 +76,7 @@ setcap 'cap_net_bind_service=+ep' ./sip-faxd     # 非 root 也能監聽 5060
    ```
 
 2. 啟動（第 6 節），以 `admin` 與 `conf/initial-admin-password` 的密碼登入 Web 介面（第 4 節）。
-3. 「設定 → SIP」：**對外位址**填 `<本機對 gateway 的 IP>:5060`（寫進 Via、Contact、SDP，一定要正確）。
+3. 「設定 → SIP」：**對外位址**填 `<本機對 gateway 的 IP>:5060`（寫進 Via、Contact、SDP，一定要正確）。沒有填時，sip-faxd 每通電話自動使用連往對方的本機位址，並在 Web 上方提醒；在 NAT 後方或有多張網卡時自動選的可能不對，所以仍請填寫。
 4. 「設定 → 中繼」新增中繼：名稱、預設組合（一般 gateway 用 `generic`，中華電信 CS210 用 `cht-cs210`）、對端位址 `<gateway 的 IP>:5060`；有多個來源 IP 時填「允許的來源 IP／CIDR」（預設只允許對端位址的 IP）。
 5. 「設定 → 媒體」：T.38 埠範圍（預設 `30000-30999`，每通電話一個偶數埠）。
 

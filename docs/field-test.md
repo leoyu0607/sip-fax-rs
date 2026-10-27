@@ -1,6 +1,12 @@
-# 現場試接指南（v0.6.0-alpha）
+# 現場試接指南（v0.6.1-alpha）
 
 這一版的目的有兩個：**實際對接中華電信 CS210 收傳真**，以及**取得 CS210 的真實擷取資料**。
+
+0.6.1 的修正：
+- **沒有設定「對外位址」時也能接通**：以前 SIP 監聽 `0.0.0.0` 又沒填對外位址時，回應中的位址是 `0.0.0.0`，gateway 無法回應、也送不出 T.38，10 秒後掛斷（AudioCodes 試接時發生）。現在會自動使用連往對方的本機位址，Web 上方也會提醒管理員設定。**仍請在「設定 → SIP」填寫對外位址**（第 2 節）。
+- 手冊有 PDF 版：壓縮檔內 `docs/` 之外，原始碼的 `docs/pdf/` 有串接指南、座席使用手冊、IT 安裝維運手冊。
+
+**從 0.6.0 升級**：停止舊版，把新版解壓到新目錄，再把舊目錄的 `conf/sip-faxd.toml`、`conf/secret.key`、`data/` 複製過去後啟動。資料表沒有變更。
 
 0.6.0 新增的功能（M6a）：
 - **給其他系統的串接介面**：管理員在 Web「API 金鑰」頁（或 `./sip-faxd apikey create`）建立金鑰，其他系統的程式就能以 API 讀取傳真、下載 PDF／TIFF 與每頁縮圖，或查詢資料庫 view `fax_records`。說明在壓縮檔內的 `docs/integration.md`，範例在 `examples/`。這次試接不需要用到。
@@ -47,8 +53,8 @@
 
 ## 1. 安裝（RHEL 9/10，不需要安裝任何套件）
 ```sh
-tar xzf sip-fax-rs-0.6.0-linux-x86_64.tar.gz
-cd sip-fax-rs-0.6.0-linux-x86_64
+tar xzf sip-fax-rs-0.6.1-linux-x86_64.tar.gz
+cd sip-fax-rs-0.6.1-linux-x86_64
 cp conf/sip-faxd.toml.example conf/sip-faxd.toml
 chown -R <執行服務的帳號>: .     # 解壓後的擁有者是 root，改成實際要執行服務的帳號
 ```

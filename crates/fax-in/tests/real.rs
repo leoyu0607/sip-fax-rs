@@ -830,3 +830,56 @@ async fn m2d_a_hangup_before_the_fax_is_complete_is_a_failed_call() {
         other => panic!("{other:?}"),
     }
 }
+
+/// ADR-071 (field test 2026-10-27: an AudioCodes gateway got `Contact: <sip:0.0.0.0:...>` and
+/// `c=IN IP4 0.0.0.0`, could not ACK nor send T.38, and hung up after 10 s): listening on a
+/// wildcard address with nothing advertised, every message of a call carries the local
+/// address towards the peer instead of the wildcard.
+#[tokio::test]
+async fn a_wildcard_bind_without_advertised_answers_with_the_address_towards_the_peer() {
+    let cfg = FaxInConfig::parse(
+        "[sip]\nbind = \"0.0.0.0:0\"\n[capture]\nenabled = false\n\
+         [[trunks]]\nname = \"local\"\nallowed_sources = [\"127.0.0.0/8\"]\n",
+    )
+    .unwrap();
+    assert!(cfg.advertises_wildcard());
+    assert!(
+        cfg.warnings()
+            .iter()
+            .any(|w| w.contains("local address towards its peer")),
+        "{:?}",
+        cfg.warnings()
+    );
+    let (fx, _ev) = start(cfg).await;
+    let port = fx.udp_addr().unwrap().port();
+    let to: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let local = s.local_addr().unwrap();
+    let text = format!(
+        "INVITE sip:fax@{to} SIP/2.0\r\nVia: SIP/2.0/UDP {local};branch=z9hG4bKwild1\r\n\
+         Max-Forwards: 70\r\nFrom: <sip:gw@127.0.0.1>;tag=g1\r\nTo: <sip:fax@{to}>\r\n\
+         Call-ID: wildcard-1\r\nCSeq: 1 INVITE\r\nContact: <sip:gw@{local}>\r\n\
+         Content-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{T38_SDP}",
+        T38_SDP.len()
+    );
+    s.send_to(text.as_bytes(), to).await.unwrap();
+    let mut ok = None;
+    let mut seen = Vec::new();
+    while let Some(r) = recv_text(&s, 3000).await {
+        seen.push(r.clone());
+        if r.starts_with("SIP/2.0 200") {
+            ok = Some(r);
+            break;
+        }
+    }
+    let ok = ok.unwrap_or_else(|| panic!("no 200 OK: {seen:?}"));
+    for r in &seen {
+        assert!(!r.contains("0.0.0.0"), "a wildcard address went out:\n{r}");
+    }
+    assert!(
+        ok.contains(&format!("Contact: <sip:127.0.0.1:{port}>")),
+        "{ok}"
+    );
+    assert!(ok.contains("c=IN IP4 127.0.0.1"), "{ok}");
+    fx.shutdown().await;
+}

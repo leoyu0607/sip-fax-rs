@@ -204,7 +204,7 @@
 - [x] [Any] `CHANGELOG.md` 補上 M4a（設定存 DB、帳號、`config`／`user`／`fax` CLI）與 TUI，中英兩段（v0.3.0-alpha）
 - [x] [Opus] 座席使用手冊 `docs/manual/agent.md`（2026-10-22，v0.3.0-alpha；Web 為主，附 TUI 按鍵）
 - [x] [Opus] IT 安裝維運手冊 `docs/manual/it.md`（2026-10-22，v0.3.0-alpha：安裝、設定、gateway、資料庫、Web 與憑證、防火牆、systemd、log、帳號、投遞、清整、備份還原、升級、疑難排解）
-- [ ] [Any] release 時把兩份手冊轉成 PDF；正式 release 的 PDF 要含截圖
+- [x] [Any] release 時把兩份手冊轉成 PDF；正式 release 的 PDF 要含截圖（2026-10-27：`scripts/docs-pdf.sh`（pandoc＋Playwright Chromium）產生 `docs/pdf/` 的串接指南、座席使用手冊、IT 安裝維運手冊，含截圖與目錄；每次發版截圖更新後重跑）
   - 截圖已可自動產生：`scripts/e2e-web.sh --config playwright.shots.config.ts`（`web-ui/e2e/manual.shots.ts`，Docker 裡真的 sip-faxd 與 SpanDSP 傳真），輸出到 `docs/manual/images/`；介面改了就重跑
 
 ## M5 — G.711 passthrough
@@ -276,6 +276,9 @@
 - [x] [Any] 發佈 v0.5.0-alpha（M5，2026-10-27）：版本 0.5.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP（M5 ✅、發佈紀錄）、field-test（G.711、防火牆奇數埠、從 0.4.1 升級）、兩份手冊的適用版本、`runtime.toml.example` 的 G.711 說明；`m5` 以 merge commit 合進 main 後在 main 打 tag
 
 ## M6 — 互通強化與發佈
+- [x] [Any] 測試與產品原始檔分開（ADR-072，2026-10-27，Fortify 掃描後使用者決定）：74 個寫在產品檔內的測試模組（69 個檔案）搬到獨立檔案，1294 個測試名稱不變；`scripts/check-test-layout.sh` 進 CI lint；CLAUDE.md 加規則
+- [x] [Any] AudioCodes 試接（2026-10-27，v0.6.0）：前 4 通失敗，原因是沒有設定對外位址，200 OK 的 Contact 與 SDP 都是 `0.0.0.0`（gateway 無法 ACK、送不出 T.38，10 秒後 cause 102 掛斷）；設定後第 5 通以 V.17 12000 正常收頁面。程式改為沒有設定時自動使用連往對方的本機位址（ADR-071，分支 `advertise`），Web 對管理員顯示提醒。測試：`crates/fax-in/tests/real.rs` 的 `a_wildcard_bind_without_advertised_...`、`sip_core::net` 單元測試。待：使用者回傳第 5 通完成後的 `result.json`（頁數、壞行）
+- [x] [Any] 發佈 v0.6.1-alpha（2026-10-27）：ADR-071 的對外位址修正、PDF 手冊、ADR-072 的測試分離；版本 0.6.1（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP、field-test（0.6.1 與從 0.6.0 升級）、手冊適用版本、重產 PDF；`advertise` 以 merge commit 合進 main 後在 main 打 tag
 - [x] [Any] 發佈 v0.6.0-alpha（M6a，2026-10-27）：版本 0.6.0（Cargo、tools、web-ui）、CHANGELOG 中英、README 狀態、ROADMAP 發佈紀錄、field-test（0.6.0 與從 0.5.0 升級）、兩份手冊的適用版本；`m6a` 以 merge commit 合進 main 後在 main 打 tag
 - [x] [Any] M6a 串接介面（ADR-070，2026-10-27 使用者提出：同事的 Java／Node.js 程式從別台讀傳真狀態、取檔與縮圖）：API 金鑰（權限逐把選擇 `fax:read`／`fax:write`）、`GET /faxes/changes` 增量查詢、view `fax_records`（migration 0004）、`docs/integration.md`、`docs/openapi.yaml`、`examples/java`、`examples/node`；完成後發 v0.6.0-alpha（使用者決定一次做完）
   - [x] ADR-070、測試計畫 `docs/test-plans/M6a.md`（分支 `m6a`）

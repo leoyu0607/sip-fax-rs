@@ -261,7 +261,9 @@
   "setup": {
     "no_trunk_admin": "尚未設定中繼（trunk）：所有來電都會被拒絕。",
     "go_trunks": "前往 設定 → 中繼",
-    "no_trunk_agent": "尚未設定電話線路，無法接收傳真，請聯絡管理員。"
+    "no_trunk_agent": "尚未設定電話線路，無法接收傳真，請聯絡管理員。",
+    "advertised_missing": "SIP 的「對外位址」沒有設定：目前每通電話自動使用連往對方的本機位址。sip-faxd 在 NAT 後方或有多張網卡時可能選錯，請填寫後重啟。",
+    "go_sip": "前往 設定 → SIP"
   },
   "status": {
     "title": "系統狀態",

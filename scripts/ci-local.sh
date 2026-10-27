@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 # t4 oracle tests need libtiff/poppler; they run for real inside Docker (scripts/e2e-docker.sh).
 export T4_ORACLE=skip
 cargo fmt --all --check
+scripts/check-test-layout.sh
 cargo clippy --workspace --all-targets -- -D warnings
 if command -v cargo-deny >/dev/null; then cargo deny check; else echo "warn: cargo-deny not installed, skipping"; fi
 cargo test --workspace --all-targets

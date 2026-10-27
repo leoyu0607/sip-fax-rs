@@ -232,10 +232,19 @@ impl TransportHandle {
         (h.as_str(), *p)
     }
 
-    /// Stamps the topmost Via transport and sent-by (RFC 3261 18.1.1). Idempotent.
-    pub fn stamp_request(&self, req: &mut Request, kind: TransportKind) {
+    /// The sent-by for a message to `peer`: as [`TransportHandle::sent_by`], except that a
+    /// wildcard bind address with nothing advertised becomes the local address towards `peer`
+    /// (a peer cannot answer to `0.0.0.0`).
+    pub fn sent_by_to(&self, kind: TransportKind, peer: SocketAddr) -> (String, u16) {
         let (host, port) = self.sent_by(kind);
-        route::stamp_outbound_via(req, kind, host, port);
+        (crate::net::concrete_host(host, peer), port)
+    }
+
+    /// Stamps the topmost Via transport and sent-by (RFC 3261 18.1.1) of a request to `dest`.
+    /// Idempotent.
+    pub fn stamp_request(&self, req: &mut Request, kind: TransportKind, dest: SocketAddr) {
+        let (host, port) = self.sent_by_to(kind, dest);
+        route::stamp_outbound_via(req, kind, &host, port);
     }
 
     /// Sends a request to `dest`, stamping the topmost Via first.
@@ -245,7 +254,7 @@ impl TransportHandle {
         dest: SocketAddr,
         kind: TransportKind,
     ) -> Result<(), TransportError> {
-        self.stamp_request(&mut req, kind);
+        self.stamp_request(&mut req, kind, dest);
         self.out
             .send(Outgoing::Request {
                 req,

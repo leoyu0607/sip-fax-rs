@@ -65,6 +65,7 @@ pub fn service_status() -> ServiceStatus {
             name: "gw".into(),
             registration: "none".into(),
         }],
+        advertised_missing: false,
     }
 }
 

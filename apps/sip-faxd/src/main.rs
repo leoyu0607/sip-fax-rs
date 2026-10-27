@@ -604,6 +604,7 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         tracing::warn!("{}", commands::NO_TRUNK);
     }
     let fax_cfg = live.to_fax_in(&cfg.fax_in.storage);
+    let advertised_missing = fax_cfg.advertises_wildcard();
     for w in fax_cfg
         .warnings()
         .into_iter()
@@ -681,6 +682,7 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
         hub.clone(),
         web_events,
         db.clone(),
+        advertised_missing,
     )
     .await
     {
@@ -820,12 +822,4 @@ async fn run(cfg: AppConfig, daemonized: bool) -> ExitCode {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::CommandFactory;
-
-    #[test]
-    fn cli_definition_is_valid() {
-        Cli::command().debug_assert();
-    }
-}
+mod tests;

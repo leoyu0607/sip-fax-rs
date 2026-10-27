@@ -59,50 +59,30 @@ pub fn unspecified_for(target: &SocketAddr) -> &'static str {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The local address the system would use to reach `peer` (a connected UDP socket, nothing is
+/// sent); `None` when there is no route. Added for sip-fax-rs (not from Sipress): the address to
+/// advertise when the socket is bound to a wildcard address.
+pub fn local_ip_towards(peer: SocketAddr) -> Option<IpAddr> {
+    let s = std::net::UdpSocket::bind(unspecified_for(&peer)).ok()?;
+    s.connect(peer).ok()?;
+    let ip = s.local_addr().ok()?.ip();
+    (!ip.is_unspecified()).then_some(ip)
+}
 
-    #[test]
-    fn host_handles_ipv4_ipv6_and_names() {
-        assert_eq!(host("10.0.0.1:5060"), "10.0.0.1");
-        assert_eq!(host("10.0.0.1"), "10.0.0.1");
-        assert_eq!(host("[2001:db8::1]:5060"), "2001:db8::1");
-        assert_eq!(host("[2001:db8::1]"), "2001:db8::1");
-        assert_eq!(
-            host("2001:db8::1"),
-            "2001:db8::1",
-            "沒有中括號的 IPv6 不可被截斷"
-        );
-        assert_eq!(host("::1"), "::1");
-        assert_eq!(host("pbx.example:5060"), "pbx.example");
-        assert_eq!(host("pbx.example"), "pbx.example");
-    }
-
-    #[test]
-    fn uri_host_brackets_ipv6_only() {
-        assert_eq!(uri_host("[2001:db8::1]:5070"), "[2001:db8::1]");
-        assert_eq!(uri_host("2001:db8::1"), "[2001:db8::1]");
-        assert_eq!(uri_host("10.0.0.1:5070"), "10.0.0.1");
-        assert_eq!(uri_host("pbx.example"), "pbx.example");
-    }
-
-    #[test]
-    fn join_brackets_ipv6() {
-        assert_eq!(join("10.0.0.1", 16000), "10.0.0.1:16000");
-        assert_eq!(join("2001:db8::1", 16000), "[2001:db8::1]:16000");
-        assert_eq!(join("[2001:db8::1]", 16000), "[2001:db8::1]:16000");
-        assert!(join("::1", 5060).parse::<SocketAddr>().is_ok());
-    }
-
-    #[test]
-    fn detects_ipv6_and_picks_bind_family() {
-        assert!(is_ipv6("::1") && is_ipv6("[2001:db8::1]"));
-        assert!(!is_ipv6("10.0.0.1") && !is_ipv6("pbx.example"));
-        assert_eq!(unspecified_for(&"[::1]:5060".parse().unwrap()), "[::]:0");
-        assert_eq!(
-            unspecified_for(&"10.0.0.1:5060".parse().unwrap()),
-            "0.0.0.0:0"
-        );
+/// `host` as it may be written into a message for `peer`: a wildcard IP (`0.0.0.0`, `::`)
+/// becomes the local address towards `peer`; anything else, or no route, stays as it is.
+pub fn concrete_host(host: &str, peer: SocketAddr) -> String {
+    match host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    {
+        Ok(ip) if ip.is_unspecified() => {
+            local_ip_towards(peer).map_or_else(|| host.to_string(), |l| l.to_string())
+        }
+        _ => host.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests;
